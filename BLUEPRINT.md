@@ -151,11 +151,15 @@ links/portals are secret. The Public portal is `noindex` (unlisted, not hidden b
 - Identity/calling verification.
 - WordPress / any CMS.
 
-## 13. Open micro-decisions (settle during data-model)
+## 13. Micro-decisions (resolved during the data-model pass — see SCHEMA.md)
 
-1. Task: assignee field? per-space vs per-portal?
-2. Callings-chart default template (ship a standard LDS org/calling set; superadmins edit).
-3. Any transactional emails beyond invite + approval/denial?
+1. Tasks: per-space (= per-portal, they're 1:1), optional assignee. ✔
+2. Callings chart: free-text titles + a standard LDS org set shipped as seed data. ✔
+3. Transactional email: invites + workspace approved/denied only. ✔
+4. Tracker visibility: per-implementation `visibility_space_id` — some entries Bishopric-only,
+   others Ward Council or ward-wide; not blanket ward-visible. ✔
+5. Duplicate-unit "request to join" flow: modeled as `workspace_requests.kind='join'`, reviewed
+   by that ward's superadmins. ✔
 
 ---
 
