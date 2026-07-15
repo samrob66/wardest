@@ -34,7 +34,10 @@ erDiagram
   spaces ||--o{ tasks : has
   wards ||--o{ implementations : tracks
   spaces |o--o{ implementations : "implemented by (org-level)"
-  spaces |o--o{ implementations : "visibility scope"
+  implementations ||--o{ implementation_visibility : "granted to"
+  spaces ||--o{ implementation_visibility : "audience"
+  spaces ||--o{ space_shares : "shared (read-only)"
+  spaces ||--o{ space_shares : "shared with"
   solutions ||--o{ implementations : "tracked as"
   implementations |o--o{ deliverables : produces
   wards ||--o{ deliverables : owns
@@ -60,9 +63,11 @@ erDiagram
 | `ward_memberships` | user↔ward + ward role (`superadmin`/`member`) |
 | `spaces` | An audience (Public/Bishopric/Ward Council/org); the app-wide visibility primitive; also the portal (1:1); `archived` hides unused defaults |
 | `space_memberships` | user↔space + space role (`owner`/`member`) |
+| `space_shares` | Whole-space read-only sharing: members of another space may view this space's portal + contents |
 | `portal_blocks` | Rich-text blocks on a portal |
 | `tasks` | Lightweight self-archiving task list per space (optional assignee) |
-| `implementations` | A ward's record of working a solution; per-entry visibility scope |
+| `implementations` | A ward's record of working a solution; `visibility` = `ward` or `restricted` |
+| `implementation_visibility` | Multi-valued audience grants for `restricted` tracker entries |
 | `deliverables` | The output (url/file/image); tied to an implementation or ad-hoc; 1 implementation : N deliverables |
 | `deliverable_spaces` | Publishing layer: which spaces show a deliverable + portal inclusion/order |
 | `short_links` | go4.cc slugs → destinations (D1 = source of truth; KV mirror for redirects); `target_*` is the only linkage — no back-references |
@@ -72,8 +77,12 @@ erDiagram
 
 1. **Row-level tenancy, one database.** No per-ward DBs. `ward_id` everywhere ward-scoped.
 2. **Spaces are the single visibility primitive.** Deliverable visibility = which spaces it's
-   published into (`deliverable_spaces`). Tracker visibility = `implementations.visibility_space_id`
-   (NULL = all ward members; set = only that space's members). No parallel permission systems.
+   published into (`deliverable_spaces`). Tracker visibility = `implementations.visibility`
+   (`ward` = all ward members) plus multi-valued grants (`implementation_visibility`) for
+   `restricted` entries. Whole-space read-only sharing = `space_shares` (e.g. Activities
+   Committee shares its portal with Ward Council and Bishopric). No parallel permission systems;
+   shares and grants only ever *widen* from fail-closed defaults, and neither chains
+   transitively.
 3. **Ownership vs. visibility split.** `created_by_user_id` on deliverables/tasks encodes the
    "only the creator edits/deletes" rule (app-enforced); space membership encodes visibility.
 4. **Implementations are ward-scoped with an optional implementing space.** `space_id` NULL =
@@ -103,11 +112,22 @@ shelving; audiences come from spaces.
 
 **#3 — Tasks → confirmed.** Per-space grain (spaces:portals are 1:1), optional `assignee_user_id`.
 
-**#4 — Tracker visibility → per-entry, via `visibility_space_id`.** Owner ruling: NOT blanket
+**#4 — Tracker visibility → per-entry, multi-valued.** Owner ruling (two rounds): NOT blanket
 ward-wide — some Bishopric implementations must be Bishopric-only, others visible to Ward Council
-or everyone. NULL = all ward members; set = that space's members only. `ON DELETE RESTRICT` so a
-visibility-scoping space can't be deleted out from under private entries (archive it instead).
-App defaults: `per_space` → implementing space; `ward_singleton` → ward-wide; owner can change.
+or everyone — and a single visibility space is not enough (an entry may be shared with several
+audiences at once). Model: `implementations.visibility` (`ward` | `restricted`, fail-closed
+default `restricted`) + `implementation_visibility` grant rows. A `restricted` entry is visible to
+its owner, its implementing space (members + `space_shares` viewers), and each granted space's
+direct members. Deleting a grant/share only narrows visibility, so CASCADE deletes are safe
+(the earlier single-column RESTRICT rationale no longer applies). App defaults: `per_space` →
+`restricted`; `ward_singleton` → `ward`; owner can change.
+
+**Owner addition — whole-space sharing (`space_shares`).** A space's owners can share the space
+read-only with other spaces (Activities Committee → Ward Council, Bishopric). Viewers see the
+portal + its contents but edit nothing. Not transitive; does not chain through grants.
+
+**Owner addition — new categories/default spaces:** Activities Committee and Ward Mission join
+the catalog category enum and the default space set.
 
 **#5 — Sessions → stateless** (decision 8). Revisit only if "log out everywhere" is needed.
 
@@ -128,6 +148,15 @@ circular FK; `short_links.target_*` is the single direction).
 ## App-layer rules the schema can't express (enforce in code)
 
 - Only the creator edits/deletes their deliverables/tasks (decision 3).
+- Visibility resolution (the canonical check — implement once, in one place):
+  - `canViewSpaceContent(u, s)` = member of `s`, OR `s.kind='public'`, OR member of any space
+    `s` is shared with via `space_shares`.
+  - `canViewImplementation(u, i)` = if `i.visibility='ward'` → any member of `i.ward_id`;
+    else → `u` is `i.owner_user_id`, OR (`i.space_id` set AND `canViewSpaceContent(u, i.space_id)`),
+    OR direct member of any space granted in `implementation_visibility`.
+  - No transitive chaining: shares don't extend grants; shares of shares grant nothing.
+  - Superadmins manage spaces (rename/archive/owners) but do NOT bypass content visibility.
+- Only space owners manage that space's `space_shares` and portal content.
 - `implementation_scope` ⇒ `space_id` NULL-ness; `per_space` must reference an `org`-kind space.
 - `workspace_requests`: `ward_name` required when `kind='create'`; `target_ward_id` when `'join'`.
 - Re-invites UPDATE the existing `invites` row (UNIQUE(ward_id, email)).

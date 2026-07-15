@@ -69,7 +69,8 @@ links/portals are secret. The Public portal is `noindex` (unlisted, not hidden b
 
 ## 5. Solutions catalog & tracker
 
-- **Categories = roles:** Executive Secretary, Ward Clerk, Bishopric, Org Presidencies.
+- **Categories = roles:** Executive Secretary, Ward Clerk, Bishopric, Org Presidencies,
+  Activities Committee, Ward Mission.
 - Each solution: collapsible section — optional video on top, how-to content, owner (who implemented /
   will implement), and the outcome/deliverable.
 - **Templates:** Google-based solutions can carry a **"make a copy"** asset (Google's `/copy` URL);
@@ -82,10 +83,15 @@ links/portals are secret. The Public portal is `noindex` (unlisted, not hidden b
 ## 6. Spaces & portals
 
 - Every ward gets a **default set** of spaces (Public, Bishopric, Ward Council, + one per standard org:
-  EQ, RS, YW, YM, Primary, Sunday School) and can **rename / hide / add**.
+  EQ, RS, YW, YM, Primary, Sunday School, Activities Committee, Ward Mission) and can
+  **rename / hide / add**.
 - **No automatic top-down visibility.** A deliverable is *published into* one or more spaces
   (opt-in shared spaces, like channels). The Ward Council space does not expose orgs' individual
   portals; the Bishopric keeps items the Council never sees; etc.
+- **Opt-in sharing widens visibility when wanted:** a space's owners can share the space
+  **read-only** with other spaces (e.g. Activities Committee → Ward Council + Bishopric), and an
+  individual tracker entry can be granted to **multiple** audiences. Sharing only ever widens
+  from fail-closed defaults; never automatic.
 - **Portal content:** included deliverables (card/button layout in the spirit of the existing
   `M44 Link in Bio/index.html`), rich-text blocks (notices, evergreen action items), and the task list.
 - **QR:** every URL deliverable gets an auto-generated **SVG** QR (crisp at any size).
@@ -160,6 +166,10 @@ links/portals are secret. The Public portal is `noindex` (unlisted, not hidden b
    others Ward Council or ward-wide; not blanket ward-visible. ✔
 5. Duplicate-unit "request to join" flow: modeled as `workspace_requests.kind='join'`, reviewed
    by that ward's superadmins. ✔
+6. Multi-audience visibility: tracker entries can be granted to several spaces
+   (`implementation_visibility`), and whole spaces can be shared read-only with other spaces
+   (`space_shares`). ✔
+7. Activities Committee + Ward Mission added as catalog categories and default spaces. ✔
 
 ---
 

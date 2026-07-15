@@ -31,7 +31,8 @@ CREATE TABLE users (
 CREATE TABLE solutions (
   id                    TEXT PRIMARY KEY,
   category              TEXT NOT NULL CHECK (category IN
-                          ('exec_secretary','ward_clerk','bishopric','org_presidencies')),
+                          ('exec_secretary','ward_clerk','bishopric','org_presidencies',
+                           'activities_committee','ward_mission')),
   title                 TEXT NOT NULL,
   slug                  TEXT NOT NULL UNIQUE,
   summary               TEXT,
@@ -138,6 +139,22 @@ CREATE TABLE space_memberships (
 CREATE INDEX idx_space_memberships_user ON space_memberships(user_id);
 CREATE INDEX idx_space_memberships_space ON space_memberships(space_id);
 
+-- Whole-space sharing: members of shared_with_space_id get READ-ONLY access to space_id's
+-- portal and its contents (blocks, tasks, published deliverables, and implementations whose
+-- implementing space is space_id). E.g. Activities Committee shares its space with Ward
+-- Council and/or Bishopric. Managed by the space's owners. NOT transitive (a share of a
+-- share grants nothing). Deleting a row only narrows visibility, so CASCADE is safe.
+CREATE TABLE space_shares (
+  id                   TEXT PRIMARY KEY,
+  ward_id              TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  space_id             TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  shared_with_space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (space_id, shared_with_space_id),
+  CHECK (space_id <> shared_with_space_id)
+);
+CREATE INDEX idx_space_shares_viewer ON space_shares(shared_with_space_id);
+
 -- Rich-text blocks on a portal (notices, evergreen notes). Task list renders separately.
 CREATE TABLE portal_blocks (
   id         TEXT PRIMARY KEY,
@@ -175,18 +192,20 @@ CREATE INDEX idx_tasks_space_archived ON tasks(space_id, archived);
 -- A ward's record of working a solution. Ward-scoped; space_id is NULL for ward-level
 -- ('ward_singleton') solutions and set to the implementing org space for 'per_space' ones.
 --
--- Visibility: visibility_space_id NULL = every ward member sees this tracker entry;
--- set = only that space's members (e.g. Bishopric-only, Ward Council, one org).
--- ON DELETE RESTRICT: fail closed — a space that scopes visibility can't be deleted
--- out from under private entries (archive the space instead).
--- App defaults: per_space -> visibility = implementing space; ward_singleton -> ward-wide;
--- owner can change either.
+-- Visibility: 'ward' = every ward member sees this tracker entry. 'restricted' (fail-closed
+-- default) = visible to the entry's owner, the implementing space's members (incl. read-only
+-- viewers via space_shares), and members of any space granted in implementation_visibility.
+-- Grants are multi-valued: e.g. an Activities Committee entry can be granted to both Ward
+-- Council and Bishopric.
+-- App defaults: per_space -> 'restricted' (implementing space sees it implicitly);
+-- ward_singleton -> 'ward'; owner can change either.
 CREATE TABLE implementations (
   id                  TEXT PRIMARY KEY,
   ward_id             TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
   space_id            TEXT REFERENCES spaces(id) ON DELETE CASCADE,
   solution_id         TEXT NOT NULL REFERENCES solutions(id) ON DELETE CASCADE,
-  visibility_space_id TEXT REFERENCES spaces(id) ON DELETE RESTRICT,
+  visibility          TEXT NOT NULL DEFAULT 'restricted'
+                        CHECK (visibility IN ('ward','restricted')),
   status              TEXT NOT NULL DEFAULT 'not_started'
                         CHECK (status IN ('not_started','in_progress','implemented')),
   owner_user_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -199,6 +218,19 @@ CREATE INDEX idx_implementations_ward ON implementations(ward_id);
 -- One ward-level implementation per (ward, solution); one org-level per (solution, space).
 CREATE UNIQUE INDEX ux_impl_ward  ON implementations(ward_id, solution_id) WHERE space_id IS NULL;
 CREATE UNIQUE INDEX ux_impl_space ON implementations(solution_id, space_id) WHERE space_id IS NOT NULL;
+
+-- Additional audiences for a 'restricted' implementation (multi-valued grants). Grants apply
+-- to the granted space's DIRECT members only (space_shares do not chain through grants).
+-- Deleting a grant only narrows visibility, so CASCADE is safe.
+CREATE TABLE implementation_visibility (
+  id                TEXT PRIMARY KEY,
+  ward_id           TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  implementation_id TEXT NOT NULL REFERENCES implementations(id) ON DELETE CASCADE,
+  space_id          TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (implementation_id, space_id)
+);
+CREATE INDEX idx_impl_visibility_space ON implementation_visibility(space_id);
 
 -- The output artifact. Tied to an implementation, OR standalone ("Add link/URL/QR").
 -- One implementation may produce several deliverables (e.g. URL + printable PDF).

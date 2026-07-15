@@ -2,11 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: greenfield (blueprint complete, no app code yet)
+## Status: strategy complete, execution not started
 
-`BLUEPRINT.md` is the **source of truth** for what Wardest is — read it first. `HANDOFF.md` is the
-original shortener-only spec and is now historical; where it and the blueprint disagree, the blueprint
-wins. This file is the quick operational reference.
+Reading order: `BLUEPRINT.md` (what Wardest is) → `SCHEMA.md` + `db/schema.sql` (data model +
+canonical visibility rules) → `IMPLEMENTATION.md` (the execution playbook: stack decisions,
+engineering rules, phase milestones, owner-task blockers). `HANDOFF.md` is historical; where docs
+disagree, blueprint wins on product, IMPLEMENTATION.md on build order. This file is the quick
+operational reference. The strategy is settled — don't re-open settled decisions.
 
 ## What Wardest is (one line)
 
@@ -42,9 +44,11 @@ otherwise public; short links are inherently public (they exist to be shared).
 ## Repo contents
 
 - `BLUEPRINT.md` — full product spec + phase plan.
+- `SCHEMA.md` + `db/schema.sql` — D1 data model, audit trail, canonical visibility algorithm.
+- `IMPLEMENTATION.md` — execution playbook (stack, rules, milestones, owner blockers).
 - `HANDOFF.md` — historical original spec.
 - `seed/links.json` — the 6 Mapleton 44th Ward links in `wrangler kv bulk put` format (keys lower-cased).
-- Worker code + `wrangler.toml` — to be built (see phase plan).
+- Worker code + `wrangler.toml` — to be built (see IMPLEMENTATION.md Phase 0).
 
 ## Build order (see BLUEPRINT.md §14 for detail)
 
