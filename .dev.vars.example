@@ -1,0 +1,9 @@
+# Copy to `.dev.vars` for local dev (`.dev.vars` is gitignored). In production these are set
+# with `wrangler secret put <NAME>` (secrets) or in wrangler.toml [vars] (APP_URL, OPERATOR_EMAILS).
+SESSION_SECRET=            # long random string; sign/verify session + OAuth cookies
+GOOGLE_CLIENT_ID=          # Google Cloud OAuth web client id (owner task O4)
+GOOGLE_CLIENT_SECRET=      # Google Cloud OAuth web client secret (O4)
+RESEND_API_KEY=            # Resend API key (O5) — used in Phase 1 onboarding invites
+APP_URL=http://localhost:8787
+OPERATOR_EMAILS=you@example.com   # comma-separated operator (super-operator) emails
+DEV_LOGIN=1                # DEV ONLY: enables /auth/dev-login. Do not set in production.

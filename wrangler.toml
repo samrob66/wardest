@@ -2,6 +2,12 @@ name = "wardest"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 
+# Non-secret config. Secrets (SESSION_SECRET, GOOGLE_CLIENT_ID/SECRET, RESEND_API_KEY) are set
+# via `wrangler secret put` (prod) or `.dev.vars` (local). `.dev.vars` overrides these in dev.
+[vars]
+APP_URL = "https://app.wardest.com"
+OPERATOR_EMAILS = ""  # owner task: set to operator Google email(s), comma-separated
+
 # --- D1 (structured data; source of truth) ---
 # Local dev keys storage by database_name and ignores database_id. Owner replaces the
 # placeholder id with the real one after: wrangler d1 create wardest-db  (owner task O3).
