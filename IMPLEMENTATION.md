@@ -124,6 +124,42 @@ crisp PDF at letter AND poster-24x36 (zoom to 400% — text/QR must stay vector-
 `X-Robots-Tag: noindex` present on portal; zero external requests in devtools network tab;
 Workers logs clean.
 
+## 5b. Phase 0 build status — BUILT, local-verified (deploy pending O1/O2/O3)
+
+Milestones 0.1–0.7 complete and verified against **local** D1/KV via `wrangler dev`. 0.8 (deploy)
+is blocked only by owner tasks. Code: `src/` (Hono, one Worker), `db/schema.sql` +
+`db/seed-m44.sql`, `wrangler.toml`, `seed/links.json` (+ `m44` portal key).
+
+Run locally: `npm install` → `npm run db:init:local` → `npm run db:seed:local` →
+`npm run kv:seed:local` → `npm run dev`. Portal: <http://localhost:8787/p/m44>. Redirect test:
+`curl -H "Host: go4.cc" http://localhost:8787/m44discord`.
+
+**Verified (exit checklist):** all 6 `m44*` + 2 legacy slugs 302 to correct destinations;
+uppercase `M44Discord` works; unknown slug → branded 404; `m44` → portal; portal renders all 6
+labels with inline-SVG QR; **zero external resource requests**; `X-Robots-Tag: noindex` present;
+print renders at letter + poster-24x36 (`@page` size switches); D1-fallback + KV backfill work;
+host routing correct across all three surfaces. **Owner acceptance still needed:** phone-scan a
+QR and print a poster to PDF — both only meaningful **after deploy** (QRs encode live `go4.cc`
+URLs).
+
+**Deviations from plan (all intentional):**
+- `@cloudflare/workers-types` is **v5** (`^5.2026…`) — wrangler 4.111's peer; the playbook's
+  implied v4 was stale.
+- Per-card QR is a **pure-CSS `:target` modal** (no JS) rather than a JS modal — honors the
+  "modal" intent, needs zero JS, zero external requests, degrades perfectly.
+- Legacy slugs `setmeapart` / `maplecanyonstake` are **grandfathered non-prefixed** in the seed
+  (still globally unique). The prefix rule (§4) governs app-created links from Phase 1 on.
+- Landing is served from the **Worker** (plan 0.7 already flagged this vs. Pages).
+- `wrangler.toml` has **placeholder** D1 `database_id` + KV `id`; owner replaces after
+  `wrangler d1 create wardest-db` and `wrangler kv namespace create GO4_LINKS`.
+- Local reset = delete `.wrangler/state` (schema.sql has no `IF NOT EXISTS` — it's the prod
+  migration, run once).
+
+**Deploy steps (owner, when O1/O3 ready):** create D1 + KV (paste real ids into `wrangler.toml`);
+`wrangler d1 execute wardest-db --remote --file=./db/schema.sql`; same for `db/seed-m44.sql`;
+`wrangler kv bulk put --binding=GO4_LINKS --remote ./seed/links.json`; uncomment routes;
+`wrangler deploy`. Replace `TBD-M44` unit number (O2) first.
+
 ## 6. Phases 1–4 (milestone level — detail when you get there)
 
 **Phase 1 — identity, tenancy, onboarding.**

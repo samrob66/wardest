@@ -1,0 +1,28 @@
+name = "wardest"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# --- D1 (structured data; source of truth) ---
+# Local dev keys storage by database_name and ignores database_id. Owner replaces the
+# placeholder id with the real one after: wrangler d1 create wardest-db  (owner task O3).
+[[d1_databases]]
+binding = "DB"
+database_name = "wardest-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# --- KV (go4.cc redirect mirror: slug -> destination URL) ---
+# Owner replaces the placeholder id after: wrangler kv namespace create GO4_LINKS
+[[kv_namespaces]]
+binding = "GO4_LINKS"
+id = "00000000000000000000000000000000"
+
+# --- Production routes (uncomment at deploy; require the zones on Cloudflare — owner task O1) ---
+# [[routes]]
+# pattern = "go4.cc/*"
+# zone_name = "go4.cc"
+# [[routes]]
+# pattern = "wardest.com/*"
+# zone_name = "wardest.com"
+# [[routes]]
+# pattern = "app.wardest.com/*"
+# zone_name = "wardest.com"
