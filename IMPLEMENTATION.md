@@ -173,6 +173,24 @@ Resend emails via HTTPS API, president+secretary of each org auto-flagged as spa
 Invite acceptance materializes memberships (re-invites UPDATE the row). Home = list of your
 wards/spaces. Authz middleware = the visibility module (rule 2).
 
+**Phase 1 build status — BUILT, local-verified (real Google login pending O4/O5).**
+Implemented: HMAC signed-cookie sessions; Google OAuth authorization-code flow (state+nonce,
+token exchange, id_token claim checks) + `dev-login` bypass gated by `DEV_LOGIN` (404 in prod);
+`loadUser`/`requireAuth`/operator middleware; request-a-workspace with unit-number dedupe
+(create/join); operator console + ward provisioning (11 default spaces + superadmin + public
+portal short link mirrored to KV); ward page; invite/callings flow (`upsert invite` +
+`invite_space_roles`, president/secretary → space owner by choosing owner role, Resend
+best-effort with the accept link also shown in the admin UI, acceptance materializes ward+space
+memberships, one-time-use + email-match enforced); canonical visibility module
+(`src/lib/visibility.ts`) for Phase 2/3. Verified via dev-login: sign-in/out,
+request→approve→ward, join dedupe+approve, invite→accept→memberships, invite reuse/mismatch/
+logged-out paths, Phase 0 regressions. NOT yet exercised: real Google round-trip (needs O4
+client + O5 secrets) and live Resend send (dummy key in dev — send returns false, link shown in
+UI). Config: `[vars]` APP_URL/OPERATOR_EMAILS + secrets via `.dev.vars` (`.dev.vars.example`).
+New deploy steps: `wrangler secret put SESSION_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
+RESEND_API_KEY`; set OPERATOR_EMAILS + APP_URL in `[vars]`; create the Google OAuth client (O4)
+with redirect `https://app.wardest.com/auth/callback`.
+
 **Phase 2 — catalog + tracker.**
 Operator authoring UI for `solutions` (markdown body, optional video URL, template asset,
 `implementation_scope`, category incl. Activities Committee / Ward Mission). Ward-facing

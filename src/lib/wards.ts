@@ -198,6 +198,21 @@ export async function markRequest(
     .run();
 }
 
+export interface SpaceRow {
+  id: string;
+  name: string;
+  kind: string;
+}
+
+export async function getWardSpaces(env: Env, wardId: string): Promise<SpaceRow[]> {
+  const res = await env.DB.prepare(
+    `SELECT id, name, kind FROM spaces WHERE ward_id = ? AND archived = 0 ORDER BY position ASC`,
+  )
+    .bind(wardId)
+    .all<SpaceRow>();
+  return res.results ?? [];
+}
+
 export async function addWardMembership(
   env: Env,
   wardId: string,

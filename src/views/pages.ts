@@ -1,6 +1,7 @@
 import type { SessionUser } from '../types';
 import type { UserWard } from '../lib/users';
-import type { WorkspaceRequest, WardRow } from '../lib/wards';
+import type { WorkspaceRequest, WardRow, SpaceRow } from '../lib/wards';
+import type { PendingInvite } from '../lib/invites';
 import { esc, go4Url, GO4_HOST } from '../lib/html';
 import { layout } from './layout';
 
@@ -107,14 +108,19 @@ export function renderOperatorConsole(
   });
 }
 
-export function renderWardPage(
-  user: SessionUser,
-  ward: WardRow,
-  role: string,
-  joins: WorkspaceRequest[],
-  notice?: string,
-): string {
+export function renderWardPage(o: {
+  user: SessionUser;
+  ward: WardRow;
+  role: string;
+  joins: WorkspaceRequest[];
+  spaces: SpaceRow[];
+  invites: PendingInvite[];
+  appUrl: string;
+  notice?: string;
+}): string {
+  const { user, ward, role, joins, spaces, invites, appUrl, notice } = o;
   const isSuper = role === 'superadmin';
+
   const joinsHtml =
     isSuper && joins.length
       ? `<h2>Pending join requests</h2>` +
@@ -123,12 +129,51 @@ export function renderWardPage(
             (j) => `<div class="card"><div class="row">
               <span>${esc(j.requester_email)}${j.requester_calling ? ' · ' + esc(j.requester_calling) : ''}</span>
               <form method="post" action="/w/${esc(ward.id)}/joins/${esc(j.id)}/approve">
-                <button class="btn sm" type="submit">Approve</button>
-              </form>
+                <button class="btn sm" type="submit">Approve</button></form>
             </div></div>`,
           )
           .join('')
       : '';
+
+  const spaceOptions = spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  const inviteForm = isSuper
+    ? `<h2>Invite a leader (callings chart)</h2>
+      <p class="muted">Add people by email and assign them to a space. Set presidency members
+         (president / secretary) as <strong>owners</strong> of their org's space. Re-submitting the
+         same email adds another space assignment.</p>
+      <form method="post" action="/w/${esc(ward.id)}/invite" class="card">
+        <label>Email</label><input name="email" type="email" required>
+        <label>Calling (optional)</label><input name="calling" placeholder="e.g. Elders Quorum President">
+        <div class="row">
+          <div style="flex:1"><label>Ward role</label>
+            <select name="ward_role"><option value="member">Member</option><option value="superadmin">Superadmin</option></select></div>
+          <div style="flex:1"><label>Space</label><select name="space_id" required>${spaceOptions}</select></div>
+          <div style="flex:1"><label>Space role</label>
+            <select name="space_role"><option value="owner">Owner</option><option value="member">Member</option></select></div>
+        </div>
+        <button class="btn" type="submit">Create / update invite</button>
+      </form>`
+    : '';
+
+  const invitesHtml =
+    isSuper && invites.length
+      ? `<h2>Pending invites</h2>` +
+        invites
+          .map((inv) => {
+            const roles =
+              inv.spaceRoles.map((r) => `${esc(r.space_name)} (${esc(r.role)})`).join(', ') ||
+              '<span class="muted">no space yet</span>';
+            const link = `${appUrl}/invite/${esc(inv.token)}`;
+            return `<div class="card">
+              <div class="row"><span><strong>${esc(inv.email)}</strong>${inv.calling_title ? ' · ' + esc(inv.calling_title) : ''}</span>
+                <span class="badge ${inv.ward_role === 'superadmin' ? 'super' : ''}">${esc(inv.ward_role)}</span></div>
+              <p class="muted">Spaces: ${roles}</p>
+              <p class="muted">Accept link: <code>${link}</code></p>
+            </div>`;
+          })
+          .join('')
+      : '';
+
   return layout({
     title: ward.name,
     userEmail: user.email,
@@ -141,8 +186,21 @@ export function renderWardPage(
            (<a href="${esc(go4Url(ward.prefix))}">open</a>)</p>
       </div>
       ${joinsHtml}
-      <h2>Onboarding</h2>
-      <p class="muted">Callings chart &amp; invites arrive in the next build step.</p>
+      ${inviteForm}
+      ${invitesHtml}
       <p style="margin-top:1rem"><a href="/">Back to home</a></p>`,
+  });
+}
+
+export function renderInviteError(
+  message: string,
+  opts?: { userEmail?: string | null; showSignOut?: boolean },
+): string {
+  return layout({
+    title: 'Invitation',
+    userEmail: opts?.userEmail ?? null,
+    body: `<h1>Invitation</h1><div class="err">${esc(message)}</div>
+      ${opts?.showSignOut ? `<p><a class="btn ghost" href="/auth/logout">Sign out</a>, then open the link again signed in as the invited account.</p>` : ''}
+      <p><a href="/">Back to home</a></p>`,
   });
 }

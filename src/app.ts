@@ -22,8 +22,17 @@ import {
   prefixTaken,
   wardRole,
   addWardMembership,
+  getWardSpaces,
 } from './lib/wards';
 import { getUserByEmail } from './lib/users';
+import {
+  upsertInvite,
+  addInviteSpaceRole,
+  listPendingInvites,
+  getInviteByToken,
+  acceptInvite,
+  sendInviteEmail,
+} from './lib/invites';
 import {
   renderSignedOut,
   renderHome,
@@ -31,6 +40,7 @@ import {
   renderRequestConfirmation,
   renderOperatorConsole,
   renderWardPage,
+  renderInviteError,
 } from './views/pages';
 
 export const appSite = new Hono<AppEnv>();
@@ -127,8 +137,74 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
   if (!ward) return c.html(notFoundPage(c.req.param('wardId')), 404);
   const role = await wardRole(c.env, ward.id, user.id);
   if (!role) return c.text('Forbidden', 403);
-  const joins = role === 'superadmin' ? await listPendingJoinRequests(c.env, ward.id) : [];
-  return c.html(renderWardPage(user, ward, role, joins));
+  const isSuper = role === 'superadmin';
+  const joins = isSuper ? await listPendingJoinRequests(c.env, ward.id) : [];
+  const spaces = isSuper ? await getWardSpaces(c.env, ward.id) : [];
+  const invites = isSuper ? await listPendingInvites(c.env, ward.id) : [];
+  const notice = c.req.query('joined') ? `Welcome to ${ward.name}!` : undefined;
+  return c.html(
+    renderWardPage({ user, ward, role, joins, spaces, invites, appUrl: c.env.APP_URL, notice }),
+  );
+});
+
+appSite.post('/w/:wardId/invite', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  if ((await wardRole(c.env, ward.id, user.id)) !== 'superadmin') return c.text('Forbidden', 403);
+
+  const body = await c.req.parseBody();
+  const email = String(body.email ?? '').trim().toLowerCase();
+  const calling = String(body.calling ?? '').trim() || null;
+  const wardRoleSel: 'superadmin' | 'member' = body.ward_role === 'superadmin' ? 'superadmin' : 'member';
+  const spaceRole: 'owner' | 'member' = body.space_role === 'owner' ? 'owner' : 'member';
+  const spaceId = String(body.space_id ?? '');
+  if (!email || !spaceId) return c.redirect(`/w/${ward.id}`, 302);
+
+  const spaces = await getWardSpaces(c.env, ward.id);
+  if (!spaces.some((s) => s.id === spaceId)) return c.text('Invalid space', 400);
+
+  const { id: inviteId, token } = await upsertInvite(c.env, {
+    wardId: ward.id,
+    email,
+    wardRole: wardRoleSel,
+    calling,
+    invitedBy: user.id,
+  });
+  await addInviteSpaceRole(c.env, inviteId, spaceId, spaceRole);
+  await sendInviteEmail(c.env, {
+    to: email,
+    wardName: ward.name,
+    acceptUrl: `${c.env.APP_URL}/invite/${token}`,
+  });
+  return c.redirect(`/w/${ward.id}`, 302);
+});
+
+// Invite acceptance — materializes ward + space memberships once the invited email signs in.
+appSite.get('/invite/:token', async (c) => {
+  const token = c.req.param('token');
+  const invite = await getInviteByToken(c.env, token);
+  const user = c.get('user');
+  if (!invite) {
+    return c.html(
+      renderInviteError('This invitation is invalid or has expired.', { userEmail: user?.email ?? null }),
+      404,
+    );
+  }
+  if (!user) {
+    return c.redirect(`/auth/login?returnTo=${encodeURIComponent('/invite/' + token)}`, 302);
+  }
+  if (user.email.toLowerCase() !== invite.email.toLowerCase()) {
+    return c.html(
+      renderInviteError(
+        `This invitation is for ${invite.email}, but you're signed in as ${user.email}.`,
+        { userEmail: user.email, showSignOut: true },
+      ),
+      403,
+    );
+  }
+  await acceptInvite(c.env, invite, user.id);
+  return c.redirect(`/w/${invite.ward_id}?joined=1`, 302);
 });
 
 appSite.post('/w/:wardId/joins/:reqId/approve', requireAuth(), async (c) => {
