@@ -204,6 +204,19 @@ export interface SpaceRow {
   kind: string;
 }
 
+export interface SpaceFull {
+  id: string;
+  ward_id: string;
+  kind: string;
+  name: string;
+}
+
+export async function getSpaceById(env: Env, spaceId: string): Promise<SpaceFull | null> {
+  return env.DB.prepare(`SELECT id, ward_id, kind, name FROM spaces WHERE id = ?`)
+    .bind(spaceId)
+    .first<SpaceFull>();
+}
+
 export async function spaceRole(env: Env, spaceId: string, userId: string): Promise<string | null> {
   const r = await env.DB.prepare(
     `SELECT role FROM space_memberships WHERE space_id = ? AND user_id = ?`,

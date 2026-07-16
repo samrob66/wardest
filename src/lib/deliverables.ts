@@ -6,7 +6,13 @@ export interface DeliverableRow {
   title: string;
   url: string | null;
   short_slug: string | null;
-  on_public: number;
+}
+
+export interface Publication {
+  deliverable_id: string;
+  space_id: string;
+  space_name: string;
+  kind: string;
 }
 
 function slugPart(s: string): string {
@@ -26,9 +32,7 @@ async function uniqueShortSlug(env: Env, prefix: string, title: string): Promise
 
 export async function listDeliverables(env: Env, implementationId: string): Promise<DeliverableRow[]> {
   const res = await env.DB.prepare(
-    `SELECT d.id AS id, d.title AS title, d.url AS url, sl.slug AS short_slug,
-            EXISTS(SELECT 1 FROM deliverable_spaces ds JOIN spaces s ON s.id = ds.space_id
-                    WHERE ds.deliverable_id = d.id AND s.kind = 'public') AS on_public
+    `SELECT d.id AS id, d.title AS title, d.url AS url, sl.slug AS short_slug
        FROM deliverables d
        LEFT JOIN short_links sl ON sl.target_type = 'deliverable' AND sl.target_deliverable_id = d.id
       WHERE d.implementation_id = ?
@@ -36,6 +40,21 @@ export async function listDeliverables(env: Env, implementationId: string): Prom
   )
     .bind(implementationId)
     .all<DeliverableRow>();
+  return res.results ?? [];
+}
+
+// Which spaces each of an implementation's deliverables is published to.
+export async function listPublications(env: Env, implementationId: string): Promise<Publication[]> {
+  const res = await env.DB.prepare(
+    `SELECT ds.deliverable_id AS deliverable_id, ds.space_id AS space_id,
+            s.name AS space_name, s.kind AS kind
+       FROM deliverables d
+       JOIN deliverable_spaces ds ON ds.deliverable_id = d.id
+       JOIN spaces s ON s.id = ds.space_id
+      WHERE d.implementation_id = ?`,
+  )
+    .bind(implementationId)
+    .all<Publication>();
   return res.results ?? [];
 }
 
@@ -79,21 +98,34 @@ export async function getDeliverable(env: Env, id: string): Promise<DeliverableO
     .first<DeliverableOwner>();
 }
 
-// Publish a deliverable onto the ward's Public portal (idempotent, appended to the end).
-export async function publishToPublic(env: Env, wardId: string, deliverableId: string): Promise<void> {
-  const space = await env.DB.prepare(`SELECT id FROM spaces WHERE ward_id = ? AND kind = 'public'`)
-    .bind(wardId)
-    .first<{ id: string }>();
-  if (!space) return;
+// Publish a deliverable onto a space's portal (idempotent, appended to the end).
+export async function publishToSpace(
+  env: Env,
+  wardId: string,
+  deliverableId: string,
+  spaceId: string,
+): Promise<void> {
   const pos = await env.DB.prepare(
     `SELECT COALESCE(MAX(position), -1) + 1 AS p FROM deliverable_spaces WHERE space_id = ?`,
   )
-    .bind(space.id)
+    .bind(spaceId)
     .first<{ p: number }>();
   await env.DB.prepare(
     `INSERT OR IGNORE INTO deliverable_spaces (id, ward_id, deliverable_id, space_id, include_in_portal, position)
      VALUES (?, ?, ?, ?, 1, ?)`,
   )
-    .bind(newId('dsp'), wardId, deliverableId, space.id, pos?.p ?? 0)
+    .bind(newId('dsp'), wardId, deliverableId, spaceId, pos?.p ?? 0)
+    .run();
+}
+
+export async function unpublishFromSpace(
+  env: Env,
+  deliverableId: string,
+  spaceId: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `DELETE FROM deliverable_spaces WHERE deliverable_id = ? AND space_id = ?`,
+  )
+    .bind(deliverableId, spaceId)
     .run();
 }

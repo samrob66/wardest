@@ -1,7 +1,7 @@
 import type { SessionUser } from '../types';
 import type { Solution } from '../lib/solutions';
 import type { Implementation } from '../lib/implementations';
-import type { DeliverableRow } from '../lib/deliverables';
+import type { DeliverableRow, Publication } from '../lib/deliverables';
 import type { WardRow, SpaceRow } from '../lib/wards';
 import { CATEGORIES, categoryLabel } from '../lib/solutions';
 import { esc, go4Url, GO4_HOST } from '../lib/html';
@@ -27,7 +27,45 @@ function statusBadge(status: string | undefined): string {
 
 // ---- Operator authoring ----
 
+export function renderSuggestForm(user: SessionUser, ward: WardRow, error?: string): string {
+  const catOptions = CATEGORIES.map((c) => `<option value="${c.key}">${esc(c.label)}</option>`).join('');
+  return layout({
+    title: 'Suggest a solution',
+    userEmail: user.email,
+    body: `<h1>Suggest a solution</h1>
+      <p class="muted">${esc(ward.name)} · proposals go to the Wardest operators for review.</p>
+      ${error ? `<div class="err">${esc(error)}</div>` : ''}
+      <form method="post" action="/w/${esc(ward.id)}/suggest">
+        <label>Title</label><input name="title" required maxlength="120">
+        <label>Category</label><select name="category">${catOptions}</select>
+        <label>Summary</label><input name="summary" maxlength="200">
+        <label>Describe it (what it does, how it helps)</label>
+        <textarea name="body" rows="6"></textarea>
+        <button class="btn" type="submit">Submit for review</button>
+      </form>
+      <p style="margin-top:1rem"><a href="/w/${esc(ward.id)}/catalog">← catalog</a></p>`,
+  });
+}
+
 export function renderOperatorSolutions(user: SessionUser, solutions: Solution[]): string {
+  const submitted = solutions.filter((s) => s.status === 'submitted');
+  const submittedHtml = submitted.length
+    ? `<h2>Pending submissions</h2>` +
+      submitted
+        .map(
+          (s) => `<div class="card">
+            <div class="row"><span><a href="/operator/solutions/${esc(s.id)}"><strong>${esc(s.title)}</strong></a>
+              <span class="muted">${esc(categoryLabel(s.category))}</span></span></div>
+            ${s.summary ? `<p class="muted">${esc(s.summary)}</p>` : ''}
+            <form method="post" action="/operator/solutions/${esc(s.id)}/approve" style="display:inline">
+              <button class="btn sm" type="submit">Approve &amp; publish</button></form>
+            <form method="post" action="/operator/solutions/${esc(s.id)}/reject" style="display:inline;margin-left:.4rem">
+              <button class="btn sm ghost danger" type="submit">Reject</button></form>
+          </div>`,
+        )
+        .join('')
+    : '';
+
   const byCat = CATEGORIES.map((cat) => {
     const items = solutions.filter((s) => s.category === cat.key);
     if (!items.length) return '';
@@ -48,6 +86,7 @@ export function renderOperatorSolutions(user: SessionUser, solutions: Solution[]
     body: `<h1>Solutions catalog</h1>
       <p><a class="btn" href="/operator/solutions/new">New solution</a>
          <a class="btn ghost" href="/operator">Operator console</a></p>
+      ${submittedHtml}
       ${byCat || '<p class="muted">No solutions yet.</p>'}`,
   });
 }
@@ -130,6 +169,7 @@ export function renderCatalog(
     userEmail: user.email,
     body: `<h1>Solutions catalog</h1>
       <p class="muted">${esc(ward.name)} · <a href="/w/${esc(ward.id)}">ward home</a></p>
+      <p><a class="btn ghost" href="/w/${esc(ward.id)}/suggest">Suggest a solution</a></p>
       ${sections || '<p class="muted">No published solutions yet.</p>'}`,
   });
 }
@@ -144,12 +184,15 @@ export function renderSolutionDetail(o: {
   spaceId: string | null;
   impl: Implementation | null;
   deliverables: DeliverableRow[];
+  publications: Publication[];
+  publishTargets: SpaceRow[];
+  defaultTargetId: string | null;
   canView: boolean;
   canEdit: boolean;
   grants: string[];
   notice?: string;
 }): string {
-  const { user, ward, solution, spaces, spaceId, impl, deliverables, canView, canEdit, grants, notice } = o;
+  const { user, ward, solution, spaces, spaceId, impl, deliverables, publications, publishTargets, defaultTargetId, canView, canEdit, grants, notice } = o;
   const perSpace = solution.implementation_scope === 'per_space';
   const base = `/w/${esc(ward.id)}/s/${esc(solution.id)}`;
   const qs = perSpace && spaceId ? `?space=${esc(spaceId)}` : '';
@@ -191,7 +234,7 @@ export function renderSolutionDetail(o: {
         <button class="btn" type="submit">Save status</button>
       </form>`;
     if (impl) {
-      tracker += renderDeliverables(ward, base, qs, deliverables, true);
+      tracker += renderDeliverables(ward, base, qs, deliverables, true, publications, publishTargets, defaultTargetId);
       tracker += renderVisibilityEditor(base, qs, impl, spaces, grants);
     }
   } else {
@@ -199,7 +242,7 @@ export function renderSolutionDetail(o: {
     tracker = `<h2>Implementation</h2>${scopeNote}
       <p>Status: ${statusBadge(impl?.status)}</p>
       ${impl?.notes ? `<div class="card">${esc(impl.notes)}</div>` : ''}`;
-    if (impl) tracker += renderDeliverables(ward, base, qs, deliverables, false);
+    if (impl) tracker += renderDeliverables(ward, base, qs, deliverables, false, publications, [], null);
   }
 
   return layout({
@@ -222,22 +265,53 @@ function renderDeliverables(
   qs: string,
   deliverables: DeliverableRow[],
   canEdit: boolean,
+  publications: Publication[],
+  publishTargets: SpaceRow[],
+  defaultTargetId: string | null,
 ): string {
+  const pubMap = new Map<string, Publication[]>();
+  for (const p of publications) {
+    const arr = pubMap.get(p.deliverable_id);
+    if (arr) arr.push(p);
+    else pubMap.set(p.deliverable_id, [p]);
+  }
+
   const list = deliverables.length
     ? deliverables
         .map((d) => {
           const slug = d.short_slug;
           const qr = slug ? `<div style="width:96px;height:96px">${qrSvg(go4Url(slug))}</div>` : '';
-          const pub = d.on_public
-            ? '<span class="badge super">on portal</span>'
-            : canEdit
-              ? `<form method="post" action="/w/${esc(ward.id)}/deliverable/${esc(d.id)}/publish${qs}" style="display:inline">
-                   <button class="btn sm" type="submit">Publish to portal</button></form>`
+          const pubs = pubMap.get(d.id) ?? [];
+          const badges = pubs.length
+            ? pubs.map((p) => `<span class="badge ${p.kind === 'public' ? 'super' : ''}">${esc(p.space_name)}</span>`).join(' ')
+            : '<span class="muted">not published</span>';
+          let controls = '';
+          if (canEdit) {
+            const already = new Set(pubs.map((p) => p.space_id));
+            const opts = publishTargets
+              .filter((s) => !already.has(s.id))
+              .map((s) => `<option value="${esc(s.id)}" ${s.id === defaultTargetId ? 'selected' : ''}>${esc(s.name)}</option>`)
+              .join('');
+            const publishForm = opts
+              ? `<form method="post" action="/w/${esc(ward.id)}/deliverable/${esc(d.id)}/publish${qs}" class="inline" style="margin-top:.4rem">
+                   <select name="space_id" style="width:auto">${opts}</select>
+                   <button class="btn sm" type="submit">Publish</button></form>`
               : '';
-          return `<div class="card"><div class="row">
-            <span><strong>${esc(d.title)}</strong>
-              ${slug ? `<br><code>${esc(GO4_HOST)}/${esc(slug)}</code>` : ''}</span>
-            ${pub}</div>${qr}</div>`;
+            const removes = pubs
+              .map(
+                (p) => `<form method="post" action="/w/${esc(ward.id)}/deliverable/${esc(d.id)}/unpublish${qs}" style="display:inline;margin-right:.3rem">
+                   <input type="hidden" name="space_id" value="${esc(p.space_id)}">
+                   <button class="btn sm ghost" type="submit">Remove from ${esc(p.space_name)}</button></form>`,
+              )
+              .join('');
+            controls = `<div style="margin-top:.4rem">${removes}${publishForm}</div>`;
+          }
+          return `<div class="card">
+            <div class="row"><span><strong>${esc(d.title)}</strong>
+              ${slug ? `<br><code>${esc(GO4_HOST)}/${esc(slug)}</code>` : ''}</span>${qr}</div>
+            <p style="margin:.3rem 0"><span class="muted">Published to:</span> ${badges}</p>
+            ${controls}
+          </div>`;
         })
         .join('')
     : '<p class="muted">No deliverables yet.</p>';

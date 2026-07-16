@@ -121,6 +121,40 @@ export async function listAllSolutions(env: Env): Promise<Solution[]> {
   return res.results ?? [];
 }
 
+// A ward member proposes a new solution (enters the review queue).
+export async function submitSolution(
+  env: Env,
+  o: { category: string; title: string; summary: string | null; body: string | null; userId: string; wardId: string },
+): Promise<string> {
+  const id = newId('sol');
+  const slug = await uniqueSlug(env, slugify(o.title));
+  await env.DB.prepare(
+    `INSERT INTO solutions
+       (id, category, title, slug, summary, body, implementation_scope, status, submitted_by_user_id, submitted_by_ward_id)
+     VALUES (?, ?, ?, ?, ?, ?, 'ward_singleton', 'submitted', ?, ?)`,
+  )
+    .bind(id, o.category, o.title, slug, o.summary, o.body, o.userId, o.wardId)
+    .run();
+  return id;
+}
+
+export async function setSolutionStatus(
+  env: Env,
+  id: string,
+  status: 'published' | 'rejected' | 'draft',
+): Promise<void> {
+  await env.DB.prepare(`UPDATE solutions SET status = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(status, id)
+    .run();
+}
+
+export async function listSubmittedSolutions(env: Env): Promise<Solution[]> {
+  const res = await env.DB.prepare(
+    `SELECT * FROM solutions WHERE status = 'submitted' ORDER BY created_at ASC`,
+  ).all<Solution>();
+  return res.results ?? [];
+}
+
 export async function listPublishedSolutions(env: Env): Promise<Solution[]> {
   const res = await env.DB.prepare(
     `SELECT * FROM solutions WHERE status = 'published' ORDER BY category ASC, position ASC, title ASC`,

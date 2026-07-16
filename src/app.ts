@@ -26,6 +26,7 @@ import {
   spaceRole,
   listWardMembers,
   setWardMemberRole,
+  getSpaceById,
 } from './lib/wards';
 import {
   createSolution,
@@ -33,6 +34,8 @@ import {
   getSolution,
   listAllSolutions,
   listPublishedSolutions,
+  submitSolution,
+  setSolutionStatus,
   type SolutionInput,
 } from './lib/solutions';
 import {
@@ -46,12 +49,20 @@ import {
   type ImplStatus,
 } from './lib/implementations';
 import { canViewImplementation, canEditImplementation } from './lib/visibility';
-import { createUrlDeliverable, listDeliverables, publishToPublic, getDeliverable } from './lib/deliverables';
+import {
+  createUrlDeliverable,
+  listDeliverables,
+  listPublications,
+  publishToSpace,
+  unpublishFromSpace,
+  getDeliverable,
+} from './lib/deliverables';
 import {
   renderOperatorSolutions,
   renderSolutionForm,
   renderCatalog,
   renderSolutionDetail,
+  renderSuggestForm,
 } from './views/catalog';
 import { getUserByEmail } from './lib/users';
 import {
@@ -269,6 +280,23 @@ appSite.post('/w/:wardId/joins/:reqId/approve', requireAuth(), async (c) => {
 
 // ===== Phase 2: solutions catalog + implementation tracker =====
 
+// Default publish target for a deliverable, by the solution's category (a UI pre-selection):
+// Bishopric group (bishopric/exec sec/ward clerk) -> Bishopric portal; org solutions -> their
+// implementing space; Activities Committee / Ward Mission -> their own space.
+function defaultPublishTargetId(
+  category: string,
+  spaces: { id: string; name: string; kind: string }[],
+  implSpaceId: string | null,
+): string | null {
+  if (category === 'org_presidencies') return implSpaceId;
+  if (category === 'bishopric' || category === 'exec_secretary' || category === 'ward_clerk') {
+    return spaces.find((s) => s.kind === 'bishopric')?.id ?? null;
+  }
+  if (category === 'activities_committee') return spaces.find((s) => s.name === 'Activities Committee')?.id ?? null;
+  if (category === 'ward_mission') return spaces.find((s) => s.name === 'Ward Mission')?.id ?? null;
+  return null;
+}
+
 function parseSolution(body: Record<string, string | File>): SolutionInput {
   return {
     category: String(body.category ?? 'exec_secretary'),
@@ -308,6 +336,15 @@ appSite.post('/operator/solutions/:id', operatorOnly, async (c) => {
   return c.redirect('/operator/solutions', 302);
 });
 
+appSite.post('/operator/solutions/:id/approve', operatorOnly, async (c) => {
+  await setSolutionStatus(c.env, c.req.param('id'), 'published');
+  return c.redirect('/operator/solutions', 302);
+});
+appSite.post('/operator/solutions/:id/reject', operatorOnly, async (c) => {
+  await setSolutionStatus(c.env, c.req.param('id'), 'rejected');
+  return c.redirect('/operator/solutions', 302);
+});
+
 // Load ward + solution context for tracker routes (or a Response on failure).
 async function loadSolutionCtx(c: Context<AppEnv>) {
   const user = c.get('user')!;
@@ -336,6 +373,34 @@ appSite.get('/w/:wardId/catalog', requireAuth(), async (c) => {
   return c.html(renderCatalog(user, ward, solutions, implMap));
 });
 
+appSite.get('/w/:wardId/suggest', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.html(notFoundPage(c.req.param('wardId')), 404);
+  if (!(await wardRole(c.env, ward.id, user.id))) return c.text('Forbidden', 403);
+  return c.html(renderSuggestForm(user, ward));
+});
+
+appSite.post('/w/:wardId/suggest', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  if (!(await wardRole(c.env, ward.id, user.id))) return c.text('Forbidden', 403);
+  const body = await c.req.parseBody();
+  const title = String(body.title ?? '').trim();
+  const category = String(body.category ?? 'exec_secretary');
+  if (!title) return c.html(renderSuggestForm(user, ward, 'Title is required.'));
+  await submitSolution(c.env, {
+    category,
+    title,
+    summary: String(body.summary ?? '').trim() || null,
+    body: String(body.body ?? '').trim() || null,
+    userId: user.id,
+    wardId: ward.id,
+  });
+  return c.redirect(`/w/${ward.id}/catalog`, 302);
+});
+
 appSite.get('/w/:wardId/s/:solutionId', requireAuth(), async (c) => {
   const ctx = await loadSolutionCtx(c);
   if (ctx instanceof Response) return ctx;
@@ -359,10 +424,28 @@ appSite.get('/w/:wardId/s/:solutionId', requireAuth(), async (c) => {
     canEdit = impl ? await canEditImplementation(c.env, user.id, impl) : true;
   }
   const deliverables = impl && canView ? await listDeliverables(c.env, impl.id) : [];
+  const publications = impl && canView ? await listPublications(c.env, impl.id) : [];
   const grants = impl && canEdit ? await listImplGrants(c.env, impl.id) : [];
+
+  // Spaces this user may publish to: Public requires superadmin; others require space ownership.
+  const publishTargets: typeof spaces = [];
+  if (canEdit) {
+    const isSuper = role === 'superadmin';
+    for (const s of spaces) {
+      if (s.kind === 'public') {
+        if (isSuper) publishTargets.push(s);
+      } else if (isSuper || (await spaceRole(c.env, s.id, user.id)) === 'owner') {
+        publishTargets.push(s);
+      }
+    }
+  }
+  const defaultTargetId = defaultPublishTargetId(solution.category, spaces, impl?.space_id ?? null);
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
   return c.html(
-    renderSolutionDetail({ user, ward, solution, spaces, spaceId, impl, deliverables, canView, canEdit, grants, notice }),
+    renderSolutionDetail({
+      user, ward, solution, spaces, spaceId, impl, deliverables, publications,
+      publishTargets, defaultTargetId, canView, canEdit, grants, notice,
+    }),
   );
 });
 
@@ -449,17 +532,38 @@ appSite.post('/w/:wardId/s/:solutionId/visibility', requireAuth(), async (c) => 
   return c.redirect(`/w/${ward.id}/s/${solution.id}${qs}`, 302);
 });
 
-appSite.post('/w/:wardId/deliverable/:deliverableId/publish', requireAuth(), async (c) => {
+// Resolve + authorize a publish/unpublish request. Publishing to Public requires superadmin;
+// to any other space requires that space's ownership (or superadmin). Returns a Response on failure.
+async function resolvePublishCtx(c: Context<AppEnv>) {
   const user = c.get('user')!;
-  const ward = await getWardById(c.env, c.req.param('wardId'));
+  const ward = await getWardById(c.env, c.req.param('wardId') ?? '');
   if (!ward) return c.text('Not found', 404);
   const role = await wardRole(c.env, ward.id, user.id);
   if (!role) return c.text('Forbidden', 403);
-  const d = await getDeliverable(c.env, c.req.param('deliverableId'));
-  if (!d || d.ward_id !== ward.id) return c.text('Not found', 404);
-  if (d.created_by_user_id !== user.id && role !== 'superadmin') return c.text('Forbidden', 403);
-  await publishToPublic(c.env, ward.id, d.id);
-  return c.redirect(c.req.header('referer') ?? `/w/${ward.id}/catalog`, 302);
+  const deliverable = await getDeliverable(c.env, c.req.param('deliverableId') ?? '');
+  if (!deliverable || deliverable.ward_id !== ward.id) return c.text('Not found', 404);
+  const spaceId = String((await c.req.parseBody()).space_id ?? '');
+  const space = await getSpaceById(c.env, spaceId);
+  if (!space || space.ward_id !== ward.id) return c.text('Invalid space', 400);
+  const isSuper = role === 'superadmin';
+  const allowed =
+    space.kind === 'public' ? isSuper : isSuper || (await spaceRole(c.env, space.id, user.id)) === 'owner';
+  if (!allowed) return c.text('Forbidden', 403);
+  return { ward, deliverable, space };
+}
+
+appSite.post('/w/:wardId/deliverable/:deliverableId/publish', requireAuth(), async (c) => {
+  const r = await resolvePublishCtx(c);
+  if (r instanceof Response) return r;
+  await publishToSpace(c.env, r.ward.id, r.deliverable.id, r.space.id);
+  return c.redirect(c.req.header('referer') ?? `/w/${r.ward.id}/catalog`, 302);
+});
+
+appSite.post('/w/:wardId/deliverable/:deliverableId/unpublish', requireAuth(), async (c) => {
+  const r = await resolvePublishCtx(c);
+  if (r instanceof Response) return r;
+  await unpublishFromSpace(c.env, r.deliverable.id, r.space.id);
+  return c.redirect(c.req.header('referer') ?? `/w/${r.ward.id}/catalog`, 302);
 });
 
 // --- Public portal (no auth) ---

@@ -220,8 +220,15 @@ role grant/revoke with last-superadmin guard; per-implementation visibility edit
 (`ward`/`restricted` + multi-space grants) with catalog + detail reads routed through
 `canViewImplementation`/`canEditImplementation` (restricted hides from unauthorized, grants are
 view-only, superadmin bypass); markdown-lite (links/bold) for how-to bodies. Verified via
-dev-login. **Part 2b (still to build):** R2 file/image deliverables; publishing to non-public
-spaces; ward submission→operator review pipeline.
+dev-login. **Part 2b DONE (submission + non-public publishing):** ward suggest→operator
+approve/reject pipeline (submitted→published/rejected, shows in catalog once published);
+deliverables publish to ANY space (multi-space) + unpublish, with **Public gated to superadmin**
+and other spaces to their owners (RS owner publishes to RS portal; asks a superadmin to promote
+to Public); category-based default publish target (Bishopric group → Bishopric portal; Exec Sec
++ Ward Clerk are Bishopric-group callings). Verified via dev-login. **Part 2c (last Phase 2
+item):** R2 file/image deliverables (bucket binding + upload + gated serving). NOTE: non-public
+space portals don't *render* yet — that's Phase 3 (portal builder); publishing to them is wired
+and stored now.
 
 **Phase 3 — portal builder.**
 Per-space portals for logged-in members (Public renders as Phase 0). Rich-text `portal_blocks`
