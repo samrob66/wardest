@@ -48,7 +48,16 @@ import {
   setImplGrants,
   type ImplStatus,
 } from './lib/implementations';
-import { canViewImplementation, canEditImplementation } from './lib/visibility';
+import { canViewImplementation, canEditImplementation, canViewSpaceContent } from './lib/visibility';
+import {
+  listBlocks,
+  getBlock,
+  createBlock,
+  updateBlock,
+  deleteBlock,
+  moveBlock,
+} from './lib/portalBlocks';
+import { renderSpacePortal, renderBlockForm } from './views/spaceportal';
 import {
   createUrlDeliverable,
   createFileDeliverable,
@@ -183,10 +192,15 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
   const role = await wardRole(c.env, ward.id, user.id);
   if (!role) return c.text('Forbidden', 403);
   const isSuper = role === 'superadmin';
+  const allSpaces = await getWardSpaces(c.env, ward.id);
+  const portals: typeof allSpaces = [];
+  for (const s of allSpaces) {
+    if (await canViewSpaceContent(c.env, user.id, s.id)) portals.push(s);
+  }
   const joins = isSuper ? await listPendingJoinRequests(c.env, ward.id) : [];
-  const spaces = isSuper ? await getWardSpaces(c.env, ward.id) : [];
   const invites = isSuper ? await listPendingInvites(c.env, ward.id) : [];
   const members = isSuper ? await listWardMembers(c.env, ward.id) : [];
+  const spaces = isSuper ? allSpaces : [];
   const notice = c.req.query('joined')
     ? `Welcome to ${ward.name}!`
     : c.req.query('ok')
@@ -194,7 +208,7 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
       : undefined;
   const error = c.req.query('err') || undefined;
   return c.html(
-    renderWardPage({ user, ward, role, joins, spaces, invites, members, appUrl: c.env.APP_URL, notice, error }),
+    renderWardPage({ user, ward, role, joins, spaces, invites, members, portals, appUrl: c.env.APP_URL, notice, error }),
   );
 });
 
@@ -207,6 +221,107 @@ appSite.post('/w/:wardId/members/:userId/role', requireAuth(), async (c) => {
   const newRole: 'superadmin' | 'member' = body.role === 'superadmin' ? 'superadmin' : 'member';
   const err = await setWardMemberRole(c.env, ward.id, c.req.param('userId'), newRole);
   return c.redirect(`/w/${ward.id}${err ? `?err=${encodeURIComponent(err)}` : '?ok=1'}`, 302);
+});
+
+// ===== Phase 3: per-space portals =====
+async function loadSpaceCtx(c: Context<AppEnv>) {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId') ?? '');
+  if (!ward) return c.html(notFoundPage(c.req.param('wardId') ?? ''), 404);
+  const role = await wardRole(c.env, ward.id, user.id);
+  if (!role) return c.text('Forbidden', 403);
+  const space = await getSpaceById(c.env, c.req.param('spaceId') ?? '');
+  if (!space || space.ward_id !== ward.id) return c.html(notFoundPage('space'), 404);
+  if (!(await canViewSpaceContent(c.env, user.id, space.id))) return c.text('Forbidden', 403);
+  const canManage = role === 'superadmin' || (await spaceRole(c.env, space.id, user.id)) === 'owner';
+  return { user, ward, space, role, canManage };
+}
+
+appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  const { user, ward, space, canManage } = ctx;
+  const blocks = await listBlocks(c.env, space.id);
+  const cards = await getPortalCards(c.env, space.id);
+  const notice = c.req.query('ok') ? 'Saved.' : undefined;
+  return c.html(renderSpacePortal({ user, ward, space, canManage, blocks, cards, notice }));
+});
+
+appSite.post('/w/:wardId/space/:spaceId/block', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  const body = await c.req.parseBody();
+  await createBlock(c.env, {
+    wardId: ctx.ward.id,
+    spaceId: ctx.space.id,
+    title: String(body.title ?? '').trim() || null,
+    body: String(body.body ?? '').trim() || null,
+  });
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+});
+
+appSite.get('/w/:wardId/space/:spaceId/block/:blockId/edit', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  const block = await getBlock(c.env, c.req.param('blockId'));
+  if (!block || block.space_id !== ctx.space.id) return c.html(notFoundPage('block'), 404);
+  return c.html(renderBlockForm(ctx.user, ctx.ward, ctx.space, block));
+});
+
+appSite.post('/w/:wardId/space/:spaceId/block/:blockId', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  const block = await getBlock(c.env, c.req.param('blockId'));
+  if (!block || block.space_id !== ctx.space.id) return c.text('Not found', 404);
+  const body = await c.req.parseBody();
+  await updateBlock(
+    c.env,
+    block.id,
+    String(body.title ?? '').trim() || null,
+    String(body.body ?? '').trim() || null,
+  );
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/block/:blockId/delete', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  const block = await getBlock(c.env, c.req.param('blockId'));
+  if (block && block.space_id === ctx.space.id) await deleteBlock(c.env, block.id);
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/block/:blockId/move', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  const block = await getBlock(c.env, c.req.param('blockId'));
+  if (block && block.space_id === ctx.space.id) {
+    const dir = (await c.req.parseBody()).dir === 'up' ? 'up' : 'down';
+    await moveBlock(c.env, block, dir);
+  }
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+});
+
+appSite.get('/w/:wardId/space/:spaceId/print', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  const { ward, space } = ctx;
+  const raw = (c.req.query('size') ?? 'letter').toLowerCase();
+  const size: PrintSize = isPrintSize(raw) ? raw : 'letter';
+  const cards = await getPortalCards(c.env, space.id);
+  const portalSlug = await getPortalShortSlug(c.env, space.id);
+  c.header('X-Robots-Tag', 'noindex');
+  return c.html(
+    renderPortalPrint(
+      { wardName: ward.name, prefix: ward.prefix, portalTitle: space.name, cards, portalSlug },
+      size,
+    ),
+  );
 });
 
 appSite.post('/w/:wardId/invite', requireAuth(), async (c) => {

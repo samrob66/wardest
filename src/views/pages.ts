@@ -117,12 +117,25 @@ export function renderWardPage(o: {
   spaces: SpaceRow[];
   invites: PendingInvite[];
   members: WardMember[];
+  portals: SpaceRow[];
   appUrl: string;
   notice?: string;
   error?: string;
 }): string {
-  const { user, ward, role, joins, spaces, invites, members, appUrl, notice, error } = o;
+  const { user, ward, role, joins, spaces, invites, members, portals, appUrl, notice, error } = o;
   const isSuper = role === 'superadmin';
+
+  const portalsHtml = portals.length
+    ? `<h2>Portals</h2>` +
+      portals
+        .map(
+          (s) => `<div class="card"><div class="row">
+            <span><a href="/w/${esc(ward.id)}/space/${esc(s.id)}"><strong>${esc(s.name)}</strong></a></span>
+            <span class="badge">${esc(s.kind === 'org' ? 'org' : s.kind.replace('_', ' '))}</span>
+          </div></div>`,
+        )
+        .join('')
+    : '';
 
   const membersHtml = isSuper
     ? `<h2>Members &amp; roles</h2>
@@ -210,6 +223,7 @@ export function renderWardPage(o: {
            (<a href="${esc(go4Url(ward.prefix))}">open</a>)</p>
       </div>
       <p><a class="btn" href="/w/${esc(ward.id)}/catalog">Open solutions catalog</a></p>
+      ${portalsHtml}
       ${joinsHtml}
       ${membersHtml}
       ${inviteForm}

@@ -4,18 +4,12 @@ import type { Implementation } from '../lib/implementations';
 import type { DeliverableRow, Publication } from '../lib/deliverables';
 import type { WardRow, SpaceRow } from '../lib/wards';
 import { CATEGORIES, categoryLabel } from '../lib/solutions';
-import { esc, go4Url, GO4_HOST } from '../lib/html';
+import { esc, go4Url, GO4_HOST, mdLite } from '../lib/html';
 import { qrSvg } from '../lib/qr';
 import { layout } from './layout';
 
 function bodyToHtml(body: string | null): string {
-  if (!body) return '';
-  // Markdown-lite on already-escaped text (safe): links, bold, line breaks.
-  let h = esc(body);
-  h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  h = h.replace(/\n/g, '<br>');
-  return h;
+  return mdLite(body);
 }
 
 function statusBadge(status: string | undefined): string {
