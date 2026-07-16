@@ -51,9 +51,14 @@ resolution make them unnecessary early, and they add wildcard-TLS/routing comple
 
 ## 4. Roles & permissions
 
-- **Superadmin** (multiple allowed) — ward-level admin. First signup is superadmin and can grant it to
-  others (e.g. Bishop grants it to the Exec Secretary). Fills the **chart of callings**, which
+- **Superadmin** (multiple allowed) — ward-level admin and **break-glass**: can view and manage
+  everything in the ward, including org spaces they don't belong to (every system needs someone
+  who can fix anything). First signup is superadmin and can **grant/revoke** superadmin to other
+  members (hand it to the Bishop, as ward head, and the Exec Secretary, who does most setup); the
+  app refuses to remove the **last** superadmin. Fills the **chart of callings**, which
   auto-provisions each org's president + secretary as **owners** of that org's space.
+  Break-glass is bounded to Wardest's own data — it does **not** grant access to a link's
+  destination (a linked Google Doc keeps its own sharing).
 - **Owner** (multiple per space) — can edit that space's shared portal content (rich-text, ordering,
   which deliverables show).
 - **Member** — belongs to spaces; can add their **own** deliverables.
@@ -61,7 +66,7 @@ resolution make them unnecessary early, and they add wildcard-TLS/routing comple
 Two invariants:
 - **Ward is the visibility boundary** — same-ward leaders in a space see everything in it.
 - **Individual is the edit/ownership boundary** — you can only edit/delete deliverables **you** created,
-  even within your ward.
+  even within your ward (a ward **superadmin** is the exception — break-glass).
 
 Note: short links and public portals are **inherently public** (they exist to be shared). "Private"
 means the *management dashboard and the listing of what exists* are scoped — not that published

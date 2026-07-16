@@ -234,3 +234,53 @@ export async function addWardMembership(
     .bind(newId('wm'), wardId, userId, role)
     .run();
 }
+
+export interface WardMember {
+  user_id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  calling_title: string | null;
+}
+
+export async function listWardMembers(env: Env, wardId: string): Promise<WardMember[]> {
+  const res = await env.DB.prepare(
+    `SELECT wm.user_id AS user_id, u.email AS email, u.name AS name, wm.role AS role,
+            wm.calling_title AS calling_title
+       FROM ward_memberships wm JOIN users u ON u.id = wm.user_id
+      WHERE wm.ward_id = ?
+      ORDER BY (wm.role = 'superadmin') DESC, u.email ASC`,
+  )
+    .bind(wardId)
+    .all<WardMember>();
+  return res.results ?? [];
+}
+
+export async function countSuperadmins(env: Env, wardId: string): Promise<number> {
+  const r = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM ward_memberships WHERE ward_id = ? AND role = 'superadmin'`,
+  )
+    .bind(wardId)
+    .first<{ n: number }>();
+  return r?.n ?? 0;
+}
+
+// Promote/demote a ward member. Refuses to remove the last superadmin. Returns an error
+// string on refusal, or null on success.
+export async function setWardMemberRole(
+  env: Env,
+  wardId: string,
+  userId: string,
+  role: 'superadmin' | 'member',
+): Promise<string | null> {
+  const current = await wardRole(env, wardId, userId);
+  if (current == null) return 'That person is not a member of this ward.';
+  if (current === role) return null;
+  if (current === 'superadmin' && role === 'member' && (await countSuperadmins(env, wardId)) <= 1) {
+    return 'A ward must always have at least one superadmin.';
+  }
+  await env.DB.prepare(`UPDATE ward_memberships SET role = ? WHERE ward_id = ? AND user_id = ?`)
+    .bind(role, wardId, userId)
+    .run();
+  return null;
+}

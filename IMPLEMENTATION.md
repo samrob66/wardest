@@ -64,9 +64,14 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
    data-access layer so handlers can't forget (e.g. helpers take `wardId` as a required arg).
 2. **Visibility:** implement `canViewSpaceContent` / `canViewImplementation` exactly as specified
    in SCHEMA.md §"App-layer rules", **once**, in one module, and route every read through it.
-   Fail closed. Superadmins manage structure but do NOT bypass content visibility.
+   Fail closed. **Ward superadmin is break-glass**: `canView*` returns true for a superadmin of
+   the row's ward (view + manage anything in-ward). This is bounded to Wardest's own data — a
+   link's destination (e.g. a Google Doc) keeps its own permissions.
 3. **Ownership:** only `created_by_user_id` may edit/delete a deliverable/task; only space
-   owners edit portal content/shares; only superadmins edit ward structure & callings.
+   owners edit portal content/shares; only superadmins edit ward structure & callings. A ward
+   **superadmin overrides all of these within their ward** (break-glass). Superadmins may
+   grant/revoke the superadmin role to other members via the ward page; the app refuses to
+   remove the last superadmin. First signup is superadmin; hand it to the Bishop + Exec Sec.
 4. **Slugs:** lowercase on write AND lookup. Pattern `^[a-z0-9-]{2,64}$`. Must equal the ward's
    prefix or start with it. Maintain a reserved list (`api`, `app`, `admin`, `www`, `p`, `qr`,
    `auth`, `static`, `robots.txt`, `favicon.ico`, …) rejected at creation.

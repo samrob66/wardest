@@ -24,6 +24,8 @@ import {
   addWardMembership,
   getWardSpaces,
   spaceRole,
+  listWardMembers,
+  setWardMemberRole,
 } from './lib/wards';
 import {
   createSolution,
@@ -164,10 +166,27 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
   const joins = isSuper ? await listPendingJoinRequests(c.env, ward.id) : [];
   const spaces = isSuper ? await getWardSpaces(c.env, ward.id) : [];
   const invites = isSuper ? await listPendingInvites(c.env, ward.id) : [];
-  const notice = c.req.query('joined') ? `Welcome to ${ward.name}!` : undefined;
+  const members = isSuper ? await listWardMembers(c.env, ward.id) : [];
+  const notice = c.req.query('joined')
+    ? `Welcome to ${ward.name}!`
+    : c.req.query('ok')
+      ? 'Saved.'
+      : undefined;
+  const error = c.req.query('err') || undefined;
   return c.html(
-    renderWardPage({ user, ward, role, joins, spaces, invites, appUrl: c.env.APP_URL, notice }),
+    renderWardPage({ user, ward, role, joins, spaces, invites, members, appUrl: c.env.APP_URL, notice, error }),
   );
+});
+
+appSite.post('/w/:wardId/members/:userId/role', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  if ((await wardRole(c.env, ward.id, user.id)) !== 'superadmin') return c.text('Forbidden', 403);
+  const body = await c.req.parseBody();
+  const newRole: 'superadmin' | 'member' = body.role === 'superadmin' ? 'superadmin' : 'member';
+  const err = await setWardMemberRole(c.env, ward.id, c.req.param('userId'), newRole);
+  return c.redirect(`/w/${ward.id}${err ? `?err=${encodeURIComponent(err)}` : '?ok=1'}`, 302);
 });
 
 appSite.post('/w/:wardId/invite', requireAuth(), async (c) => {
@@ -291,11 +310,12 @@ async function loadSolutionCtx(c: Context<AppEnv>) {
   const wardId = c.req.param('wardId') ?? '';
   const ward = await getWardById(c.env, wardId);
   if (!ward) return c.html(notFoundPage(wardId), 404);
-  if (!(await wardRole(c.env, ward.id, user.id))) return c.text('Forbidden', 403);
+  const role = await wardRole(c.env, ward.id, user.id);
+  if (!role) return c.text('Forbidden', 403);
   const solution = await getSolution(c.env, c.req.param('solutionId') ?? '');
   if (!solution || solution.status !== 'published') return c.html(notFoundPage('solution'), 404);
   const spaceId = c.req.query('space') ?? null;
-  return { user, ward, solution, spaceId };
+  return { user, ward, role, solution, spaceId };
 }
 
 appSite.get('/w/:wardId/catalog', requireAuth(), async (c) => {
@@ -311,14 +331,15 @@ appSite.get('/w/:wardId/catalog', requireAuth(), async (c) => {
 appSite.get('/w/:wardId/s/:solutionId', requireAuth(), async (c) => {
   const ctx = await loadSolutionCtx(c);
   if (ctx instanceof Response) return ctx;
-  const { user, ward, solution, spaceId } = ctx;
+  const { user, ward, role, solution, spaceId } = ctx;
   const spaces = await getWardSpaces(c.env, ward.id);
   const perSpace = solution.implementation_scope === 'per_space';
   let impl = null;
   if (!perSpace) {
     impl = await getWardImplementation(c.env, ward.id, solution.id);
   } else if (spaceId) {
-    if (!(await spaceRole(c.env, spaceId, user.id)))
+    const sr = await spaceRole(c.env, spaceId, user.id);
+    if (!sr && role !== 'superadmin')
       return c.text("You're not a member of that organization.", 403);
     impl = await getSpaceImplementation(c.env, solution.id, spaceId);
   }
@@ -330,9 +351,12 @@ appSite.get('/w/:wardId/s/:solutionId', requireAuth(), async (c) => {
 appSite.post('/w/:wardId/s/:solutionId/track', requireAuth(), async (c) => {
   const ctx = await loadSolutionCtx(c);
   if (ctx instanceof Response) return ctx;
-  const { user, ward, solution, spaceId } = ctx;
+  const { user, ward, role, solution, spaceId } = ctx;
   const perSpace = solution.implementation_scope === 'per_space';
-  if (perSpace && (!spaceId || !(await spaceRole(c.env, spaceId, user.id)))) return c.text('Forbidden', 403);
+  if (perSpace) {
+    const sr = spaceId ? await spaceRole(c.env, spaceId, user.id) : null;
+    if (!spaceId || (!sr && role !== 'superadmin')) return c.text('Forbidden', 403);
+  }
   const body = await c.req.parseBody();
   const raw = String(body.status ?? 'not_started');
   const status: ImplStatus =
@@ -353,11 +377,12 @@ appSite.post('/w/:wardId/s/:solutionId/track', requireAuth(), async (c) => {
 appSite.post('/w/:wardId/s/:solutionId/deliverable', requireAuth(), async (c) => {
   const ctx = await loadSolutionCtx(c);
   if (ctx instanceof Response) return ctx;
-  const { user, ward, solution, spaceId } = ctx;
+  const { user, ward, role, solution, spaceId } = ctx;
   const perSpace = solution.implementation_scope === 'per_space';
   let impl;
   if (perSpace) {
-    if (!spaceId || !(await spaceRole(c.env, spaceId, user.id))) return c.text('Forbidden', 403);
+    const sr = spaceId ? await spaceRole(c.env, spaceId, user.id) : null;
+    if (!spaceId || (!sr && role !== 'superadmin')) return c.text('Forbidden', 403);
     impl = await getSpaceImplementation(c.env, solution.id, spaceId);
   } else {
     impl = await getWardImplementation(c.env, ward.id, solution.id);

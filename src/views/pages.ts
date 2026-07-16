@@ -1,6 +1,6 @@
 import type { SessionUser } from '../types';
 import type { UserWard } from '../lib/users';
-import type { WorkspaceRequest, WardRow, SpaceRow } from '../lib/wards';
+import type { WorkspaceRequest, WardRow, SpaceRow, WardMember } from '../lib/wards';
 import type { PendingInvite } from '../lib/invites';
 import { esc, go4Url, GO4_HOST } from '../lib/html';
 import { layout } from './layout';
@@ -116,11 +116,33 @@ export function renderWardPage(o: {
   joins: WorkspaceRequest[];
   spaces: SpaceRow[];
   invites: PendingInvite[];
+  members: WardMember[];
   appUrl: string;
   notice?: string;
+  error?: string;
 }): string {
-  const { user, ward, role, joins, spaces, invites, appUrl, notice } = o;
+  const { user, ward, role, joins, spaces, invites, members, appUrl, notice, error } = o;
   const isSuper = role === 'superadmin';
+
+  const membersHtml = isSuper
+    ? `<h2>Members &amp; roles</h2>
+       <p class="muted">Superadmins can manage everything in the ward (break-glass). A ward must
+       keep at least one superadmin.</p>` +
+      members
+        .map((m) => {
+          const badge = `<span class="badge ${m.role === 'superadmin' ? 'super' : ''}">${esc(m.role)}</span>`;
+          const next = m.role === 'superadmin' ? 'member' : 'superadmin';
+          const label = m.role === 'superadmin' ? 'Make member' : 'Make superadmin';
+          return `<div class="card"><div class="row">
+            <span>${esc(m.email)}${m.calling_title ? ' · ' + esc(m.calling_title) : ''}</span>
+            <span>${badge}
+              <form method="post" action="/w/${esc(ward.id)}/members/${esc(m.user_id)}/role" style="display:inline">
+                <input type="hidden" name="role" value="${next}">
+                <button class="btn sm ghost" type="submit">${label}</button></form>
+            </span></div></div>`;
+        })
+        .join('')
+    : '';
 
   const joinsHtml =
     isSuper && joins.length
@@ -181,6 +203,7 @@ export function renderWardPage(o: {
     body: `<h1>${esc(ward.name)}</h1>
       <p class="muted">Your role: <span class="badge ${isSuper ? 'super' : ''}">${esc(role)}</span></p>
       ${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
+      ${error ? `<div class="err">${esc(error)}</div>` : ''}
       <div class="card">
         <p>Public portal: <a href="/p/${esc(ward.prefix)}">/p/${esc(ward.prefix)}</a></p>
         <p>Short link: <code>${esc(GO4_HOST)}/${esc(ward.prefix)}</code>
@@ -188,6 +211,7 @@ export function renderWardPage(o: {
       </div>
       <p><a class="btn" href="/w/${esc(ward.id)}/catalog">Open solutions catalog</a></p>
       ${joinsHtml}
+      ${membersHtml}
       ${inviteForm}
       ${invitesHtml}
       <p style="margin-top:1rem"><a href="/">Back to home</a></p>`,

@@ -147,16 +147,21 @@ circular FK; `short_links.target_*` is the single direction).
 
 ## App-layer rules the schema can't express (enforce in code)
 
-- Only the creator edits/deletes their deliverables/tasks (decision 3).
+- Only the creator edits/deletes their deliverables/tasks — **except a ward superadmin**, who
+  can edit/delete anything in their ward (break-glass).
 - Visibility resolution (the canonical check — implement once, in one place):
   - `canViewSpaceContent(u, s)` = member of `s`, OR `s.kind='public'`, OR member of any space
-    `s` is shared with via `space_shares`.
-  - `canViewImplementation(u, i)` = if `i.visibility='ward'` → any member of `i.ward_id`;
-    else → `u` is `i.owner_user_id`, OR (`i.space_id` set AND `canViewSpaceContent(u, i.space_id)`),
-    OR direct member of any space granted in `implementation_visibility`.
+    `s` is shared with via `space_shares`, OR **a superadmin of `s`'s ward (break-glass)**.
+  - `canViewImplementation(u, i)` = **superadmin of `i.ward_id` (break-glass)**, OR if
+    `i.visibility='ward'` → any member of `i.ward_id`; else → `u` is `i.owner_user_id`, OR
+    (`i.space_id` set AND `canViewSpaceContent(u, i.space_id)`), OR direct member of any space
+    granted in `implementation_visibility`.
   - No transitive chaining: shares don't extend grants; shares of shares grant nothing.
-  - Superadmins manage spaces (rename/archive/owners) but do NOT bypass content visibility.
-- Only space owners manage that space's `space_shares` and portal content.
+  - **Ward superadmin = break-glass:** can view AND manage everything within their ward
+    (including org spaces they don't belong to). Scope is limited to what Wardest stores — it
+    does NOT grant access to a link's destination (e.g. a Google Doc keeps its own permissions).
+    A ward must always keep ≥1 superadmin; superadmins can grant/revoke the role to other members.
+- Only space owners (or a ward superadmin) manage that space's `space_shares` and portal content.
 - `implementation_scope` ⇒ `space_id` NULL-ness; `per_space` must reference an `org`-kind space.
 - `workspace_requests`: `ward_name` required when `kind='create'`; `target_ward_id` when `'join'`.
 - Re-invites UPDATE the existing `invites` row (UNIQUE(ward_id, email)).

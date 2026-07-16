@@ -1,12 +1,16 @@
 import type { Env } from '../types';
 
 // Canonical visibility rules (SCHEMA.md §"App-layer rules"). Implement ONCE; route every
-// content read through these. Fail closed. Superadmins manage structure but do NOT bypass
-// content visibility. No transitive chaining (shares don't extend grants; shares of shares
-// grant nothing). Used by Phase 2/3 content reads.
+// content read through these. Fail closed. No transitive chaining (shares don't extend grants;
+// shares of shares grant nothing). Used by Phase 2/3 content reads.
+//
+// BREAK-GLASS: a ward superadmin CAN view (and manage) everything within their ward, including
+// org spaces they don't belong to. This only covers what Wardest stores — the destination of a
+// link (e.g. a Google Doc) is still governed by that system's own permissions.
 
 // Can `userId` view space `spaceId`'s content?
-//   member of the space, OR the space is public, OR member of any space it's shared WITH.
+//   member of the space, OR the space is public, OR member of any space it's shared WITH,
+//   OR a superadmin of the space's ward (break-glass).
 export async function canViewSpaceContent(env: Env, userId: string, spaceId: string): Promise<boolean> {
   const row = await env.DB.prepare(
     `SELECT 1 AS ok FROM spaces WHERE id = ? AND kind = 'public'
@@ -16,9 +20,13 @@ export async function canViewSpaceContent(env: Env, userId: string, spaceId: str
      SELECT 1 FROM space_shares ss
        JOIN space_memberships sm ON sm.space_id = ss.shared_with_space_id
       WHERE ss.space_id = ? AND sm.user_id = ?
+     UNION ALL
+     SELECT 1 FROM spaces sp
+       JOIN ward_memberships wm ON wm.ward_id = sp.ward_id
+      WHERE sp.id = ? AND wm.user_id = ? AND wm.role = 'superadmin'
      LIMIT 1`,
   )
-    .bind(spaceId, spaceId, userId, spaceId, userId)
+    .bind(spaceId, spaceId, userId, spaceId, userId, spaceId, userId)
     .first<{ ok: number }>();
   return row != null;
 }
@@ -40,6 +48,14 @@ export async function canViewImplementation(
   userId: string,
   impl: ImplementationVisibility,
 ): Promise<boolean> {
+  // Break-glass: ward superadmin sees anything in their ward.
+  const sa = await env.DB.prepare(
+    `SELECT 1 AS ok FROM ward_memberships WHERE ward_id = ? AND user_id = ? AND role = 'superadmin'`,
+  )
+    .bind(impl.ward_id, userId)
+    .first();
+  if (sa != null) return true;
+
   if (impl.visibility === 'ward') {
     const m = await env.DB.prepare(
       `SELECT 1 AS ok FROM ward_memberships WHERE ward_id = ? AND user_id = ? LIMIT 1`,
