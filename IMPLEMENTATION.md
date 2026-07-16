@@ -225,10 +225,14 @@ approve/reject pipeline (submitted→published/rejected, shows in catalog once p
 deliverables publish to ANY space (multi-space) + unpublish, with **Public gated to superadmin**
 and other spaces to their owners (RS owner publishes to RS portal; asks a superadmin to promote
 to Public); category-based default publish target (Bishopric group → Bishopric portal; Exec Sec
-+ Ward Clerk are Bishopric-group callings). Verified via dev-login. **Part 2c (last Phase 2
-item):** R2 file/image deliverables (bucket binding + upload + gated serving). NOTE: non-public
-space portals don't *render* yet — that's Phase 3 (portal builder); publishing to them is wired
-and stored now.
++ Ward Clerk are Bishopric-group callings). Verified via dev-login. **Part 2c DONE — PHASE 2
+COMPLETE:** R2 file/image deliverables — upload (PDF/PNG/JPEG/WebP/SVG, ≤10 MB, type-validated)
+to the `FILES` bucket, each minting a go4 short link → the `/f/<id>` serving route; serving is
+public when the deliverable is published to a public space, else gated through
+`canViewImplementation`/`canViewDeliverable`. Verified: upload 302, bad type 400, unpublished
+file → creator/ward-member/superadmin 200, non-member 403, anon → login; publish to Public →
+anon 200. Prod deploy adds `wrangler r2 bucket create wardest-files`. NOTE: non-public space
+portals still don't *render* — that's Phase 3 (portal builder).
 
 **Phase 3 — portal builder.**
 Per-space portals for logged-in members (Public renders as Phase 0). Rich-text `portal_blocks`

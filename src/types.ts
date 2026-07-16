@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   GO4_LINKS: KVNamespace;
+  FILES: R2Bucket;
   // Secrets (.dev.vars locally; `wrangler secret put` in prod)
   SESSION_SECRET: string;
   GOOGLE_CLIENT_ID: string;

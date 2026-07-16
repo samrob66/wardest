@@ -22,6 +22,13 @@ database_id = "00000000-0000-0000-0000-000000000000"
 binding = "GO4_LINKS"
 id = "00000000000000000000000000000000"
 
+# --- R2 (uploaded files/images for deliverables) ---
+# Local dev auto-creates local state. Owner runs once for prod:
+#   wrangler r2 bucket create wardest-files
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "wardest-files"
+
 # --- Production routes (uncomment at deploy; require the zones on Cloudflare — owner task O1) ---
 # [[routes]]
 # pattern = "go4.cc/*"

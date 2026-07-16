@@ -306,8 +306,12 @@ function renderDeliverables(
               .join('');
             controls = `<div style="margin-top:.4rem">${removes}${publishForm}</div>`;
           }
+          const fileLink =
+            d.type !== 'url'
+              ? `<br><a href="/f/${esc(d.id)}" target="_blank" rel="noopener">Open ${d.type === 'image' ? 'image' : 'file'}</a>`
+              : '';
           return `<div class="card">
-            <div class="row"><span><strong>${esc(d.title)}</strong>
+            <div class="row"><span><strong>${esc(d.title)}</strong>${fileLink}
               ${slug ? `<br><code>${esc(GO4_HOST)}/${esc(slug)}</code>` : ''}</span>${qr}</div>
             <p style="margin:.3rem 0"><span class="muted">Published to:</span> ${badges}</p>
             ${controls}
@@ -317,9 +321,15 @@ function renderDeliverables(
     : '<p class="muted">No deliverables yet.</p>';
   const addForm = canEdit
     ? `<form method="post" action="${base}/deliverable${qs}" class="card">
-        <label>Title</label><input name="title" required placeholder="e.g. New Member Form">
-        <label>URL</label><input name="url" type="url" required placeholder="https://...">
+        <label>Add a link</label><input name="title" required placeholder="Title, e.g. New Member Form">
+        <input name="url" type="url" required placeholder="https://...">
         <button class="btn" type="submit">Add link + generate QR</button>
+      </form>
+      <form method="post" action="${base}/deliverable-file${qs}" enctype="multipart/form-data" class="card">
+        <label>Or upload a file (PDF, PNG, JPEG, WebP, SVG — max 10 MB)</label>
+        <input name="title" required placeholder="Title">
+        <input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,.svg,application/pdf,image/*">
+        <button class="btn" type="submit">Upload file + generate QR</button>
       </form>`
     : '';
   return `<h2>Deliverables</h2>${list}${addForm}`;

@@ -51,6 +51,11 @@ import {
 import { canViewImplementation, canEditImplementation } from './lib/visibility';
 import {
   createUrlDeliverable,
+  createFileDeliverable,
+  getFileDeliverable,
+  getDeliverableImplVisibility,
+  deliverableIsPublic,
+  canViewDeliverable,
   listDeliverables,
   listPublications,
   publishToSpace,
@@ -506,6 +511,38 @@ appSite.post('/w/:wardId/s/:solutionId/deliverable', requireAuth(), async (c) =>
   return c.redirect(`/w/${ward.id}/s/${solution.id}${qs}`, 302);
 });
 
+appSite.post('/w/:wardId/s/:solutionId/deliverable-file', requireAuth(), async (c) => {
+  const ctx = await loadSolutionCtx(c);
+  if (ctx instanceof Response) return ctx;
+  const { user, ward, role, solution, spaceId } = ctx;
+  const perSpace = solution.implementation_scope === 'per_space';
+  let impl;
+  if (perSpace) {
+    const sr = spaceId ? await spaceRole(c.env, spaceId, user.id) : null;
+    if (!spaceId || (!sr && role !== 'superadmin')) return c.text('Forbidden', 403);
+    impl = await getSpaceImplementation(c.env, solution.id, spaceId);
+  } else {
+    impl = await getWardImplementation(c.env, ward.id, solution.id);
+  }
+  if (!impl) return c.text('Set a status first.', 400);
+  const body = await c.req.parseBody();
+  const title = String(body.title ?? '').trim();
+  const file = body.file;
+  if (!title || !(file instanceof File) || file.size === 0) return c.text('Title and a file are required.', 400);
+  const res = await createFileDeliverable(c.env, {
+    wardId: ward.id,
+    implementationId: impl.id,
+    prefix: ward.prefix,
+    title,
+    file,
+    createdBy: user.id,
+    appUrl: c.env.APP_URL,
+  });
+  if ('error' in res) return c.text(res.error, 400);
+  const qs = perSpace && spaceId ? `?space=${encodeURIComponent(spaceId)}&ok=1` : '?ok=1';
+  return c.redirect(`/w/${ward.id}/s/${solution.id}${qs}`, 302);
+});
+
 appSite.post('/w/:wardId/s/:solutionId/visibility', requireAuth(), async (c) => {
   const ctx = await loadSolutionCtx(c);
   if (ctx instanceof Response) return ctx;
@@ -564,6 +601,31 @@ appSite.post('/w/:wardId/deliverable/:deliverableId/unpublish', requireAuth(), a
   if (r instanceof Response) return r;
   await unpublishFromSpace(c.env, r.deliverable.id, r.space.id);
   return c.redirect(c.req.header('referer') ?? `/w/${r.ward.id}/catalog`, 302);
+});
+
+// --- File serving (public if published to a public space, else visibility-gated) ---
+appSite.get('/f/:id', async (c) => {
+  const id = c.req.param('id');
+  const d = await getFileDeliverable(c.env, id);
+  if (!d || !d.file_key) return c.html(notFoundPage(id), 404);
+  const isPublic = await deliverableIsPublic(c.env, id);
+  if (!isPublic) {
+    const user = c.get('user');
+    if (!user) return c.redirect(`/auth/login?returnTo=${encodeURIComponent('/f/' + id)}`, 302);
+    const implVis = await getDeliverableImplVisibility(c.env, id);
+    const allowed =
+      (await canViewDeliverable(c.env, user.id, id)) ||
+      (implVis ? await canViewImplementation(c.env, user.id, implVis) : false);
+    if (!allowed) return c.text('Forbidden', 403);
+  }
+  const obj = await c.env.FILES.get(d.file_key);
+  if (!obj) return c.html(notFoundPage(id), 404);
+  const headers = new Headers();
+  headers.set('Content-Type', obj.httpMetadata?.contentType ?? 'application/octet-stream');
+  headers.set('Content-Disposition', 'inline');
+  headers.set('Cache-Control', isPublic ? 'public, max-age=300' : 'private, no-store');
+  headers.set('X-Robots-Tag', 'noindex');
+  return new Response(obj.body, { headers });
 });
 
 // --- Public portal (no auth) ---

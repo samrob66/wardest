@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase 0 + 1 + 2 (catalog/tracker/deliverables/visibility/submission/publishing; only R2 uploads pending) built & local-verified; deploy + real Google/Resend pending owner (O1–O5)
+## Status: Phase 0 + 1 + 2 COMPLETE, built & local-verified; deploy + real Google/Resend pending owner (O1–O5 + `wrangler r2 bucket create wardest-files`). Next: Phase 3 (portal builder)
 
 Reading order: `BLUEPRINT.md` (what Wardest is) → `SCHEMA.md` + `db/schema.sql` (data model +
 canonical visibility rules) → `IMPLEMENTATION.md` (the execution playbook: stack decisions,
