@@ -240,6 +240,17 @@ Per-space portals for logged-in members (Public renders as Phase 0). Rich-text `
 view; drag ordering (`position`); per-portal short links; `space_shares` management UI (owners
 only); print variant for every portal.
 
+**Phase 3 build status — COMPLETE, local-verified.** Per-space portals
+(`/w/:ward/space/:id`) render for logged-in members (gated by `canViewSpaceContent`; non-public
+portals now display) with deliverables + markdown-lite rich-text blocks (owner CRUD + reorder;
+safe by construction via the shared `mdLite` — no raw-HTML sanitizer) + a task list (add,
+optional assignee, Done self-archives, Archived view w/ reopen/delete; participation = space
+members + superadmin). `space_shares` UI (owners): share a space read-only with another space —
+verified the *effect* (a Ward Council member gains read-only EQ access only while shared, no
+manage controls; removed → blocked). Per-portal go4 short links (minted on demand). Print
+variant for every space portal. Ward page lists each user's accessible portals. Verified via
+dev-login on p4. Only R2-served files + go4 live redirects still await deploy (O1/O3).
+
 **Phase 4 — scale-out + hardening.**
 Shortener abuse controls: per-ward creation rate cap (D1 count per day), optional Google Safe
 Browsing check on destinations, one-click link disable + ward suspend (KV delete per rule 5).

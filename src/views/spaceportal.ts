@@ -1,7 +1,8 @@
 import type { SessionUser, PortalCard } from '../types';
-import type { WardRow, SpaceFull, SpaceMember } from '../lib/wards';
+import type { WardRow, SpaceFull, SpaceMember, SpaceRow } from '../lib/wards';
 import type { PortalBlock } from '../lib/portalBlocks';
 import type { TaskRow } from '../lib/tasks';
+import type { Share } from '../lib/spaceShares';
 import { esc, go4Url, GO4_HOST, mdLite } from '../lib/html';
 import { qrSvg } from '../lib/qr';
 import { layout } from './layout';
@@ -25,10 +26,46 @@ export function renderSpacePortal(o: {
   cards: PortalCard[];
   tasks: TaskRow[];
   members: SpaceMember[];
+  shares: Share[];
+  shareTargets: SpaceRow[];
+  portalShortSlug: string | null;
   notice?: string;
 }): string {
-  const { user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, notice } = o;
+  const { user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, shares, shareTargets, portalShortSlug, notice } = o;
   const base = `/w/${esc(ward.id)}/space/${esc(space.id)}`;
+
+  const shortLinkHtml = portalShortSlug
+    ? `<p class="muted">Portal link: <code>${esc(GO4_HOST)}/${esc(portalShortSlug)}</code></p>`
+    : canManage
+      ? `<form method="post" action="${base}/shortlink" style="margin:.4rem 0">
+           <button class="btn sm ghost" type="submit">Create portal short link</button></form>`
+      : '';
+
+  const sharingHtml = canManage
+    ? `<h2>Sharing</h2>
+       <p class="muted">Give another space read-only access to this portal.</p>
+       ${
+         shares.length
+           ? shares
+               .map(
+                 (s) => `<div class="card"><div class="row">
+                   <span>Shared with <strong>${esc(s.name)}</strong></span>
+                   <form method="post" action="${base}/unshare" style="display:inline">
+                     <input type="hidden" name="space_id" value="${esc(s.space_id)}">
+                     <button class="btn sm ghost danger" type="submit">Remove</button></form>
+                 </div></div>`,
+               )
+               .join('')
+           : '<p class="muted">Not shared with anyone.</p>'
+       }
+       ${
+         shareTargets.length
+           ? `<form method="post" action="${base}/share" class="inline card">
+                <select name="space_id" style="width:auto">${shareTargets.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select>
+                <button class="btn sm" type="submit">Share</button></form>`
+           : ''
+       }`
+    : '';
 
   const taskItems = tasks.length
     ? tasks
@@ -86,12 +123,14 @@ export function renderSpacePortal(o: {
     body: `<h1>${esc(space.name)}</h1>
       <p class="muted">${esc(ward.name)} portal · <a href="/w/${esc(ward.id)}">ward home</a>
         ${canManage ? ` · <a href="${base}/print" target="_blank">print</a>` : ''}</p>
+      ${shortLinkHtml}
       ${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
       ${blocksHtml}
       ${addBlock}
       <h2>Deliverables</h2>
       ${cardsHtml}
-      ${tasksSection}`,
+      ${tasksSection}
+      ${sharingHtml}`,
   });
 }
 

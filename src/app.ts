@@ -68,6 +68,8 @@ import {
   moveBlock,
 } from './lib/portalBlocks';
 import { renderSpacePortal, renderBlockForm, renderArchivedTasks } from './views/spaceportal';
+import { listSharedWith, addShare, removeShare } from './lib/spaceShares';
+import { ensurePortalShortLink } from './lib/portalLinks';
 import {
   createUrlDeliverable,
   createFileDeliverable,
@@ -257,10 +259,60 @@ appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
   const cards = await getPortalCards(c.env, space.id);
   const tasks = await listOpenTasks(c.env, space.id);
   const members = canParticipate ? await listSpaceMembers(c.env, space.id) : [];
+  const shares = canManage ? await listSharedWith(c.env, space.id) : [];
+  const portalShortSlug = await getPortalShortSlug(c.env, space.id);
+  let shareTargets: Awaited<ReturnType<typeof getWardSpaces>> = [];
+  if (canManage) {
+    const sharedIds = new Set(shares.map((s) => s.space_id));
+    shareTargets = (await getWardSpaces(c.env, ward.id)).filter(
+      (s) => s.id !== space.id && s.kind !== 'public' && !sharedIds.has(s.id),
+    );
+  }
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
   return c.html(
-    renderSpacePortal({ user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, notice }),
+    renderSpacePortal({
+      user, ward, space, canManage, canParticipate, blocks, cards, tasks, members,
+      shares, shareTargets, portalShortSlug, notice,
+    }),
   );
+});
+
+appSite.post('/w/:wardId/space/:spaceId/share', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  const target = await getSpaceById(c.env, String((await c.req.parseBody()).space_id ?? ''));
+  if (target && target.ward_id === ctx.ward.id && target.id !== ctx.space.id) {
+    await addShare(c.env, ctx.ward.id, ctx.space.id, target.id);
+  }
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/unshare', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  await removeShare(c.env, ctx.space.id, String((await c.req.parseBody()).space_id ?? ''));
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/shortlink', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  const dest =
+    ctx.space.kind === 'public'
+      ? `${c.env.APP_URL}/p/${ctx.ward.prefix}`
+      : `${c.env.APP_URL}/w/${ctx.ward.id}/space/${ctx.space.id}`;
+  await ensurePortalShortLink(c.env, {
+    wardId: ctx.ward.id,
+    spaceId: ctx.space.id,
+    prefix: ctx.ward.prefix,
+    spaceName: ctx.space.name,
+    destUrl: dest,
+    createdBy: ctx.user.id,
+  });
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
 });
 
 appSite.post('/w/:wardId/space/:spaceId/task', requireAuth(), async (c) => {
