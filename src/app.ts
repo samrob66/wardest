@@ -40,8 +40,12 @@ import {
   getWardImplementation,
   getSpaceImplementation,
   wardImplementationMap,
+  setImplementationVisibility,
+  listImplGrants,
+  setImplGrants,
   type ImplStatus,
 } from './lib/implementations';
+import { canViewImplementation, canEditImplementation } from './lib/visibility';
 import { createUrlDeliverable, listDeliverables, publishToPublic, getDeliverable } from './lib/deliverables';
 import {
   renderOperatorSolutions,
@@ -325,6 +329,10 @@ appSite.get('/w/:wardId/catalog', requireAuth(), async (c) => {
   if (!(await wardRole(c.env, ward.id, user.id))) return c.text('Forbidden', 403);
   const solutions = await listPublishedSolutions(c.env);
   const implMap = await wardImplementationMap(c.env, ward.id);
+  // Hide restricted ward-level entries the viewer can't see (superadmin still sees all).
+  for (const [sid, impl] of [...implMap]) {
+    if (!(await canViewImplementation(c.env, user.id, impl))) implMap.delete(sid);
+  }
   return c.html(renderCatalog(user, ward, solutions, implMap));
 });
 
@@ -335,17 +343,27 @@ appSite.get('/w/:wardId/s/:solutionId', requireAuth(), async (c) => {
   const spaces = await getWardSpaces(c.env, ward.id);
   const perSpace = solution.implementation_scope === 'per_space';
   let impl = null;
+  let canView = true;
+  let canEdit = true;
   if (!perSpace) {
     impl = await getWardImplementation(c.env, ward.id, solution.id);
+    if (impl) {
+      canView = await canViewImplementation(c.env, user.id, impl);
+      canEdit = await canEditImplementation(c.env, user.id, impl);
+    }
   } else if (spaceId) {
     const sr = await spaceRole(c.env, spaceId, user.id);
     if (!sr && role !== 'superadmin')
       return c.text("You're not a member of that organization.", 403);
     impl = await getSpaceImplementation(c.env, solution.id, spaceId);
+    canEdit = impl ? await canEditImplementation(c.env, user.id, impl) : true;
   }
-  const deliverables = impl ? await listDeliverables(c.env, impl.id) : [];
+  const deliverables = impl && canView ? await listDeliverables(c.env, impl.id) : [];
+  const grants = impl && canEdit ? await listImplGrants(c.env, impl.id) : [];
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
-  return c.html(renderSolutionDetail({ user, ward, solution, spaces, spaceId, impl, deliverables, notice }));
+  return c.html(
+    renderSolutionDetail({ user, ward, solution, spaces, spaceId, impl, deliverables, canView, canEdit, grants, notice }),
+  );
 });
 
 appSite.post('/w/:wardId/s/:solutionId/track', requireAuth(), async (c) => {
@@ -401,6 +419,32 @@ appSite.post('/w/:wardId/s/:solutionId/deliverable', requireAuth(), async (c) =>
       createdBy: user.id,
     });
   }
+  const qs = perSpace && spaceId ? `?space=${encodeURIComponent(spaceId)}&ok=1` : '?ok=1';
+  return c.redirect(`/w/${ward.id}/s/${solution.id}${qs}`, 302);
+});
+
+appSite.post('/w/:wardId/s/:solutionId/visibility', requireAuth(), async (c) => {
+  const ctx = await loadSolutionCtx(c);
+  if (ctx instanceof Response) return ctx;
+  const { user, ward, solution, spaceId } = ctx;
+  const perSpace = solution.implementation_scope === 'per_space';
+  const impl = perSpace
+    ? spaceId
+      ? await getSpaceImplementation(c.env, solution.id, spaceId)
+      : null
+    : await getWardImplementation(c.env, ward.id, solution.id);
+  if (!impl) return c.text('No implementation to configure.', 400);
+  if (!(await canEditImplementation(c.env, user.id, impl))) return c.text('Forbidden', 403);
+
+  const body = await c.req.parseBody();
+  const vis: 'ward' | 'restricted' = body.visibility === 'restricted' ? 'restricted' : 'ward';
+  const raw = body['grant[]'];
+  const grantIds = (Array.isArray(raw) ? raw : raw != null ? [raw] : []).map(String);
+  const wardSpaces = await getWardSpaces(c.env, ward.id);
+  const validIds = grantIds.filter((id) => wardSpaces.some((s) => s.id === id));
+
+  await setImplementationVisibility(c.env, impl.id, vis);
+  await setImplGrants(c.env, impl.id, ward.id, vis === 'restricted' ? validIds : []);
   const qs = perSpace && spaceId ? `?space=${encodeURIComponent(spaceId)}&ok=1` : '?ok=1';
   return c.redirect(`/w/${ward.id}/s/${solution.id}${qs}`, 302);
 });

@@ -89,6 +89,47 @@ export async function upsertImplementation(
   return id;
 }
 
+export async function setImplementationVisibility(
+  env: Env,
+  implId: string,
+  visibility: 'ward' | 'restricted',
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE implementations SET visibility = ?, updated_at = datetime('now') WHERE id = ?`,
+  )
+    .bind(visibility, implId)
+    .run();
+}
+
+export async function listImplGrants(env: Env, implId: string): Promise<string[]> {
+  const res = await env.DB.prepare(
+    `SELECT space_id FROM implementation_visibility WHERE implementation_id = ?`,
+  )
+    .bind(implId)
+    .all<{ space_id: string }>();
+  return (res.results ?? []).map((r) => r.space_id);
+}
+
+// Replace the full set of grant spaces for an implementation.
+export async function setImplGrants(
+  env: Env,
+  implId: string,
+  wardId: string,
+  spaceIds: string[],
+): Promise<void> {
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare(`DELETE FROM implementation_visibility WHERE implementation_id = ?`).bind(implId),
+  ];
+  for (const sid of spaceIds) {
+    stmts.push(
+      env.DB.prepare(
+        `INSERT INTO implementation_visibility (id, ward_id, implementation_id, space_id) VALUES (?, ?, ?, ?)`,
+      ).bind(newId('iv'), wardId, implId, sid),
+    );
+  }
+  await env.DB.batch(stmts);
+}
+
 // Map of solutionId -> ward-level implementation, for the catalog status column.
 export async function wardImplementationMap(
   env: Env,

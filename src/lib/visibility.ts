@@ -76,3 +76,39 @@ export async function canViewImplementation(
     .first();
   return granted != null;
 }
+
+// Who may edit an implementation (status/notes/deliverables/visibility):
+//   superadmin (break-glass), OR for per_space a member of the implementing space,
+//   OR for ward-level whoever can view it (ward members for 'ward'; owner/grants for 'restricted').
+export async function canEditImplementation(
+  env: Env,
+  userId: string,
+  impl: ImplementationVisibility,
+): Promise<boolean> {
+  const sa = await env.DB.prepare(
+    `SELECT 1 AS ok FROM ward_memberships WHERE ward_id = ? AND user_id = ? AND role = 'superadmin'`,
+  )
+    .bind(impl.ward_id, userId)
+    .first();
+  if (sa != null) return true;
+  if (impl.space_id) {
+    // per_space: any member of the implementing space
+    const m = await env.DB.prepare(
+      `SELECT 1 AS ok FROM space_memberships WHERE space_id = ? AND user_id = ?`,
+    )
+      .bind(impl.space_id, userId)
+      .first();
+    return m != null;
+  }
+  // ward-level: 'ward' visibility is collaborative (any ward member edits); 'restricted' is
+  // owner-only for edits (grants are view-only). Superadmin already handled above.
+  if (impl.visibility === 'ward') {
+    const wm = await env.DB.prepare(
+      `SELECT 1 AS ok FROM ward_memberships WHERE ward_id = ? AND user_id = ?`,
+    )
+      .bind(impl.ward_id, userId)
+      .first();
+    return wm != null;
+  }
+  return impl.owner_user_id === userId;
+}

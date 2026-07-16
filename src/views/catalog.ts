@@ -10,7 +10,12 @@ import { layout } from './layout';
 
 function bodyToHtml(body: string | null): string {
   if (!body) return '';
-  return esc(body).replace(/\n/g, '<br>');
+  // Markdown-lite on already-escaped text (safe): links, bold, line breaks.
+  let h = esc(body);
+  h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\n/g, '<br>');
+  return h;
 }
 
 function statusBadge(status: string | undefined): string {
@@ -139,9 +144,12 @@ export function renderSolutionDetail(o: {
   spaceId: string | null;
   impl: Implementation | null;
   deliverables: DeliverableRow[];
+  canView: boolean;
+  canEdit: boolean;
+  grants: string[];
   notice?: string;
 }): string {
-  const { user, ward, solution, spaces, spaceId, impl, deliverables, notice } = o;
+  const { user, ward, solution, spaces, spaceId, impl, deliverables, canView, canEdit, grants, notice } = o;
   const perSpace = solution.implementation_scope === 'per_space';
   const base = `/w/${esc(ward.id)}/s/${esc(solution.id)}`;
   const qs = perSpace && spaceId ? `?space=${esc(spaceId)}` : '';
@@ -154,7 +162,10 @@ export function renderSolutionDetail(o: {
     ? `<p><a href="${esc(solution.video_url)}" target="_blank" rel="noopener">▶ Watch walkthrough</a></p>`
     : '';
 
-  // per_space needs a chosen space before tracking.
+  const scopeNote = perSpace
+    ? `<p class="muted">Organization: ${esc(spaces.find((s) => s.id === spaceId)?.name ?? spaceId ?? '')}</p>`
+    : '';
+
   let tracker: string;
   if (perSpace && !spaceId) {
     const opts = spaces
@@ -163,11 +174,11 @@ export function renderSolutionDetail(o: {
       .join(' ');
     tracker = `<h2>Track this (per organization)</h2>
       <p class="muted">Choose which organization is implementing this:</p><p>${opts}</p>`;
-  } else {
+  } else if (impl && !canView) {
+    tracker = `<h2>Implementation</h2>${scopeNote}
+      <div class="card muted">This solution is being tracked privately by your ward.</div>`;
+  } else if (canEdit) {
     const sel = (v: string) => (impl?.status === v ? 'selected' : '');
-    const scopeNote = perSpace
-      ? `<p class="muted">Organization: ${esc(spaces.find((s) => s.id === spaceId)?.name ?? spaceId ?? '')}</p>`
-      : '';
     tracker = `<h2>Implementation</h2>${scopeNote}
       <form method="post" action="${base}/track${qs}" class="card">
         <label>Status</label>
@@ -179,7 +190,16 @@ export function renderSolutionDetail(o: {
         <label>Notes</label><textarea name="notes" rows="3">${esc(impl?.notes ?? '')}</textarea>
         <button class="btn" type="submit">Save status</button>
       </form>`;
-    if (impl) tracker += renderDeliverables(ward, base, qs, deliverables);
+    if (impl) {
+      tracker += renderDeliverables(ward, base, qs, deliverables, true);
+      tracker += renderVisibilityEditor(base, qs, impl, spaces, grants);
+    }
+  } else {
+    // Can view but not edit.
+    tracker = `<h2>Implementation</h2>${scopeNote}
+      <p>Status: ${statusBadge(impl?.status)}</p>
+      ${impl?.notes ? `<div class="card">${esc(impl.notes)}</div>` : ''}`;
+    if (impl) tracker += renderDeliverables(ward, base, qs, deliverables, false);
   }
 
   return layout({
@@ -196,7 +216,13 @@ export function renderSolutionDetail(o: {
   });
 }
 
-function renderDeliverables(ward: WardRow, base: string, qs: string, deliverables: DeliverableRow[]): string {
+function renderDeliverables(
+  ward: WardRow,
+  base: string,
+  qs: string,
+  deliverables: DeliverableRow[],
+  canEdit: boolean,
+): string {
   const list = deliverables.length
     ? deliverables
         .map((d) => {
@@ -204,8 +230,10 @@ function renderDeliverables(ward: WardRow, base: string, qs: string, deliverable
           const qr = slug ? `<div style="width:96px;height:96px">${qrSvg(go4Url(slug))}</div>` : '';
           const pub = d.on_public
             ? '<span class="badge super">on portal</span>'
-            : `<form method="post" action="/w/${esc(ward.id)}/deliverable/${esc(d.id)}/publish${qs}" style="display:inline">
-                 <button class="btn sm" type="submit">Publish to portal</button></form>`;
+            : canEdit
+              ? `<form method="post" action="/w/${esc(ward.id)}/deliverable/${esc(d.id)}/publish${qs}" style="display:inline">
+                   <button class="btn sm" type="submit">Publish to portal</button></form>`
+              : '';
           return `<div class="card"><div class="row">
             <span><strong>${esc(d.title)}</strong>
               ${slug ? `<br><code>${esc(GO4_HOST)}/${esc(slug)}</code>` : ''}</span>
@@ -213,10 +241,40 @@ function renderDeliverables(ward: WardRow, base: string, qs: string, deliverable
         })
         .join('')
     : '<p class="muted">No deliverables yet.</p>';
-  return `<h2>Deliverables</h2>${list}
-    <form method="post" action="${base}/deliverable${qs}" class="card">
-      <label>Title</label><input name="title" required placeholder="e.g. New Member Form">
-      <label>URL</label><input name="url" type="url" required placeholder="https://...">
-      <button class="btn" type="submit">Add link + generate QR</button>
+  const addForm = canEdit
+    ? `<form method="post" action="${base}/deliverable${qs}" class="card">
+        <label>Title</label><input name="title" required placeholder="e.g. New Member Form">
+        <label>URL</label><input name="url" type="url" required placeholder="https://...">
+        <button class="btn" type="submit">Add link + generate QR</button>
+      </form>`
+    : '';
+  return `<h2>Deliverables</h2>${list}${addForm}`;
+}
+
+function renderVisibilityEditor(
+  base: string,
+  qs: string,
+  impl: Implementation,
+  spaces: SpaceRow[],
+  grants: string[],
+): string {
+  const grantSet = new Set(grants);
+  const boxes = spaces
+    .filter((s) => s.kind !== 'public' && s.id !== impl.space_id)
+    .map(
+      (s) => `<label style="font-weight:400"><input type="checkbox" name="grant[]" value="${esc(s.id)}"
+        ${grantSet.has(s.id) ? 'checked' : ''}> ${esc(s.name)}</label>`,
+    )
+    .join('');
+  const v = impl.visibility;
+  return `<h2>Who can see this</h2>
+    <form method="post" action="${base}/visibility${qs}" class="card">
+      <label style="font-weight:400"><input type="radio" name="visibility" value="ward" ${v === 'ward' ? 'checked' : ''}>
+        Everyone in the ward</label>
+      <label style="font-weight:400"><input type="radio" name="visibility" value="restricted" ${v === 'restricted' ? 'checked' : ''}>
+        Restricted — plus these audiences:</label>
+      <div style="margin:.4rem 0 .6rem 1.2rem;display:flex;flex-direction:column;gap:.25rem">${boxes}</div>
+      <p class="muted">The implementing space and space owners can always see it; superadmins see everything.</p>
+      <button class="btn" type="submit">Save visibility</button>
     </form>`;
 }

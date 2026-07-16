@@ -213,11 +213,15 @@ implementation tracking (status/owner/notes) — `ward_singleton` (space_id NULL
 URL deliverables that mint a prefix-namespaced go4.cc short link (D1 + KV write-through) + derive
 an SVG QR; publish-to-Public so the deliverable appears on `/p/<prefix>`. Verified via dev-login:
 author→publish, catalog, track ward_singleton→implemented, add deliverable (slug `p4weeklybulletin`,
-go4 redirect resolves), publish→portal shows it; per_space EQ owner can track, non-member (even
-ward superadmin) gets 403; per_space picker when no space chosen. **Part 2 (still to build):**
-visibility editor (`restricted` grants via `implementation_visibility`) + read-only share/grant
-viewing routed through `src/lib/visibility.ts`; R2 file/image deliverables; publishing to
-non-public spaces; ward submission→operator review pipeline; markdown rendering for how-to bodies.
+go4 redirect resolves), publish→portal shows it; per_space EQ owner can track, per_space picker
+when no space chosen. **Part 2a DONE (superadmin break-glass + visibility editor + markdown):**
+ward superadmin views/manages everything in-ward (per_space non-members otherwise 403); ward
+role grant/revoke with last-superadmin guard; per-implementation visibility editor
+(`ward`/`restricted` + multi-space grants) with catalog + detail reads routed through
+`canViewImplementation`/`canEditImplementation` (restricted hides from unauthorized, grants are
+view-only, superadmin bypass); markdown-lite (links/bold) for how-to bodies. Verified via
+dev-login. **Part 2b (still to build):** R2 file/image deliverables; publishing to non-public
+spaces; ward submission→operator review pipeline.
 
 **Phase 3 — portal builder.**
 Per-space portals for logged-in members (Public renders as Phase 0). Rich-text `portal_blocks`
