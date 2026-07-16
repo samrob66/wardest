@@ -200,6 +200,20 @@ deliverable attach: URL (auto-offer short link + QR), or R2 upload (rule 11). Pu
 (`ward`/`restricted` + grant spaces multi-select). Submission pipeline (`submitted` → operator
 review → `published`/`rejected`).
 
+**Phase 2 build status — PART 1 BUILT, local-verified.** Implemented: operator solution
+authoring (create/edit/publish across the 6 categories, slugified unique slugs) + example seed
+(`db/seed-solutions.sql`); ward catalog grouped by category (collapsible) with ward-level status;
+implementation tracking (status/owner/notes) — `ward_singleton` (space_id NULL, visibility
+`ward`, any ward member) and `per_space` (space picker, gated fail-closed to space members);
+URL deliverables that mint a prefix-namespaced go4.cc short link (D1 + KV write-through) + derive
+an SVG QR; publish-to-Public so the deliverable appears on `/p/<prefix>`. Verified via dev-login:
+author→publish, catalog, track ward_singleton→implemented, add deliverable (slug `p4weeklybulletin`,
+go4 redirect resolves), publish→portal shows it; per_space EQ owner can track, non-member (even
+ward superadmin) gets 403; per_space picker when no space chosen. **Part 2 (still to build):**
+visibility editor (`restricted` grants via `implementation_visibility`) + read-only share/grant
+viewing routed through `src/lib/visibility.ts`; R2 file/image deliverables; publishing to
+non-public spaces; ward submission→operator review pipeline; markdown rendering for how-to bodies.
+
 **Phase 3 — portal builder.**
 Per-space portals for logged-in members (Public renders as Phase 0). Rich-text `portal_blocks`
 (sanitize, rule 7); `tasks` list w/ status, optional assignee, self-archive on done + "Archived"

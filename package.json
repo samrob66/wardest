@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "db:init:local": "wrangler d1 execute wardest-db --local --file=./db/schema.sql",
     "db:seed:local": "wrangler d1 execute wardest-db --local --file=./db/seed-m44.sql",
+    "db:seed:solutions:local": "wrangler d1 execute wardest-db --local --file=./db/seed-solutions.sql",
     "db:reset:local": "npm run db:init:local && npm run db:seed:local",
     "kv:seed:local": "wrangler kv bulk put --binding=GO4_LINKS --local ./seed/links.json"
   },

@@ -204,6 +204,15 @@ export interface SpaceRow {
   kind: string;
 }
 
+export async function spaceRole(env: Env, spaceId: string, userId: string): Promise<string | null> {
+  const r = await env.DB.prepare(
+    `SELECT role FROM space_memberships WHERE space_id = ? AND user_id = ?`,
+  )
+    .bind(spaceId, userId)
+    .first<{ role: string }>();
+  return r?.role ?? null;
+}
+
 export async function getWardSpaces(env: Env, wardId: string): Promise<SpaceRow[]> {
   const res = await env.DB.prepare(
     `SELECT id, name, kind FROM spaces WHERE ward_id = ? AND archived = 0 ORDER BY position ASC`,

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase 0 + Phase 1 built & local-verified; deploy + real Google/Resend pending owner (O1–O5)
+## Status: Phase 0 + Phase 1 + Phase 2(part 1) built & local-verified; deploy + real Google/Resend pending owner (O1–O5)
 
 Reading order: `BLUEPRINT.md` (what Wardest is) → `SCHEMA.md` + `db/schema.sql` (data model +
 canonical visibility rules) → `IMPLEMENTATION.md` (the execution playbook: stack decisions,

@@ -102,6 +102,7 @@ export function renderOperatorConsole(
     title: 'Operator console',
     userEmail: user.email,
     body: `<h1>Operator console</h1>
+      <p><a class="btn ghost" href="/operator/solutions">Manage solutions catalog</a></p>
       ${error ? `<div class="err">${esc(error)}</div>` : ''}
       <h2>Pending workspace requests</h2>${rows}
       <p style="margin-top:1rem"><a href="/">Back to home</a></p>`,
@@ -185,6 +186,7 @@ export function renderWardPage(o: {
         <p>Short link: <code>${esc(GO4_HOST)}/${esc(ward.prefix)}</code>
            (<a href="${esc(go4Url(ward.prefix))}">open</a>)</p>
       </div>
+      <p><a class="btn" href="/w/${esc(ward.id)}/catalog">Open solutions catalog</a></p>
       ${joinsHtml}
       ${inviteForm}
       ${invitesHtml}
