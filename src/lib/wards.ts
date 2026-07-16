@@ -217,6 +217,23 @@ export async function getSpaceById(env: Env, spaceId: string): Promise<SpaceFull
     .first<SpaceFull>();
 }
 
+export interface SpaceMember {
+  user_id: string;
+  email: string;
+  name: string | null;
+}
+
+export async function listSpaceMembers(env: Env, spaceId: string): Promise<SpaceMember[]> {
+  const res = await env.DB.prepare(
+    `SELECT sm.user_id AS user_id, u.email AS email, u.name AS name
+       FROM space_memberships sm JOIN users u ON u.id = sm.user_id
+      WHERE sm.space_id = ? ORDER BY u.email ASC`,
+  )
+    .bind(spaceId)
+    .all<SpaceMember>();
+  return res.results ?? [];
+}
+
 export async function spaceRole(env: Env, spaceId: string, userId: string): Promise<string | null> {
   const r = await env.DB.prepare(
     `SELECT role FROM space_memberships WHERE space_id = ? AND user_id = ?`,

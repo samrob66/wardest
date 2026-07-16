@@ -27,7 +27,17 @@ import {
   listWardMembers,
   setWardMemberRole,
   getSpaceById,
+  listSpaceMembers,
 } from './lib/wards';
+import {
+  listOpenTasks,
+  listArchivedTasks,
+  getTask,
+  createTask,
+  completeTask,
+  reopenTask,
+  deleteTask,
+} from './lib/tasks';
 import {
   createSolution,
   updateSolution,
@@ -57,7 +67,7 @@ import {
   deleteBlock,
   moveBlock,
 } from './lib/portalBlocks';
-import { renderSpacePortal, renderBlockForm } from './views/spaceportal';
+import { renderSpacePortal, renderBlockForm, renderArchivedTasks } from './views/spaceportal';
 import {
   createUrlDeliverable,
   createFileDeliverable,
@@ -233,18 +243,72 @@ async function loadSpaceCtx(c: Context<AppEnv>) {
   const space = await getSpaceById(c.env, c.req.param('spaceId') ?? '');
   if (!space || space.ward_id !== ward.id) return c.html(notFoundPage('space'), 404);
   if (!(await canViewSpaceContent(c.env, user.id, space.id))) return c.text('Forbidden', 403);
-  const canManage = role === 'superadmin' || (await spaceRole(c.env, space.id, user.id)) === 'owner';
-  return { user, ward, space, role, canManage };
+  const sr = await spaceRole(c.env, space.id, user.id);
+  const canManage = role === 'superadmin' || sr === 'owner';
+  const canParticipate = role === 'superadmin' || sr === 'owner' || sr === 'member';
+  return { user, ward, space, role, canManage, canParticipate };
 }
 
 appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
   const ctx = await loadSpaceCtx(c);
   if (ctx instanceof Response) return ctx;
-  const { user, ward, space, canManage } = ctx;
+  const { user, ward, space, canManage, canParticipate } = ctx;
   const blocks = await listBlocks(c.env, space.id);
   const cards = await getPortalCards(c.env, space.id);
+  const tasks = await listOpenTasks(c.env, space.id);
+  const members = canParticipate ? await listSpaceMembers(c.env, space.id) : [];
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
-  return c.html(renderSpacePortal({ user, ward, space, canManage, blocks, cards, notice }));
+  return c.html(
+    renderSpacePortal({ user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, notice }),
+  );
+});
+
+appSite.post('/w/:wardId/space/:spaceId/task', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canParticipate) return c.text('Forbidden', 403);
+  const body = await c.req.parseBody();
+  const text = String(body.text ?? '').trim();
+  const assignee = String(body.assignee ?? '').trim() || null;
+  if (text) {
+    await createTask(c.env, {
+      wardId: ctx.ward.id,
+      spaceId: ctx.space.id,
+      text,
+      assigneeUserId: assignee,
+      createdBy: ctx.user.id,
+    });
+  }
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+});
+
+async function taskAction(
+  c: Context<AppEnv>,
+  action: (id: string) => Promise<void>,
+): Promise<Response> {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canParticipate) return c.text('Forbidden', 403);
+  const task = await getTask(c.env, c.req.param('taskId') ?? '');
+  if (task && task.space_id === ctx.space.id) await action(task.id);
+  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+}
+
+appSite.post('/w/:wardId/space/:spaceId/task/:taskId/complete', requireAuth(), (c) =>
+  taskAction(c, (id) => completeTask(c.env, id)),
+);
+appSite.post('/w/:wardId/space/:spaceId/task/:taskId/reopen', requireAuth(), (c) =>
+  taskAction(c, (id) => reopenTask(c.env, id)),
+);
+appSite.post('/w/:wardId/space/:spaceId/task/:taskId/delete', requireAuth(), (c) =>
+  taskAction(c, (id) => deleteTask(c.env, id)),
+);
+
+appSite.get('/w/:wardId/space/:spaceId/tasks/archived', requireAuth(), async (c) => {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  const archived = await listArchivedTasks(c.env, ctx.space.id);
+  return c.html(renderArchivedTasks(ctx.user, ctx.ward, ctx.space, archived, ctx.canParticipate));
 });
 
 appSite.post('/w/:wardId/space/:spaceId/block', requireAuth(), async (c) => {

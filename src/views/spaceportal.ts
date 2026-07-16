@@ -1,6 +1,7 @@
 import type { SessionUser, PortalCard } from '../types';
-import type { WardRow, SpaceFull } from '../lib/wards';
+import type { WardRow, SpaceFull, SpaceMember } from '../lib/wards';
 import type { PortalBlock } from '../lib/portalBlocks';
+import type { TaskRow } from '../lib/tasks';
 import { esc, go4Url, GO4_HOST, mdLite } from '../lib/html';
 import { qrSvg } from '../lib/qr';
 import { layout } from './layout';
@@ -19,12 +20,37 @@ export function renderSpacePortal(o: {
   ward: WardRow;
   space: SpaceFull;
   canManage: boolean;
+  canParticipate: boolean;
   blocks: PortalBlock[];
   cards: PortalCard[];
+  tasks: TaskRow[];
+  members: SpaceMember[];
   notice?: string;
 }): string {
-  const { user, ward, space, canManage, blocks, cards, notice } = o;
+  const { user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, notice } = o;
   const base = `/w/${esc(ward.id)}/space/${esc(space.id)}`;
+
+  const taskItems = tasks.length
+    ? tasks
+        .map(
+          (t) => `<div class="card"><div class="row">
+            <span>${esc(t.text)}${t.assignee_name ? ` <span class="muted">· ${esc(t.assignee_name)}</span>` : ''}</span>
+            ${canParticipate ? `<form method="post" action="${base}/task/${esc(t.id)}/complete" style="display:inline"><button class="btn sm" type="submit">Done</button></form>` : ''}
+          </div></div>`,
+        )
+        .join('')
+    : '<p class="muted">No open tasks.</p>';
+  const memberOpts = members.map((m) => `<option value="${esc(m.user_id)}">${esc(m.name ?? m.email)}</option>`).join('');
+  const addTask = canParticipate
+    ? `<form method="post" action="${base}/task" class="card">
+        <label>Add a task</label><input name="text" required placeholder="What needs doing?">
+        <label>Assign to (optional)</label>
+        <select name="assignee"><option value="">— unassigned —</option>${memberOpts}</select>
+        <button class="btn" type="submit">Add task</button>
+      </form>`
+    : '';
+  const tasksSection = `<h2>Tasks</h2>${taskItems}${addTask}
+    <p><a href="${base}/tasks/archived">View archived</a></p>`;
 
   const blocksHtml = blocks
     .map((b) => {
@@ -64,7 +90,42 @@ export function renderSpacePortal(o: {
       ${blocksHtml}
       ${addBlock}
       <h2>Deliverables</h2>
-      ${cardsHtml}`,
+      ${cardsHtml}
+      ${tasksSection}`,
+  });
+}
+
+export function renderArchivedTasks(
+  user: SessionUser,
+  ward: WardRow,
+  space: SpaceFull,
+  tasks: TaskRow[],
+  canParticipate: boolean,
+): string {
+  const base = `/w/${esc(ward.id)}/space/${esc(space.id)}`;
+  const items = tasks.length
+    ? tasks
+        .map(
+          (t) => `<div class="card"><div class="row">
+            <span style="text-decoration:line-through">${esc(t.text)}</span>
+            ${
+              canParticipate
+                ? `<span>
+                     <form method="post" action="${base}/task/${esc(t.id)}/reopen" style="display:inline"><button class="btn sm ghost" type="submit">Reopen</button></form>
+                     <form method="post" action="${base}/task/${esc(t.id)}/delete" style="display:inline"><button class="btn sm ghost danger" type="submit">Delete</button></form>
+                   </span>`
+                : ''
+            }
+          </div></div>`,
+        )
+        .join('')
+    : '<p class="muted">No archived tasks.</p>';
+  return layout({
+    title: `${space.name} — Archived tasks`,
+    userEmail: user.email,
+    body: `<h1>Archived tasks</h1>
+      <p class="muted">${esc(space.name)} · <a href="${base}">back to portal</a></p>
+      ${items}`,
   });
 }
 
