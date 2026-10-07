@@ -59,7 +59,7 @@ erDiagram
 | `users` | Google-identified people; may belong to multiple wards |
 | `solutions` | Global catalog **and** the submission pipeline (one table, keyed by `status`) |
 | `workspace_requests` | Request→approve gate: `create` a new ward (operator reviews) or `join` an existing one after unit-number dedupe (that ward's superadmins review) |
-| `wards` | The tenant; `unit_number` dedupes, `prefix` namespaces go4.cc links |
+| `wards` | The tenant; `unit_number` dedupes; `prefix` = the ward's zippa.run prefix (e.g. `m44`) |
 | `ward_memberships` | user↔ward + ward role (`superadmin`/`member`) |
 | `spaces` | An audience (Public/Bishopric/Ward Council/org); the app-wide visibility primitive; also the portal (1:1); `archived` hides unused defaults |
 | `space_memberships` | user↔space + space role (`owner`/`member`) |
@@ -70,7 +70,7 @@ erDiagram
 | `implementation_visibility` | Multi-valued audience grants for `restricted` tracker entries |
 | `deliverables` | The output (url/file/image); tied to an implementation or ad-hoc; 1 implementation : N deliverables |
 | `deliverable_spaces` | Publishing layer: which spaces show a deliverable + portal inclusion/order |
-| `short_links` | go4.cc slugs → destinations (D1 = source of truth; KV mirror for redirects); `target_*` is the only linkage — no back-references |
+| `short_links` | go4.cc slugs → destinations (D1 = source of truth; KV mirror for redirects); `target_*` is the only linkage — no back-references. **Superseded 2026-10** (go4.cc dead; links live on zippa.run) — replaced by roadmap item 1 in IMPLEMENTATION.md §10 |
 | `invites` / `invite_space_roles` | Callings-chart invites → materialize into memberships |
 
 ## Key design decisions

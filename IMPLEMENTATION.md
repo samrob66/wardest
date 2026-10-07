@@ -21,26 +21,28 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
 | Code | None yet — docs + `seed/links.json` only |
 | `wardest.com` DNS | On Cloudflare (nameservers moved). Google Workspace MX/SPF/DKIM/DMARC live at apex — **do not touch apex MX** |
 | Email | Resend verified on `send.wardest.com` (records live at `send.send.wardest.com` + `resend._domainkey.send.wardest.com`). From: `no-reply@send.wardest.com`. Live send test passed (SPF/DKIM/DMARC) |
-| `go4.cc` | Purchased; **not yet added to Cloudflare** (owner task O1) |
+| `go4.cc` | **Dead (2026-10)** — the seller never transferred it; refunded. Short links are on `zippa.run`, a separate live project (`../zipa.run`). See BLUEPRINT §7 |
 | Owner's Resend API key | Created (never committed; goes in via `wrangler secret put RESEND_API_KEY`) |
 
 ## 2. Owner tasks (blockers you cannot do — ask when you hit them)
 
-- **O1.** Add `go4.cc` as a Cloudflare zone + point its nameservers at Cloudflare (same flow as
-  wardest.com). Blocks Phase 0 *deploy* only — build/dev is unblocked.
+- ~~**O1.** Add `go4.cc` as a Cloudflare zone.~~ **Obsolete** — go4.cc is dead (2026-10).
 - **O2.** Supply the real M44 **unit number** for the seed (placeholder until then).
 - **O3.** `wrangler login` / Cloudflare API token for deploys from this machine.
 - **O4.** Phase 1: create a **Google Cloud OAuth client** (web app; authorized redirect
   `https://app.wardest.com/auth/callback` + `http://localhost:8787/auth/callback` for dev).
 - **O5.** Phase 1: `wrangler secret put RESEND_API_KEY` (+ `SESSION_SECRET`, `GOOGLE_CLIENT_SECRET`).
 - **O6.** Choose the donate link (Stripe Payment Link / Ko-fi / PayPal) for the landing page.
-- **O7.** Confirm cutover timing for the old `M44 Link in Bio` page (see §9 guardrails).
+- ~~**O7.** Confirm cutover timing for the old `M44 Link in Bio` page.~~ **Obsolete** — the M44
+  site is the ward's property, already on zippa.run, and is never migrated (see §9).
 
 ## 3. Stack decisions (settled)
 
 - **One Worker** (`wardest`) serving all three hostnames via hostname routing in the fetch
   handler: `go4.cc/*` (redirects), `app.wardest.com/*` (app + portal render), `wardest.com/*`
   (static landing). Split into multiple Workers later only if a real reason appears.
+  *(2026-10: the `go4.cc` host and the `GO4_LINKS` KV below are superseded by zippa.run and go
+  with roadmap item 1, §10.)*
 - **TypeScript + Hono** (Workers-native router). Server-rendered HTML; minimal vanilla JS
   (QR modal, later form UX). No frontend framework. Portal pages must degrade gracefully
   without JS (QR modal is the only JS-dependent nicety).
@@ -92,6 +94,10 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
     content-type allowlist (pdf, png, jpg, webp, svg) at upload.
 
 ## 5. Phase 0 — go4.cc shortener + M44 public portal
+
+> **Superseded in part (2026-10).** go4.cc never transferred; the shortener now lives at
+> zippa.run (separate project). §5 and §5b are kept as the record of what was built. The
+> shortener half is retired by roadmap item 1 (§10); the portal half stands.
 
 Goal: replace tinyurl/tiny.cc for M44 and prove the stack. Build/dev now; deploy blocked only by O1.
 
@@ -252,10 +258,9 @@ variant for every space portal. Ward page lists each user's accessible portals. 
 dev-login on p4. Only R2-served files + go4 live redirects still await deploy (O1/O3).
 
 **Phase 4 — scale-out + hardening.**
-Shortener abuse controls: per-ward creation rate cap (D1 count per day), optional Google Safe
-Browsing check on destinations, one-click link disable + ward suspend (KV delete per rule 5).
-Operator dashboard (requests, wards, links). Second-ward onboarding end-to-end. Poster/print
-polish. Update `M44 Link in Bio` repo links (O7 — separate repo, after owner confirms).
+Operator dashboard (requests, wards). Second-ward onboarding end-to-end. Poster/print polish.
+*(2026-10: shortener abuse controls dropped — zippa.run already has creator approval and Web Risk
+scanning. The M44 repo update is void — the ward owns that site and it stays on zippa.run.)*
 
 ## 7. Portal design spec (from `M44 Link in Bio/index.html` + `print.html`)
 
@@ -274,7 +279,7 @@ Recreate the established look, upgraded. Tokens:
 | Page bg | soft image w/ white gradient overlay in the original — Phase 0 may ship a plain gradient; per-ward hero images are a later nicety (raster imagery = grainy at poster size; keep posters vector-only) |
 | Print | pt/in units, fixed `@page` size (parameterized per §5 0.6), `print-color-adjust: exact`, decorative arrow + QR emphasis as in `print.html` |
 
-Upgrades vs. the original: QR = inline SVG (no `api.qrserver.com`), short URLs = `go4.cc/*`,
+Upgrades vs. the original: QR = inline SVG (no `api.qrserver.com`), short URLs = `zippa.run/*`,
 mobile-first responsive (original max-width 480px column is good), data-driven from D1.
 
 ## 8. Definition of done (every phase)
@@ -286,7 +291,9 @@ file + BLUEPRINT.md stay truthful), owner walked through anything they must clic
 ## 9. Guardrails (do NOT)
 
 - Don't touch apex `wardest.com` DNS/MX, the Workspace/Resend records, or nameservers.
-- Don't modify `F:\!SLRFam\AI\Claude-Apps\M44 Link in Bio` until O7 says so.
+- Don't modify `F:\!SLRFam\AI\Claude-Apps\M44 Link in Bio` or `github.com/m44ward/m44links` —
+  the site is Mapleton 44th's property. Wardest gets its own demo copy (§10).
+- Don't modify `../zipa.run` from here; it's a separate project with its own decision records.
 - Don't build: custom passwords, calling verification, meeting agendas/minutes, WordPress,
   per-ward subdomains, analytics — all explicitly out of scope (BLUEPRINT §12).
 - Don't weaken fail-closed visibility defaults for convenience.
@@ -294,3 +301,46 @@ file + BLUEPRINT.md stay truthful), owner walked through anything they must clic
   QR images (always derive).
 - Don't hand-edit production KV/D1 outside migrations/seeds/app writes (except via documented
   wrangler commands).
+
+## 10. Roadmap from here (2026-10-06)
+
+Items 1–2 get Wardest live; 3–7 build the Executive Secretary resource; 8 is Phase 4. Sam's
+Notion Master Tasks (Area `Wardest.com`) tracks the same list.
+
+1. **Retire the built-in shortener; use pasted zippa.run links.** *(Sam approved 2026-10-06.)*
+   Remove the `go4.cc` host route (`src/go.ts`), the `GO4_LINKS` KV binding, `seed/links.json`
+   and short-link minting (deliverables, portals, ward creation). A deliverable gets an optional
+   short-link field; its QR encodes the short link when set, else the destination. A portal gets
+   a share-link field (e.g. `zippa.run/m44Links`) for its master QR. A migration replaces
+   `short_links`; the M44 seed carries its real zippa.run links.
+2. **Deploy.** Owner: O2 (M44 unit number), O3 (`wrangler login`), O4 (Google OAuth client), O5
+   (secrets), O6 (donate link). Then create D1 + R2 (`wardest-files`), migrate + seed, deploy,
+   and verify a real Google sign-in and a live Resend invite.
+3. **Spec the Executive Secretary setup track** — the guided, ordered path for a new bishopric's
+   Exec Sec. Discuss first, review as .docx, then build. Draft order (from the Playbook): role
+   account → Google plan → calendars → booking pages → interview router → zippa.run creator +
+   links → ward links site / portal → flyer → Zoom → assignment rotations → Wardest spaces +
+   callings.
+4. **Catalog how-tos from the Playbook.** Revise the 3 drafted solutions (zippa.run + demo site),
+   seed them in place of `sol_ex_interviews` / `sol_ex_bulletin`, and ship the generalized
+   `InterviewRouter` template with the real calendar IDs stripped. Then the remaining Playbook
+   sections, in the track order from item 3.
+5. **Assignment rotation trackers** (Bishopric Meeting + Ward Council). These were built
+   2026-07 and are described in CLAUDE.md under "Related tools". The **Apps Script version** is the
+   template asset for two catalog solutions. Bishopric Meeting goes under `bishopric`. Ward Council
+   goes under `exec_secretary`, which is proposed and awaiting Sam's confirmation (the schema has
+   no Ward Council category). It's a Google-based tool each ward owns, which keeps it within
+   BLUEPRINT §12. Harden it
+   before publishing:
+   - Generate a random PIN on first run instead of shipping the fixed default `1830`.
+   - Throttle wrong PIN guesses.
+   - Use the generic calling list only.
+   - Make the setup guide match the code.
+   Wardest hosts the code and guide; it doesn't run the tracker.
+6. **Demo / example ward links site.** A generic copy of the M44 hub and its interview sub-pages
+   that new wards can see and copy. Agreed 2026-10-06: a GitHub template repo with Pages, owned by
+   a Wardest GitHub account (not samrob66, not m44ward). Creating that account is an owner step.
+7. **Other Exec Sec templates** from the same Drive folder (meeting agendas + minutes, speaker
+   planner, tithing declaration sign-up, missionary dinner calendar, new & returning members) —
+   catalog candidates once Sam confirms they're current.
+8. **Phase 4** — second ward onboarded end-to-end; operator dashboard; print polish.
