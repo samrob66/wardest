@@ -62,7 +62,7 @@ CREATE TABLE wards (
   id                TEXT PRIMARY KEY,
   name              TEXT NOT NULL,
   unit_number       TEXT NOT NULL UNIQUE,       -- dedupe key
-  prefix            TEXT NOT NULL UNIQUE,        -- lowercased go4.cc namespacing prefix, e.g. 'm44'
+  prefix            TEXT NOT NULL UNIQUE,        -- lowercased; public portal path /p/<prefix> + the ward's zippa.run prefix, e.g. 'm44'
   status            TEXT NOT NULL DEFAULT 'active'
                       CHECK (status IN ('active','suspended')),
   created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -107,7 +107,9 @@ CREATE INDEX idx_ward_memberships_user ON ward_memberships(user_id);
 -- A space is an audience (Public, Bishopric, Ward Council, per-org). It is the visibility
 -- primitive for the whole app and the unit a portal renders (1 space : 1 portal).
 -- kind='public' identifies the ward's public portal (no login, noindex).
--- A portal's go4.cc link is a short_links row with target_type='portal' + target_space_id.
+-- share_url: an optional short link (e.g. zippa.run/m44Links) that a leader made on zippa.run,
+-- pointing at this portal, and pasted in. It's what the portal's master QR encodes; when it's
+-- unset, the QR encodes the portal's own address. Wardest never creates short links itself.
 CREATE TABLE spaces (
   id                    TEXT PRIMARY KEY,
   ward_id               TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
@@ -118,6 +120,7 @@ CREATE TABLE spaces (
   archived              INTEGER NOT NULL DEFAULT 0,  -- "hide" a default space a ward doesn't use
   portal_title          TEXT,
   portal_published      INTEGER NOT NULL DEFAULT 0,
+  share_url             TEXT,                    -- pasted short link to this portal (http/https)
   position              INTEGER NOT NULL DEFAULT 0,
   created_at            TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
@@ -234,8 +237,9 @@ CREATE INDEX idx_impl_visibility_space ON implementation_visibility(space_id);
 
 -- The output artifact. Tied to an implementation, OR standalone ("Add link/URL/QR").
 -- One implementation may produce several deliverables (e.g. URL + printable PDF).
--- QR is DERIVED from url / short link at render time (not stored).
--- Its go4.cc link is a short_links row with target_type='deliverable' + target_deliverable_id.
+-- QR is DERIVED at render time (not stored): it encodes short_url when set, else the
+-- destination (url, or the /f/<id> serving URL for a file/image).
+-- short_url is a pasted short link (e.g. zippa.run/m44Bulletin); Wardest never creates them.
 -- created_by is the ownership boundary (only the creator edits/deletes; app-enforced).
 CREATE TABLE deliverables (
   id                 TEXT PRIMARY KEY,
@@ -246,6 +250,7 @@ CREATE TABLE deliverables (
   type               TEXT NOT NULL CHECK (type IN ('url','file','image')),
   url                TEXT,                        -- for type='url'
   file_key           TEXT,                        -- R2 object key for file/image
+  short_url          TEXT,                        -- optional pasted short link (http/https)
   created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   created_at         TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
@@ -265,26 +270,6 @@ CREATE TABLE deliverable_spaces (
   UNIQUE (deliverable_id, space_id)
 );
 CREATE INDEX idx_deliverable_spaces_space ON deliverable_spaces(space_id);
-
--- ============================================================ SHORTENER (go4.cc)
--- D1 is source of truth; a KV mirror (slug -> destination) is populated for edge redirects.
--- target_* is the ONLY link between a short link and what it points at (no back-references
--- from deliverables/spaces — look up by query).
-CREATE TABLE short_links (
-  id                    TEXT PRIMARY KEY,
-  ward_id               TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
-  slug                  TEXT NOT NULL UNIQUE,     -- full path, lowercased, prefix-namespaced
-  destination_url       TEXT NOT NULL,
-  target_type           TEXT NOT NULL DEFAULT 'manual'
-                          CHECK (target_type IN ('manual','deliverable','portal')),
-  target_deliverable_id TEXT REFERENCES deliverables(id) ON DELETE SET NULL,
-  target_space_id       TEXT REFERENCES spaces(id) ON DELETE SET NULL,
-  disabled              INTEGER NOT NULL DEFAULT 0,
-  created_by_user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
-  created_at            TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX idx_short_links_ward ON short_links(ward_id);
 
 -- ============================================================ INVITES (callings chart)
 -- Superadmin enters people by email; on Google login the invite materializes into

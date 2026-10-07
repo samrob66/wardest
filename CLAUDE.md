@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; deploy + real Google/Resend pending owner (O2–O6 + `wrangler r2 bucket create wardest-files`). go4.cc fell through (2026-10) — short links are on `zippa.run`. Next: see IMPLEMENTATION.md §10 (roadmap)
+## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; built-in shortener retired (2026-10, short links are pasted `zippa.run` links). Deploy + real Google/Resend pending owner (O2–O6 + `wrangler r2 bucket create wardest-files`). Next: see IMPLEMENTATION.md §10 (roadmap)
 
 Reading order: `BLUEPRINT.md` (what Wardest is) → `SCHEMA.md` + `db/schema.sql` (data model +
 canonical visibility rules) → `IMPLEMENTATION.md` (the execution playbook: stack decisions,
@@ -30,10 +30,12 @@ implementation tracker) and **Publish & Share** (portals).
 
 ## Architecture (all Cloudflare)
 
-- **Workers** — the app. The built-in `go4.cc` shortener from Phases 0–3 (`src/go.ts`, `GO4_LINKS`
-  KV, short-link minting) is superseded by zippa.run and due to be retired (IMPLEMENTATION.md §10).
+- **Workers** — the app (one Worker: `app.wardest.com` + the `wardest.com` landing). It stores
+  pasted short links (`deliverables.short_url`, `spaces.share_url`) and derives QR codes from
+  them; it never creates or serves short links. (The Phase 0–3 `go4.cc` shortener was retired
+  in 2026-10.)
 - **D1** (SQLite) — structured data: wards, users, memberships, spaces, solutions, implementations,
-  portals, tasks, short links. **Row-level tenancy** (`ward_id` on every row); one DB, not one-per-ward.
+  portals, tasks. **Row-level tenancy** (`ward_id` on every row); one DB, not one-per-ward.
 - **R2** — uploaded files/images (free egress).
 - **Pages** — the static `wardest.com` site.
 - **Auth: Sign in with Google (OAuth/OIDC) implemented in-app.** NOT Cloudflare Access (50-user free
@@ -43,7 +45,8 @@ implementation tracker) and **Publish & Share** (portals).
 
 Key invariants: **ward = visibility boundary**, **individual = edit/ownership boundary**. Spaces are
 opt-in shared audiences with **no automatic top-down visibility**. Public portals are `noindex` but
-otherwise public; short links are inherently public (they exist to be shared).
+otherwise public; short links are inherently public (they exist to be shared). Every pasted link
+is http(s)-only, normalized on write and guarded on render (`src/lib/urls.ts`).
 
 ## Repo contents
 
@@ -51,32 +54,31 @@ otherwise public; short links are inherently public (they exist to be shared).
 - `SCHEMA.md` + `db/schema.sql` — D1 data model, audit trail, canonical visibility algorithm.
 - `IMPLEMENTATION.md` — execution playbook (stack, rules, milestones, owner blockers).
 - `HANDOFF.md` — historical original spec.
-- `seed/links.json` — the 6 Mapleton 44th Ward links in `wrangler kv bulk put` format (keys
-  lower-cased); feeds the go4 KV mirror, so it goes when the built-in shortener is retired.
-- `src/` (Hono Worker) + `wrangler.toml` + `db/` (schema + seeds).
+- `src/` (Hono Worker) + `wrangler.toml` + `db/` (schema + seeds; `db/seed-m44.sql` carries M44's
+  six real zippa.run links).
 
 ## Build order (see BLUEPRINT.md §14 for detail)
 
-- **Phase 0** — shortener (built for `go4.cc`, now superseded by zippa.run) + M44 public portal (auto
-  SVG QR, poster print).
+- **Phase 0** — M44 public portal (auto SVG QR, poster print). Its `go4.cc` shortener was
+  retired in 2026-10 for pasted zippa.run links.
 - **Phase 1** — Google auth, tenancy, spaces, onboarding + Resend invites.
 - **Phase 2** — solutions catalog + implementation tracker.
-- **Phase 3** — full portal builder (rich-text, tasks, per-portal short links).
+- **Phase 3** — full portal builder (rich-text, tasks, per-portal share links).
 - **Phase 4** — onboard other wards + polish. (Shortener abuse controls are zippa.run's job and
   already built there.)
 
-## Deploy / develop (once the Worker exists)
+## Deploy / develop
 
-Cloudflare Wrangler, current syntax (Wrangler ≥ 3.60.0 uses space-separated `kv ...`; the colon form
-`kv:...` is deprecated). Prefix with `npx ` if not installed globally.
+Cloudflare Wrangler (Wrangler ≥ 3.60.0 uses space-separated subcommands; the colon form is
+deprecated). Prefix with `npx ` if not installed globally.
 
-- `wrangler dev` — run a Worker locally.
-- `wrangler deploy` — deploy.
-- `wrangler kv namespace create <KV_BINDING>` — create a KV namespace; paste the printed block into
-  `wrangler.toml`.
-- `wrangler kv bulk put --binding=<KV_BINDING> seed/links.json` — seed the shortener links (`--preview`
-  targets the preview namespace).
-- `wrangler d1 execute <DB> --file=<schema.sql>` — run D1 migrations (once D1 is set up).
+- Local: `npm run db:init:local` → `npm run db:seed:local` → `npm run db:seed:solutions:local` →
+  `npm run dev` (portal at `http://localhost:8787/p/m44`; `/auth/dev-login?email=…` needs
+  `.dev.vars`). `db/schema.sql` has no `IF NOT EXISTS`, so to reset, delete `.wrangler/state`
+  first — or point at a scratch DB with `--persist-to <dir>` on both `d1 execute` and `dev`.
+- `npm run typecheck` — `tsc --noEmit`.
+- `wrangler deploy` — deploy (full owner steps: IMPLEMENTATION.md §5b + §10 item 2).
+- `wrangler d1 execute wardest-db --remote --file=<sql>` — run schema/seeds against prod D1.
 - `wrangler secret put RESEND_API_KEY` — store the Resend key.
 
 ## Anti-abuse posture

@@ -58,16 +58,14 @@ export async function wardRole(env: Env, wardId: string, userId: string): Promis
   return r?.role ?? null;
 }
 
-// Atomically create a ward + its default spaces + the creator's superadmin membership + the
-// public portal's go4.cc short link, then mirror the portal link into KV. Assumes prefix/unit
-// availability already checked by the caller.
+// Atomically create a ward + its default spaces + the creator's superadmin membership.
+// Assumes prefix/unit availability already checked by the caller.
 export async function createWard(
   env: Env,
   opts: { name: string; unitNumber: string; prefix: string; creatorUserId: string },
 ): Promise<string> {
   const wardId = newId('wrd');
   const publicSpaceId = newId('spc');
-  const portalDest = `${env.APP_URL}/p/${opts.prefix}`;
 
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare(
@@ -102,15 +100,7 @@ export async function createWard(
     ).bind(newId('wm'), wardId, opts.creatorUserId),
   );
 
-  stmts.push(
-    env.DB.prepare(
-      `INSERT INTO short_links (id, ward_id, slug, destination_url, target_type, target_space_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'portal', ?, ?)`,
-    ).bind(newId('sl'), wardId, opts.prefix, portalDest, publicSpaceId, opts.creatorUserId),
-  );
-
   await env.DB.batch(stmts);
-  await env.GO4_LINKS.put(opts.prefix, portalDest);
   return wardId;
 }
 
@@ -209,10 +199,11 @@ export interface SpaceFull {
   ward_id: string;
   kind: string;
   name: string;
+  share_url: string | null;
 }
 
 export async function getSpaceById(env: Env, spaceId: string): Promise<SpaceFull | null> {
-  return env.DB.prepare(`SELECT id, ward_id, kind, name FROM spaces WHERE id = ?`)
+  return env.DB.prepare(`SELECT id, ward_id, kind, name, share_url FROM spaces WHERE id = ?`)
     .bind(spaceId)
     .first<SpaceFull>();
 }

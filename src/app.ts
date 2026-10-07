@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 import type { AppEnv, PortalData } from './types';
 import { normalizeSlug } from './lib/slug';
-import { getWardByPrefix, getPublicSpace, getPortalCards, getPortalShortSlug } from './lib/db';
+import { getWardByPrefix, getPublicSpace, getPortalCards } from './lib/db';
+import { normalizeHttpUrl } from './lib/urls';
 import { renderPortal } from './views/portal';
 import { renderPortalPrint, isPrintSize, type PrintSize } from './views/portalprint';
 import { notFoundPage } from './views/notfound';
@@ -69,10 +70,11 @@ import {
 } from './lib/portalBlocks';
 import { renderSpacePortal, renderBlockForm, renderArchivedTasks } from './views/spaceportal';
 import { listSharedWith, addShare, removeShare } from './lib/spaceShares';
-import { ensurePortalShortLink } from './lib/portalLinks';
+import { portalUrl, setSpaceShareUrl } from './lib/portalLinks';
 import {
   createUrlDeliverable,
   createFileDeliverable,
+  setDeliverableShortUrl,
   getFileDeliverable,
   getDeliverableImplVisibility,
   deliverableIsPublic,
@@ -213,6 +215,7 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
   const invites = isSuper ? await listPendingInvites(c.env, ward.id) : [];
   const members = isSuper ? await listWardMembers(c.env, ward.id) : [];
   const spaces = isSuper ? allSpaces : [];
+  const publicPortal = await getPublicSpace(c.env, ward.id);
   const notice = c.req.query('joined')
     ? `Welcome to ${ward.name}!`
     : c.req.query('ok')
@@ -220,7 +223,10 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
       : undefined;
   const error = c.req.query('err') || undefined;
   return c.html(
-    renderWardPage({ user, ward, role, joins, spaces, invites, members, portals, appUrl: c.env.APP_URL, notice, error }),
+    renderWardPage({
+      user, ward, role, joins, spaces, invites, members, portals, publicPortal,
+      appUrl: c.env.APP_URL, notice, error,
+    }),
   );
 });
 
@@ -260,7 +266,6 @@ appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
   const tasks = await listOpenTasks(c.env, space.id);
   const members = canParticipate ? await listSpaceMembers(c.env, space.id) : [];
   const shares = canManage ? await listSharedWith(c.env, space.id) : [];
-  const portalShortSlug = await getPortalShortSlug(c.env, space.id);
   let shareTargets: Awaited<ReturnType<typeof getWardSpaces>> = [];
   if (canManage) {
     const sharedIds = new Set(shares.map((s) => s.space_id));
@@ -269,10 +274,11 @@ appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
     );
   }
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
+  const error = c.req.query('err') || undefined;
   return c.html(
     renderSpacePortal({
       user, ward, space, canManage, canParticipate, blocks, cards, tasks, members,
-      shares, shareTargets, portalShortSlug, notice,
+      shares, shareTargets, portalUrl: portalUrl(c.env.APP_URL, ward, space), notice, error,
     }),
   );
 });
@@ -296,23 +302,19 @@ appSite.post('/w/:wardId/space/:spaceId/unshare', requireAuth(), async (c) => {
   return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
 });
 
-appSite.post('/w/:wardId/space/:spaceId/shortlink', requireAuth(), async (c) => {
+// Save (or clear) the portal's share link: a short link the leader made on zippa.run.
+appSite.post('/w/:wardId/space/:spaceId/share-link', requireAuth(), async (c) => {
   const ctx = await loadSpaceCtx(c);
   if (ctx instanceof Response) return ctx;
   if (!ctx.canManage) return c.text('Forbidden', 403);
-  const dest =
-    ctx.space.kind === 'public'
-      ? `${c.env.APP_URL}/p/${ctx.ward.prefix}`
-      : `${c.env.APP_URL}/w/${ctx.ward.id}/space/${ctx.space.id}`;
-  await ensurePortalShortLink(c.env, {
-    wardId: ctx.ward.id,
-    spaceId: ctx.space.id,
-    prefix: ctx.ward.prefix,
-    spaceName: ctx.space.name,
-    destUrl: dest,
-    createdBy: ctx.user.id,
-  });
-  return c.redirect(`/w/${ctx.ward.id}/space/${ctx.space.id}?ok=1`, 302);
+  const back = `/w/${ctx.ward.id}/space/${ctx.space.id}`;
+  const raw = String((await c.req.parseBody()).share_url ?? '').trim();
+  const shareUrl = raw ? normalizeHttpUrl(raw) : null;
+  if (raw && !shareUrl) {
+    return c.redirect(`${back}?err=${encodeURIComponent('That share link is not a valid web address.')}`, 302);
+  }
+  await setSpaceShareUrl(c.env, ctx.space.id, shareUrl);
+  return c.redirect(`${back}?ok=1`, 302);
 });
 
 appSite.post('/w/:wardId/space/:spaceId/task', requireAuth(), async (c) => {
@@ -430,11 +432,17 @@ appSite.get('/w/:wardId/space/:spaceId/print', requireAuth(), async (c) => {
   const raw = (c.req.query('size') ?? 'letter').toLowerCase();
   const size: PrintSize = isPrintSize(raw) ? raw : 'letter';
   const cards = await getPortalCards(c.env, space.id);
-  const portalSlug = await getPortalShortSlug(c.env, space.id);
   c.header('X-Robots-Tag', 'noindex');
   return c.html(
     renderPortalPrint(
-      { wardName: ward.name, prefix: ward.prefix, portalTitle: space.name, cards, portalSlug },
+      {
+        wardName: ward.name,
+        prefix: ward.prefix,
+        portalTitle: space.name,
+        cards,
+        portalUrl: portalUrl(c.env.APP_URL, ward, space),
+        shareUrl: space.share_url,
+      },
       size,
     ),
   );
@@ -680,7 +688,7 @@ appSite.get('/w/:wardId/s/:solutionId', requireAuth(), async (c) => {
   return c.html(
     renderSolutionDetail({
       user, ward, solution, spaces, spaceId, impl, deliverables, publications,
-      publishTargets, defaultTargetId, canView, canEdit, grants, notice,
+      publishTargets, defaultTargetId, canView, canEdit, isSuper: role === 'superadmin', grants, notice,
     }),
   );
 });
@@ -727,14 +735,20 @@ appSite.post('/w/:wardId/s/:solutionId/deliverable', requireAuth(), async (c) =>
   if (!impl) return c.text('Set a status first.', 400);
   const body = await c.req.parseBody();
   const title = String(body.title ?? '').trim();
-  const url = String(body.url ?? '').trim();
-  if (title && url) {
+  const rawUrl = String(body.url ?? '').trim();
+  const rawShort = String(body.short_url ?? '').trim();
+  if (title && rawUrl) {
+    // Only http(s) is stored: it becomes an href on public portals.
+    const url = normalizeHttpUrl(rawUrl);
+    if (!url) return c.text('Enter a valid web address (https://…).', 400);
+    const shortUrl = rawShort ? normalizeHttpUrl(rawShort) : null;
+    if (rawShort && !shortUrl) return c.text('That short link is not a valid web address.', 400);
     await createUrlDeliverable(c.env, {
       wardId: ward.id,
       implementationId: impl.id,
-      prefix: ward.prefix,
       title,
       url,
+      shortUrl,
       createdBy: user.id,
     });
   }
@@ -760,14 +774,16 @@ appSite.post('/w/:wardId/s/:solutionId/deliverable-file', requireAuth(), async (
   const title = String(body.title ?? '').trim();
   const file = body.file;
   if (!title || !(file instanceof File) || file.size === 0) return c.text('Title and a file are required.', 400);
+  const rawShort = String(body.short_url ?? '').trim();
+  const shortUrl = rawShort ? normalizeHttpUrl(rawShort) : null;
+  if (rawShort && !shortUrl) return c.text('That short link is not a valid web address.', 400);
   const res = await createFileDeliverable(c.env, {
     wardId: ward.id,
     implementationId: impl.id,
-    prefix: ward.prefix,
     title,
     file,
+    shortUrl,
     createdBy: user.id,
-    appUrl: c.env.APP_URL,
   });
   if ('error' in res) return c.text(res.error, 400);
   const qs = perSpace && spaceId ? `?space=${encodeURIComponent(spaceId)}&ok=1` : '?ok=1';
@@ -834,6 +850,24 @@ appSite.post('/w/:wardId/deliverable/:deliverableId/unpublish', requireAuth(), a
   return c.redirect(c.req.header('referer') ?? `/w/${r.ward.id}/catalog`, 302);
 });
 
+// Save (or clear) a deliverable's short link — one the leader made on zippa.run. Only the
+// deliverable's creator, or a ward superadmin (break-glass), may change it.
+appSite.post('/w/:wardId/deliverable/:deliverableId/short-link', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  const role = await wardRole(c.env, ward.id, user.id);
+  if (!role) return c.text('Forbidden', 403);
+  const deliverable = await getDeliverable(c.env, c.req.param('deliverableId'));
+  if (!deliverable || deliverable.ward_id !== ward.id) return c.text('Not found', 404);
+  if (role !== 'superadmin' && deliverable.created_by_user_id !== user.id) return c.text('Forbidden', 403);
+  const raw = String((await c.req.parseBody()).short_url ?? '').trim();
+  const shortUrl = raw ? normalizeHttpUrl(raw) : null;
+  if (raw && !shortUrl) return c.text('That short link is not a valid web address.', 400);
+  await setDeliverableShortUrl(c.env, deliverable.id, shortUrl);
+  return c.redirect(c.req.header('referer') ?? `/w/${ward.id}/catalog`, 302);
+});
+
 // --- File serving (public if published to a public space, else visibility-gated) ---
 appSite.get('/f/:id', async (c) => {
   const id = c.req.param('id');
@@ -886,11 +920,15 @@ async function loadPortal(
   if (!ward) return null;
   const space = await getPublicSpace(c.env, ward.id);
   if (!space || space.portal_published === 0) return null;
-  const [cards, portalSlug] = await Promise.all([
-    getPortalCards(c.env, space.id),
-    getPortalShortSlug(c.env, space.id),
-  ]);
-  return { wardName: ward.name, prefix: ward.prefix, portalTitle: space.portal_title, cards, portalSlug };
+  const cards = await getPortalCards(c.env, space.id);
+  return {
+    wardName: ward.name,
+    prefix: ward.prefix,
+    portalTitle: space.portal_title,
+    cards,
+    portalUrl: portalUrl(c.env.APP_URL, ward, { id: space.id, kind: 'public' }),
+    shareUrl: space.share_url,
+  };
 }
 
 export default appSite;

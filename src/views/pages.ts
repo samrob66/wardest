@@ -2,7 +2,8 @@ import type { SessionUser } from '../types';
 import type { UserWard } from '../lib/users';
 import type { WorkspaceRequest, WardRow, SpaceRow, WardMember } from '../lib/wards';
 import type { PendingInvite } from '../lib/invites';
-import { esc, go4Url, GO4_HOST } from '../lib/html';
+import { esc } from '../lib/html';
+import { safeHref, displayUrl } from '../lib/urls';
 import { layout } from './layout';
 
 export function renderSignedOut(): string {
@@ -20,7 +21,7 @@ export function renderHome(user: SessionUser, wards: UserWard[], operator: boole
         .map(
           (w) => `<div class="card"><div class="row">
             <span><a href="/w/${esc(w.id)}"><strong>${esc(w.name)}</strong></a>
-              <span class="muted">go4.cc/${esc(w.prefix)}</span></span>
+              <span class="muted">/p/${esc(w.prefix)}</span></span>
             <span class="badge ${w.role === 'superadmin' ? 'super' : ''}">${esc(w.role)}</span>
           </div></div>`,
         )
@@ -87,8 +88,8 @@ export function renderOperatorConsole(
               <span class="muted">unit ${esc(r.unit_number)}</span></span></div>
             <p class="muted">${esc(r.requester_email)}${r.requester_calling ? ' · ' + esc(r.requester_calling) : ''}</p>
             <form class="inline" method="post" action="/operator/requests/${esc(r.id)}/approve">
-              <div><label>Assign prefix</label>
-                <input name="prefix" required pattern="[a-z0-9]{2,12}" placeholder="e.g. p4" style="width:8rem"></div>
+              <div><label>Assign prefix (match the ward's zippa.run prefix)</label>
+                <input name="prefix" required pattern="[a-z0-9]{2,12}" placeholder="e.g. m44" style="width:8rem"></div>
               <button class="btn sm" type="submit">Approve</button>
             </form>
             <form method="post" action="/operator/requests/${esc(r.id)}/deny" style="margin-top:.4rem">
@@ -118,11 +119,12 @@ export function renderWardPage(o: {
   invites: PendingInvite[];
   members: WardMember[];
   portals: SpaceRow[];
+  publicPortal: { id: string; share_url: string | null } | null;
   appUrl: string;
   notice?: string;
   error?: string;
 }): string {
-  const { user, ward, role, joins, spaces, invites, members, portals, appUrl, notice, error } = o;
+  const { user, ward, role, joins, spaces, invites, members, portals, publicPortal, appUrl, notice, error } = o;
   const isSuper = role === 'superadmin';
 
   const portalsHtml = portals.length
@@ -219,8 +221,15 @@ export function renderWardPage(o: {
       ${error ? `<div class="err">${esc(error)}</div>` : ''}
       <div class="card">
         <p>Public portal: <a href="/p/${esc(ward.prefix)}">/p/${esc(ward.prefix)}</a></p>
-        <p>Short link: <code>${esc(GO4_HOST)}/${esc(ward.prefix)}</code>
-           (<a href="${esc(go4Url(ward.prefix))}">open</a>)</p>
+        ${
+          publicPortal?.share_url
+            ? `<p>Share link: <a href="${esc(safeHref(publicPortal.share_url))}" target="_blank" rel="noopener"><code>${esc(displayUrl(publicPortal.share_url))}</code></a></p>`
+            : publicPortal && isSuper
+              ? `<p class="muted">No share link yet. Make one on zippa.run under your prefix
+                   <code>${esc(ward.prefix)}</code>, then paste it on the
+                   <a href="/w/${esc(ward.id)}/space/${esc(publicPortal.id)}">Public portal page</a>.</p>`
+              : ''
+        }
       </div>
       <p><a class="btn" href="/w/${esc(ward.id)}/catalog">Open solutions catalog</a></p>
       ${portalsHtml}

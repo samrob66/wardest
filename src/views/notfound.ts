@@ -1,6 +1,6 @@
 import { esc } from '../lib/html';
 
-// Branded 404 for both an unknown go4.cc slug and an unknown/unpublished portal prefix.
+// Branded 404 for an unknown/unpublished portal prefix, file, or space.
 export function notFoundPage(what: string): string {
   return `<!doctype html>
 <html lang="en">

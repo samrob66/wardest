@@ -43,9 +43,6 @@ erDiagram
   wards ||--o{ deliverables : owns
   deliverables ||--o{ deliverable_spaces : "published via"
   spaces ||--o{ deliverable_spaces : shows
-  wards ||--o{ short_links : has
-  short_links }o--o| deliverables : targets
-  short_links }o--o| spaces : "targets (portal link)"
   wards ||--o{ invites : has
   invites ||--o{ invite_space_roles : carries
   spaces ||--o{ invite_space_roles : "assigns to"
@@ -61,16 +58,15 @@ erDiagram
 | `workspace_requests` | Request→approve gate: `create` a new ward (operator reviews) or `join` an existing one after unit-number dedupe (that ward's superadmins review) |
 | `wards` | The tenant; `unit_number` dedupes; `prefix` = the ward's zippa.run prefix (e.g. `m44`) |
 | `ward_memberships` | user↔ward + ward role (`superadmin`/`member`) |
-| `spaces` | An audience (Public/Bishopric/Ward Council/org); the app-wide visibility primitive; also the portal (1:1); `archived` hides unused defaults |
+| `spaces` | An audience (Public/Bishopric/Ward Council/org); the app-wide visibility primitive; also the portal (1:1); `archived` hides unused defaults; `share_url` = the portal's pasted short link |
 | `space_memberships` | user↔space + space role (`owner`/`member`) |
 | `space_shares` | Whole-space read-only sharing: members of another space may view this space's portal + contents |
 | `portal_blocks` | Rich-text blocks on a portal |
 | `tasks` | Lightweight self-archiving task list per space (optional assignee) |
 | `implementations` | A ward's record of working a solution; `visibility` = `ward` or `restricted` |
 | `implementation_visibility` | Multi-valued audience grants for `restricted` tracker entries |
-| `deliverables` | The output (url/file/image); tied to an implementation or ad-hoc; 1 implementation : N deliverables |
+| `deliverables` | The output (url/file/image); tied to an implementation or ad-hoc; 1 implementation : N deliverables; `short_url` = optional pasted short link |
 | `deliverable_spaces` | Publishing layer: which spaces show a deliverable + portal inclusion/order |
-| `short_links` | go4.cc slugs → destinations (D1 = source of truth; KV mirror for redirects); `target_*` is the only linkage — no back-references. **Superseded 2026-10** (go4.cc dead; links live on zippa.run) — replaced by roadmap item 1 in IMPLEMENTATION.md §10 |
 | `invites` / `invite_space_roles` | Callings-chart invites → materialize into memberships |
 
 ## Key design decisions
@@ -91,10 +87,12 @@ erDiagram
    *category* is shelving only — audience always comes from spaces.
 5. **Deliverables have a separate publishing layer** (`deliverable_spaces`) so one artifact can
    appear in several portals with independent include/order.
-6. **The shortener is D1-backed for truth, KV-backed for speed.** `short_links` is authoritative;
-   a KV mirror (`slug -> destination`) serves edge redirects. QR codes are **derived** (SVG at
-   render), never stored. Short links point at their targets via `target_*`; nothing points back
-   (single source of truth for the relationship).
+6. **Short links are pasted, not owned** *(changed 2026-10)*. Short links live on zippa.run (a
+   separate project with no API); a leader makes one there and pastes it into
+   `deliverables.short_url` or `spaces.share_url` — a plain http(s) URL column, the only place
+   the relationship is recorded. QR codes are **derived** (SVG at render), never stored: the
+   short link when set, else the destination. *(Replaces the go4-era `short_links` table + KV
+   mirror, dropped before any deploy.)*
 7. **Invites carry future memberships.** People added via the callings chart don't exist as
    `users` until they log in with Google, so `invites` (+ `invite_space_roles`) hold the intended
    ward/space roles and materialize on acceptance.
@@ -143,7 +141,9 @@ solution).
 `workspace_requests.kind` `create`/`join` + `target_ward_id` (blueprint §9 "request to join" was
 unrepresentable); dropped `spaces.is_public` (duplicated `kind='public'`), dropped
 `spaces.portal_short_link_id` and `deliverables.short_link_id` (bidirectional duplication +
-circular FK; `short_links.target_*` is the single direction).
+circular FK; `short_links.target_*` is the single direction). *(2026-10: `short_links` itself
+was later dropped; the pasted `short_url` / `share_url` columns hold a URL, not a reference,
+so that concern doesn't apply.)*
 
 ## App-layer rules the schema can't express (enforce in code)
 
@@ -166,12 +166,13 @@ circular FK; `short_links.target_*` is the single direction).
 - `workspace_requests`: `ward_name` required when `kind='create'`; `target_ward_id` when `'join'`.
 - Re-invites UPDATE the existing `invites` row (UNIQUE(ward_id, email)).
 - On login, refresh `users.email`/`name` from Google claims keyed on `google_sub`.
-- Slug normalization: short-link slugs lowercased and ward-prefix-namespaced on write.
+- Pasted links (`deliverables.url`, `short_url`, `spaces.share_url`): http(s) only, normalized
+  on write and guarded on render (`src/lib/urls.ts`).
 
 ## Not modeled yet (deferred, by design)
 
 - **Callings default template** as a reference table — `calling_title` is free text, with the
   standard LDS org set shipped as seed data.
 - **Audit log** of who-changed-what — `created_by`/timestamps only for now.
-- **Click analytics** on short links, **email/notification** records beyond `invites`,
+- **Click analytics** on short links (zippa.run's concern now), **email/notification** records beyond `invites`,
   **per-ward theming** of portals.

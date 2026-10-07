@@ -7,7 +7,9 @@ export interface DeliverableRow {
   title: string;
   type: string;
   url: string | null;
-  short_slug: string | null;
+  short_url: string | null; // pasted short link (e.g. zippa.run/m44Bulletin), if any
+  destination: string; // url, or the /f/<id> serving URL for a file/image
+  created_by_user_id: string;
 }
 
 // Allowed upload content-types → deliverable type. 10 MB cap (IMPLEMENTATION rule 11).
@@ -27,32 +29,16 @@ export interface Publication {
   kind: string;
 }
 
-function slugPart(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 24);
-}
-
-// Prefix-namespaced, globally-unique short-link slug (rule 4).
-async function uniqueShortSlug(env: Env, prefix: string, title: string): Promise<string> {
-  const base = prefix + (slugPart(title) || 'link');
-  let slug = base;
-  for (let i = 2; ; i++) {
-    const hit = await env.DB.prepare(`SELECT 1 AS x FROM short_links WHERE slug = ?`).bind(slug).first();
-    if (!hit) return slug;
-    slug = `${base}${i}`;
-  }
-}
-
 export async function listDeliverables(env: Env, implementationId: string): Promise<DeliverableRow[]> {
   const res = await env.DB.prepare(
-    `SELECT d.id AS id, d.title AS title, d.type AS type, d.url AS url, sl.slug AS short_slug
-       FROM deliverables d
-       LEFT JOIN short_links sl ON sl.target_type = 'deliverable' AND sl.target_deliverable_id = d.id
-      WHERE d.implementation_id = ?
-      ORDER BY d.created_at ASC`,
+    `SELECT id, title, type, url, short_url, created_by_user_id
+       FROM deliverables
+      WHERE implementation_id = ?
+      ORDER BY created_at ASC`,
   )
     .bind(implementationId)
-    .all<DeliverableRow>();
-  return res.results ?? [];
+    .all<Omit<DeliverableRow, 'destination'>>();
+  return (res.results ?? []).map((d) => ({ ...d, destination: d.url ?? `${env.APP_URL}/f/${d.id}` }));
 }
 
 // Which spaces each of an implementation's deliverables is published to.
@@ -70,49 +56,41 @@ export async function listPublications(env: Env, implementationId: string): Prom
   return res.results ?? [];
 }
 
-// Create a URL deliverable + its prefix-namespaced go4.cc short link (D1 + KV write-through).
+// Create a URL deliverable. url and shortUrl arrive already normalized (lib/urls).
 export async function createUrlDeliverable(
   env: Env,
   o: {
     wardId: string;
     implementationId: string;
-    prefix: string;
     title: string;
     url: string;
+    shortUrl: string | null;
     createdBy: string;
   },
-): Promise<{ deliverableId: string; slug: string }> {
+): Promise<{ deliverableId: string }> {
   const deliverableId = newId('dlv');
-  const slug = await uniqueShortSlug(env, o.prefix, o.title);
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO deliverables (id, ward_id, implementation_id, title, type, url, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'url', ?, ?)`,
-    ).bind(deliverableId, o.wardId, o.implementationId, o.title, o.url, o.createdBy),
-    env.DB.prepare(
-      `INSERT INTO short_links (id, ward_id, slug, destination_url, target_type, target_deliverable_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'deliverable', ?, ?)`,
-    ).bind(newId('sl'), o.wardId, slug, o.url, deliverableId, o.createdBy),
-  ]);
-  await env.GO4_LINKS.put(slug, o.url);
-  return { deliverableId, slug };
+  await env.DB.prepare(
+    `INSERT INTO deliverables (id, ward_id, implementation_id, title, type, url, short_url, created_by_user_id)
+     VALUES (?, ?, ?, ?, 'url', ?, ?, ?)`,
+  )
+    .bind(deliverableId, o.wardId, o.implementationId, o.title, o.url, o.shortUrl, o.createdBy)
+    .run();
+  return { deliverableId };
 }
 
-// Upload a file/image deliverable to R2 and mint its go4 short link (→ the /f/<id> serving URL,
-// so it behaves like a URL deliverable on portals + gets a QR). Returns an error string on
-// validation failure.
+// Upload a file/image deliverable to R2. It's served at /f/<id>, so on portals it links and
+// QR-codes like a URL deliverable. Returns an error string on validation failure.
 export async function createFileDeliverable(
   env: Env,
   o: {
     wardId: string;
     implementationId: string;
-    prefix: string;
     title: string;
     file: File;
+    shortUrl: string | null;
     createdBy: string;
-    appUrl: string;
   },
-): Promise<{ deliverableId: string; slug: string } | { error: string }> {
+): Promise<{ deliverableId: string } | { error: string }> {
   const kind = ALLOWED_UPLOADS.get(o.file.type);
   if (!kind) return { error: 'Unsupported file type (allowed: PDF, PNG, JPEG, WebP, SVG).' };
   if (o.file.size > MAX_UPLOAD_BYTES) return { error: 'File too large (max 10 MB).' };
@@ -122,20 +100,24 @@ export async function createFileDeliverable(
   const key = `w/${o.wardId}/${deliverableId}/${safeName}`;
   await env.FILES.put(key, await o.file.arrayBuffer(), { httpMetadata: { contentType: o.file.type } });
 
-  const slug = await uniqueShortSlug(env, o.prefix, o.title);
-  const dest = `${o.appUrl}/f/${deliverableId}`;
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO deliverables (id, ward_id, implementation_id, title, type, file_key, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(deliverableId, o.wardId, o.implementationId, o.title, kind, key, o.createdBy),
-    env.DB.prepare(
-      `INSERT INTO short_links (id, ward_id, slug, destination_url, target_type, target_deliverable_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'deliverable', ?, ?)`,
-    ).bind(newId('sl'), o.wardId, slug, dest, deliverableId, o.createdBy),
-  ]);
-  await env.GO4_LINKS.put(slug, dest);
-  return { deliverableId, slug };
+  await env.DB.prepare(
+    `INSERT INTO deliverables (id, ward_id, implementation_id, title, type, file_key, short_url, created_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(deliverableId, o.wardId, o.implementationId, o.title, kind, key, o.shortUrl, o.createdBy)
+    .run();
+  return { deliverableId };
+}
+
+// Set (or clear, with null) a deliverable's pasted short link. Callers normalize + authorize.
+export async function setDeliverableShortUrl(
+  env: Env,
+  deliverableId: string,
+  shortUrl: string | null,
+): Promise<void> {
+  await env.DB.prepare(`UPDATE deliverables SET short_url = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(shortUrl, deliverableId)
+    .run();
 }
 
 export interface FileDeliverable {

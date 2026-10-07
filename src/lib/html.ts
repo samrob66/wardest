@@ -61,10 +61,3 @@ export function mdLite(src: string | null | undefined): string {
   closeList();
   return out.join('');
 }
-
-export const GO4_HOST = 'go4.cc';
-
-// Full go4.cc short URL for a slug.
-export function go4Url(slug: string): string {
-  return `https://${GO4_HOST}/${slug}`;
-}

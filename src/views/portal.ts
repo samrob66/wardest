@@ -1,5 +1,6 @@
 import type { PortalData, PortalCard } from '../types';
-import { esc, go4Url, GO4_HOST } from '../lib/html';
+import { esc } from '../lib/html';
+import { safeHref, displayUrl } from '../lib/urls';
 import { qrSvg } from '../lib/qr';
 
 const CHEVRON =
@@ -10,8 +11,9 @@ const QR_ICON =
 const DISCLAIMER = 'Not an official website of The Church of Jesus Christ of Latter-day Saints';
 
 function cardHtml(card: PortalCard, i: number): string {
-  const href = card.short_slug ? go4Url(card.short_slug) : (card.url ?? '#');
-  const shortText = card.short_slug ? `${GO4_HOST}/${card.short_slug}` : '';
+  // The short link when there is one (it's what gets printed), else the destination itself.
+  const href = safeHref(card.short_url ?? card.destination);
+  const shortText = card.short_url ? displayUrl(card.short_url) : '';
   const qr = qrSvg(href);
   const label = esc(card.title);
   const modalId = `qr-${i}`;
@@ -42,12 +44,8 @@ function cardHtml(card: PortalCard, i: number): string {
 
 export function renderPortal(data: PortalData): string {
   const title = data.portalTitle ?? `${data.wardName} Links`;
-  const masterUrl = data.portalSlug
-    ? go4Url(data.portalSlug)
-    : `https://app.wardest.com/p/${data.prefix}`;
-  const masterText = data.portalSlug
-    ? `${GO4_HOST}/${data.portalSlug}`
-    : `app.wardest.com/p/${data.prefix}`;
+  const masterUrl = safeHref(data.shareUrl ?? data.portalUrl);
+  const masterText = displayUrl(data.shareUrl ?? data.portalUrl);
   const masterQr = qrSvg(masterUrl);
   const cards = data.cards.map(cardHtml).join('');
 

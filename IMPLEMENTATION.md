@@ -18,7 +18,7 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
 | Item | State |
 |---|---|
 | Repo | `github.com/samrob66/wardest`, `main`, push access verified |
-| Code | None yet — docs + `seed/links.json` only |
+| Code | Phases 0–3 built + local-verified (`src/` Worker, `db/` schema + seeds); built-in shortener retired 2026-10 (§10 item 1) |
 | `wardest.com` DNS | On Cloudflare (nameservers moved). Google Workspace MX/SPF/DKIM/DMARC live at apex — **do not touch apex MX** |
 | Email | Resend verified on `send.wardest.com` (records live at `send.send.wardest.com` + `resend._domainkey.send.wardest.com`). From: `no-reply@send.wardest.com`. Live send test passed (SPF/DKIM/DMARC) |
 | `go4.cc` | **Dead (2026-10)** — the seller never transferred it; refunded. Short links are on `zippa.run`, a separate live project (`../zipa.run`). See BLUEPRINT §7 |
@@ -38,24 +38,23 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
 
 ## 3. Stack decisions (settled)
 
-- **One Worker** (`wardest`) serving all three hostnames via hostname routing in the fetch
-  handler: `go4.cc/*` (redirects), `app.wardest.com/*` (app + portal render), `wardest.com/*`
-  (static landing). Split into multiple Workers later only if a real reason appears.
-  *(2026-10: the `go4.cc` host and the `GO4_LINKS` KV below are superseded by zippa.run and go
-  with roadmap item 1, §10.)*
+- **One Worker** (`wardest`) serving two hostnames via hostname routing in the fetch handler:
+  `app.wardest.com/*` (app + portal render) and `wardest.com/*` (static landing). Split into
+  multiple Workers later only if a real reason appears. *(Until 2026-10 it also served `go4.cc`
+  redirects; that shortener is retired — short links are zippa.run's, a separate project.)*
 - **TypeScript + Hono** (Workers-native router). Server-rendered HTML; minimal vanilla JS
   (QR modal, later form UX). No frontend framework. Portal pages must degrade gracefully
   without JS (QR modal is the only JS-dependent nicety).
-- **D1** = source of truth (apply `db/schema.sql` as migration 0001). **KV** namespace
-  `GO4_LINKS` = redirect mirror (`slug -> destination URL`, plain string values).
-  **R2** bucket `wardest-files` (Phase 2+).
+- **D1** = source of truth (apply `db/schema.sql` as migration 0001). **R2** bucket
+  `wardest-files` (Phase 2+). No KV (the `GO4_LINKS` redirect mirror went with the shortener).
 - **QR codes:** generate **SVG server-side** with `uqr` (zero-dep, edge-compatible; if
   unavailable, any zero-dependency SVG QR encoder — pin whatever you verify works in
   `wrangler dev`). Never use external QR APIs (the old page's `api.qrserver.com` dependency is
   one of the things we're deliberately eliminating: privacy, rasterization, third-party uptime).
-- **Redirects are 302, not 301.** Editability is the product's core promise; 301s get cached
-  permanently by browsers and would serve stale destinations after an edit. (Deliberate
-  deviation from the historical HANDOFF.md.) SEO is irrelevant for short links.
+- **Short links are pasted, not minted.** A leader makes them on zippa.run (which redirects with
+  302 + `no-store`, so edits take effect at once) and pastes them into Wardest:
+  `deliverables.short_url` and `spaces.share_url`. A QR encodes the short link when set, else
+  the destination. Wardest itself never redirects.
 - **Sessions (Phase 1):** stateless signed cookie — `base64url(JSON{uid, exp}) + "." +
   HMAC-SHA256 sig` via WebCrypto, secret in `SESSION_SECRET`, HttpOnly + Secure + SameSite=Lax,
   7-day expiry. No sessions table.
@@ -74,19 +73,18 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
    **superadmin overrides all of these within their ward** (break-glass). Superadmins may
    grant/revoke the superadmin role to other members via the ward page; the app refuses to
    remove the last superadmin. First signup is superadmin; hand it to the Bishop + Exec Sec.
-4. **Slugs:** lowercase on write AND lookup. Pattern `^[a-z0-9-]{2,64}$`. Must equal the ward's
-   prefix or start with it. Maintain a reserved list (`api`, `app`, `admin`, `www`, `p`, `qr`,
-   `auth`, `static`, `robots.txt`, `favicon.ico`, …) rejected at creation.
-5. **KV mirror discipline:** D1 write → KV write in the same request (write-through). Disable or
-   ward-suspend → **delete** the KV key (redirect handler's D1 fallback re-checks flags).
-   Redirect path: KV hit → 302; KV miss → D1 lookup (checking `disabled`, ward `status`) →
-   backfill KV on success → 302; else 404 page.
+4. **Ward prefixes:** lowercase, `^[a-z0-9]{2,12}$`, unique; the public portal lives at
+   `/p/<prefix>`. Assign the ward's zippa.run prefix (e.g. `m44`) so the two match. *(The old
+   slug rules retired with the shortener in 2026-10; zippa.run enforces its own.)*
+5. **Pasted links:** every user-supplied link (deliverable URL, short link, share link) goes
+   through `normalizeHttpUrl` (`src/lib/urls.ts`) on write — http(s) only, so a `javascript:` or
+   `data:` URL never reaches an href — and through `safeHref` on render. *(Replaces the retired
+   KV-mirror rule.)*
 6. **FKs are enforced by D1** — insert parents before children; use `PRAGMA defer_foreign_keys`
    inside reshaping migrations only.
 7. **Sanitize rich text server-side** with a strict allowlist (p, br, b/strong, i/em, u, a[href
    http/https], ul/ol/li, h3/h4). No style/script/event attributes, ever (Phase 3).
-8. **Public pages:** `noindex` meta + `X-Robots-Tag: noindex` header on portals; go4.cc serves a
-   `robots.txt` disallowing nothing but exposing nothing (slugs are unlisted, not secret).
+8. **Public pages:** `noindex` meta + `X-Robots-Tag: noindex` header on portals and served files.
 9. **Secrets** never in the repo or wrangler.toml — `wrangler secret put` only.
 10. **Git:** commit per milestone with working state; verify (`wrangler dev` + checks below)
     before committing; push to `main`.
@@ -141,9 +139,10 @@ Milestones 0.1–0.7 complete and verified against **local** D1/KV via `wrangler
 is blocked only by owner tasks. Code: `src/` (Hono, one Worker), `db/schema.sql` +
 `db/seed-m44.sql`, `wrangler.toml`, `seed/links.json` (+ `m44` portal key).
 
-Run locally: `npm install` → `npm run db:init:local` → `npm run db:seed:local` →
-`npm run kv:seed:local` → `npm run dev`. Portal: <http://localhost:8787/p/m44>. Redirect test:
-`curl -H "Host: go4.cc" http://localhost:8787/m44discord`.
+Run locally *(current as of 2026-10, after the shortener retirement)*: `npm install` →
+`npm run db:init:local` → `npm run db:seed:local` → `npm run db:seed:solutions:local` →
+`npm run dev`. Portal: <http://localhost:8787/p/m44>. A local DB created before 2026-10 has the
+old schema: delete `.wrangler/state` and re-run the three db scripts.
 
 **Verified (exit checklist):** all 6 `m44*` + 2 legacy slugs 302 to correct destinations;
 uppercase `M44Discord` works; unknown slug → branded 404; `m44` → portal; portal renders all 6
@@ -161,15 +160,16 @@ URLs).
 - Legacy slugs `setmeapart` / `maplecanyonstake` are **grandfathered non-prefixed** in the seed
   (still globally unique). The prefix rule (§4) governs app-created links from Phase 1 on.
 - Landing is served from the **Worker** (plan 0.7 already flagged this vs. Pages).
-- `wrangler.toml` has **placeholder** D1 `database_id` + KV `id`; owner replaces after
-  `wrangler d1 create wardest-db` and `wrangler kv namespace create GO4_LINKS`.
+- `wrangler.toml` has a **placeholder** D1 `database_id`; owner replaces it after
+  `wrangler d1 create wardest-db`. (The KV namespace is gone with the shortener.)
 - Local reset = delete `.wrangler/state` (schema.sql has no `IF NOT EXISTS` — it's the prod
   migration, run once).
 
-**Deploy steps (owner, when O1/O3 ready):** create D1 + KV (paste real ids into `wrangler.toml`);
-`wrangler d1 execute wardest-db --remote --file=./db/schema.sql`; same for `db/seed-m44.sql`;
-`wrangler kv bulk put --binding=GO4_LINKS --remote ./seed/links.json`; uncomment routes;
-`wrangler deploy`. Replace `TBD-M44` unit number (O2) first.
+**Deploy steps (owner, when O3 is ready; current as of 2026-10):** create D1 (paste the real id
+into `wrangler.toml`) and `wrangler r2 bucket create wardest-files`;
+`wrangler d1 execute wardest-db --remote --file=./db/schema.sql`; same for `db/seed-m44.sql` and
+`db/seed-solutions.sql`; uncomment the `wardest.com` + `app.wardest.com` routes; `wrangler deploy`.
+Replace the `TBD-M44` unit number (O2) first.
 
 ## 6. Phases 1–4 (milestone level — detail when you get there)
 
@@ -253,9 +253,10 @@ safe by construction via the shared `mdLite` — no raw-HTML sanitizer) + a task
 optional assignee, Done self-archives, Archived view w/ reopen/delete; participation = space
 members + superadmin). `space_shares` UI (owners): share a space read-only with another space —
 verified the *effect* (a Ward Council member gains read-only EQ access only while shared, no
-manage controls; removed → blocked). Per-portal go4 short links (minted on demand). Print
-variant for every space portal. Ward page lists each user's accessible portals. Verified via
-dev-login on p4. Only R2-served files + go4 live redirects still await deploy (O1/O3).
+manage controls; removed → blocked). Per-portal go4 short links (minted on demand — since
+2026-10 a pasted share link instead, §10 item 1). Print variant for every space portal. Ward page
+lists each user's accessible portals. Verified via dev-login on p4. Only R2-served files still
+await deploy (O3).
 
 **Phase 4 — scale-out + hardening.**
 Operator dashboard (requests, wards). Second-ward onboarding end-to-end. Poster/print polish.
@@ -307,12 +308,23 @@ file + BLUEPRINT.md stay truthful), owner walked through anything they must clic
 Items 1–2 get Wardest live; 3–7 build the Executive Secretary resource; 8 is Phase 4. Sam's
 Notion Master Tasks (Area `Wardest.com`) tracks the same list.
 
-1. **Retire the built-in shortener; use pasted zippa.run links.** *(Sam approved 2026-10-06.)*
-   Remove the `go4.cc` host route (`src/go.ts`), the `GO4_LINKS` KV binding, `seed/links.json`
-   and short-link minting (deliverables, portals, ward creation). A deliverable gets an optional
-   short-link field; its QR encodes the short link when set, else the destination. A portal gets
-   a share-link field (e.g. `zippa.run/m44Links`) for its master QR. A migration replaces
-   `short_links`; the M44 seed carries its real zippa.run links.
+1. ✅ **DONE 2026-10-06 — built-in shortener retired; links are pasted zippa.run links.**
+   Removed: the `go4.cc` host route (`src/go.ts`), the `GO4_LINKS` KV binding,
+   `seed/links.json`, the `short_links` table and all short-link minting.
+   Added:
+   - `deliverables.short_url` (set when adding a deliverable, or later by its creator or a
+     superadmin)
+   - `spaces.share_url` (set by space owners on the portal page, which shows the address to
+     point the zippa.run link at)
+   - `src/lib/urls.ts`, which accepts only http(s) links (rule 5). It closes the `javascript:`
+     href hole that removing the redirect would otherwise have opened on public portals.
+
+   A QR encodes the short link when one is set, otherwise the destination. A portal's master QR
+   uses the share link, otherwise the portal's own address, and non-public portals now print
+   their own address rather than the public one. The M44 seed carries its six real zippa.run
+   links. Nothing had been deployed, so `db/schema.sql` was edited in place, with no migration.
+   Verified locally on a fresh D1: portal, print, share-link set/clear/reject, deliverable
+   create/reject, short-link permissions, file upload, and print for a non-public portal.
 2. **Deploy.** Owner: O2 (M44 unit number), O3 (`wrangler login`), O4 (Google OAuth client), O5
    (secrets), O6 (donate link). Then create D1 + R2 (`wardest-files`), migrate + seed, deploy,
    and verify a real Google sign-in and a live Resend invite.

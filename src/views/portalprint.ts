@@ -1,5 +1,6 @@
 import type { PortalData, PortalCard } from '../types';
-import { esc, go4Url, GO4_HOST } from '../lib/html';
+import { esc } from '../lib/html';
+import { safeHref, displayUrl } from '../lib/urls';
 import { qrSvg } from '../lib/qr';
 
 export type PrintSize = 'letter' | 'a4' | 'tabloid' | 'poster-18x24' | 'poster-24x36';
@@ -19,8 +20,8 @@ export function isPrintSize(s: string): s is PrintSize {
 }
 
 function rowHtml(card: PortalCard): string {
-  const href = card.short_slug ? go4Url(card.short_slug) : (card.url ?? '#');
-  const shortText = card.short_slug ? `${GO4_HOST}/${card.short_slug}` : '';
+  const href = safeHref(card.short_url ?? card.destination);
+  const shortText = card.short_url ? displayUrl(card.short_url) : '';
   return `
     <div class="plink">
       <div class="qr">${qrSvg(href)}</div>
@@ -34,12 +35,8 @@ function rowHtml(card: PortalCard): string {
 export function renderPortalPrint(data: PortalData, size: PrintSize): string {
   const { page, fs } = SIZES[size];
   const title = data.portalTitle ?? `${data.wardName} Links`;
-  const masterUrl = data.portalSlug
-    ? go4Url(data.portalSlug)
-    : `https://app.wardest.com/p/${data.prefix}`;
-  const masterText = data.portalSlug
-    ? `${GO4_HOST}/${data.portalSlug}`
-    : `app.wardest.com/p/${data.prefix}`;
+  const masterUrl = safeHref(data.shareUrl ?? data.portalUrl);
+  const masterText = displayUrl(data.shareUrl ?? data.portalUrl);
   const rows = data.cards.map(rowHtml).join('');
 
   return `<!doctype html>

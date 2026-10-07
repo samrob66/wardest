@@ -123,8 +123,9 @@ records). Facts that shape Wardest:
   automatically: a leader creates the link on zippa.run and pastes it into Wardest, which stores
   it and derives the QR. (Adding a scripted surface would reverse a zippa.run decision — that
   belongs in that project, not here.)
-- The Phase 0–3 code still contains a built-in `go4.cc` shortener; retiring it is roadmap item 1
-  in IMPLEMENTATION.md §10.
+- Wardest stores the pasted links: a deliverable's optional **short link** and a portal's optional
+  **share link**. A QR encodes the short link when set, else the destination. The built-in
+  `go4.cc` shortener from Phases 0–3 was retired on 2026-10-06 (IMPLEMENTATION.md §10 item 1).
 
 ## 8. Identity & auth
 

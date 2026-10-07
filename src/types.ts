@@ -1,6 +1,5 @@
 export interface Env {
   DB: D1Database;
-  GO4_LINKS: KVNamespace;
   FILES: R2Bucket;
   // Secrets (.dev.vars locally; `wrangler secret put` in prod)
   SESSION_SECRET: string;
@@ -30,8 +29,8 @@ export interface PortalCard {
   title: string;
   description: string | null;
   type: string;
-  url: string | null;
-  short_slug: string | null;
+  destination: string; // where the item lives: its URL, or the /f/<id> serving URL for a file
+  short_url: string | null; // pasted short link (e.g. zippa.run/m44Bulletin), if any
 }
 
 export interface PortalData {
@@ -39,5 +38,6 @@ export interface PortalData {
   prefix: string;
   portalTitle: string | null;
   cards: PortalCard[];
-  portalSlug: string | null;
+  portalUrl: string; // this portal's own address
+  shareUrl: string | null; // pasted short link pointing at this portal, if any
 }

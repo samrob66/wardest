@@ -3,16 +3,17 @@ import type { WardRow, SpaceFull, SpaceMember, SpaceRow } from '../lib/wards';
 import type { PortalBlock } from '../lib/portalBlocks';
 import type { TaskRow } from '../lib/tasks';
 import type { Share } from '../lib/spaceShares';
-import { esc, go4Url, GO4_HOST, mdLite } from '../lib/html';
+import { esc, mdLite } from '../lib/html';
+import { safeHref, displayUrl } from '../lib/urls';
 import { qrSvg } from '../lib/qr';
 import { layout } from './layout';
 
 function cardHtml(c: PortalCard): string {
-  const href = c.short_slug ? go4Url(c.short_slug) : (c.url ?? '#');
-  const qr = c.short_slug ? `<div style="width:80px;height:80px">${qrSvg(href)}</div>` : '';
+  const href = safeHref(c.short_url ?? c.destination);
   return `<div class="card"><div class="row">
     <span><a href="${esc(href)}" target="_blank" rel="noopener"><strong>${esc(c.title)}</strong></a>
-      ${c.short_slug ? `<br><code>${esc(GO4_HOST)}/${esc(c.short_slug)}</code>` : ''}</span>${qr}
+      ${c.short_url ? `<br><code>${esc(displayUrl(c.short_url))}</code>` : ''}</span>
+    <div style="width:80px;height:80px">${qrSvg(href)}</div>
   </div></div>`;
 }
 
@@ -28,18 +29,27 @@ export function renderSpacePortal(o: {
   members: SpaceMember[];
   shares: Share[];
   shareTargets: SpaceRow[];
-  portalShortSlug: string | null;
+  portalUrl: string;
   notice?: string;
+  error?: string;
 }): string {
-  const { user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, shares, shareTargets, portalShortSlug, notice } = o;
+  const { user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, shares, shareTargets, portalUrl, notice, error } = o;
   const base = `/w/${esc(ward.id)}/space/${esc(space.id)}`;
 
-  const shortLinkHtml = portalShortSlug
-    ? `<p class="muted">Portal link: <code>${esc(GO4_HOST)}/${esc(portalShortSlug)}</code></p>`
-    : canManage
-      ? `<form method="post" action="${base}/shortlink" style="margin:.4rem 0">
-           <button class="btn sm ghost" type="submit">Create portal short link</button></form>`
-      : '';
+  // The portal's share link is a short link the leader made on zippa.run and pasted here.
+  const currentShare = space.share_url
+    ? `<p class="muted">Share link: <a href="${esc(safeHref(space.share_url))}" target="_blank" rel="noopener"><code>${esc(displayUrl(space.share_url))}</code></a></p>`
+    : '';
+  const shareLinkHtml = canManage
+    ? `${currentShare}<form method="post" action="${base}/share-link" class="card">
+        <label>Share link (optional)</label>
+        <input name="share_url" value="${esc(space.share_url ?? '')}" placeholder="e.g. zippa.run/m44Links">
+        <p class="muted" style="margin:.3rem 0 .5rem">Create it on zippa.run pointing at
+          <code>${esc(portalUrl)}</code>, then paste it here. The printout's QR uses it. Leave
+          blank to remove it.</p>
+        <button class="btn sm" type="submit">Save share link</button>
+      </form>`
+    : currentShare;
 
   const sharingHtml = canManage
     ? `<h2>Sharing</h2>
@@ -123,8 +133,9 @@ export function renderSpacePortal(o: {
     body: `<h1>${esc(space.name)}</h1>
       <p class="muted">${esc(ward.name)} portal · <a href="/w/${esc(ward.id)}">ward home</a>
         ${canManage ? ` · <a href="${base}/print" target="_blank">print</a>` : ''}</p>
-      ${shortLinkHtml}
       ${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
+      ${error ? `<div class="err">${esc(error)}</div>` : ''}
+      ${shareLinkHtml}
       ${blocksHtml}
       ${addBlock}
       <h2>Deliverables</h2>

@@ -4,7 +4,8 @@ import type { Implementation } from '../lib/implementations';
 import type { DeliverableRow, Publication } from '../lib/deliverables';
 import type { WardRow, SpaceRow } from '../lib/wards';
 import { CATEGORIES, categoryLabel } from '../lib/solutions';
-import { esc, go4Url, GO4_HOST, mdLite } from '../lib/html';
+import { esc, mdLite } from '../lib/html';
+import { safeHref, displayUrl } from '../lib/urls';
 import { qrSvg } from '../lib/qr';
 import { layout } from './layout';
 
@@ -183,20 +184,23 @@ export function renderSolutionDetail(o: {
   defaultTargetId: string | null;
   canView: boolean;
   canEdit: boolean;
+  isSuper: boolean;
   grants: string[];
   notice?: string;
 }): string {
-  const { user, ward, solution, spaces, spaceId, impl, deliverables, publications, publishTargets, defaultTargetId, canView, canEdit, grants, notice } = o;
+  const { user, ward, solution, spaces, spaceId, impl, deliverables, publications, publishTargets, defaultTargetId, canView, canEdit, isSuper, grants, notice } = o;
+  // Only a deliverable's creator edits it, except a ward superadmin (break-glass).
+  const canEditDeliverable = (d: DeliverableRow) => isSuper || d.created_by_user_id === user.id;
   const perSpace = solution.implementation_scope === 'per_space';
   const base = `/w/${esc(ward.id)}/s/${esc(solution.id)}`;
   const qs = perSpace && spaceId ? `?space=${esc(spaceId)}` : '';
 
   const template = solution.template_value
-    ? `<p><a class="btn ghost" href="${esc(solution.template_value)}" target="_blank" rel="noopener">
+    ? `<p><a class="btn ghost" href="${esc(safeHref(solution.template_value))}" target="_blank" rel="noopener">
          Use template${solution.template_type === 'google_copy' ? ' (make a copy)' : ''}</a></p>`
     : '';
   const video = solution.video_url
-    ? `<p><a href="${esc(solution.video_url)}" target="_blank" rel="noopener">▶ Watch walkthrough</a></p>`
+    ? `<p><a href="${esc(safeHref(solution.video_url))}" target="_blank" rel="noopener">▶ Watch walkthrough</a></p>`
     : '';
 
   const scopeNote = perSpace
@@ -228,7 +232,7 @@ export function renderSolutionDetail(o: {
         <button class="btn" type="submit">Save status</button>
       </form>`;
     if (impl) {
-      tracker += renderDeliverables(ward, base, qs, deliverables, true, publications, publishTargets, defaultTargetId);
+      tracker += renderDeliverables(ward, base, qs, deliverables, true, publications, publishTargets, defaultTargetId, canEditDeliverable);
       tracker += renderVisibilityEditor(base, qs, impl, spaces, grants);
     }
   } else {
@@ -236,7 +240,7 @@ export function renderSolutionDetail(o: {
     tracker = `<h2>Implementation</h2>${scopeNote}
       <p>Status: ${statusBadge(impl?.status)}</p>
       ${impl?.notes ? `<div class="card">${esc(impl.notes)}</div>` : ''}`;
-    if (impl) tracker += renderDeliverables(ward, base, qs, deliverables, false, publications, [], null);
+    if (impl) tracker += renderDeliverables(ward, base, qs, deliverables, false, publications, [], null, () => false);
   }
 
   return layout({
@@ -262,6 +266,7 @@ function renderDeliverables(
   publications: Publication[],
   publishTargets: SpaceRow[],
   defaultTargetId: string | null,
+  canEditDeliverable: (d: DeliverableRow) => boolean,
 ): string {
   const pubMap = new Map<string, Publication[]>();
   for (const p of publications) {
@@ -273,8 +278,8 @@ function renderDeliverables(
   const list = deliverables.length
     ? deliverables
         .map((d) => {
-          const slug = d.short_slug;
-          const qr = slug ? `<div style="width:96px;height:96px">${qrSvg(go4Url(slug))}</div>` : '';
+          // QR + printed link: the pasted short link when set, else the destination.
+          const qr = `<div style="width:96px;height:96px">${qrSvg(safeHref(d.short_url ?? d.destination))}</div>`;
           const pubs = pubMap.get(d.id) ?? [];
           const badges = pubs.length
             ? pubs.map((p) => `<span class="badge ${p.kind === 'public' ? 'super' : ''}">${esc(p.space_name)}</span>`).join(' ')
@@ -300,15 +305,21 @@ function renderDeliverables(
               .join('');
             controls = `<div style="margin-top:.4rem">${removes}${publishForm}</div>`;
           }
+          const shortForm = canEditDeliverable(d)
+            ? `<form method="post" action="/w/${esc(ward.id)}/deliverable/${esc(d.id)}/short-link${qs}" class="inline" style="margin-top:.4rem">
+                 <input name="short_url" value="${esc(d.short_url ?? '')}" placeholder="Short link, e.g. zippa.run/m44Bulletin" style="width:auto;flex:1">
+                 <button class="btn sm ghost" type="submit">Save short link</button></form>`
+            : '';
           const fileLink =
             d.type !== 'url'
               ? `<br><a href="/f/${esc(d.id)}" target="_blank" rel="noopener">Open ${d.type === 'image' ? 'image' : 'file'}</a>`
               : '';
           return `<div class="card">
             <div class="row"><span><strong>${esc(d.title)}</strong>${fileLink}
-              ${slug ? `<br><code>${esc(GO4_HOST)}/${esc(slug)}</code>` : ''}</span>${qr}</div>
+              ${d.short_url ? `<br><code>${esc(displayUrl(d.short_url))}</code>` : ''}</span>${qr}</div>
             <p style="margin:.3rem 0"><span class="muted">Published to:</span> ${badges}</p>
             ${controls}
+            ${shortForm}
           </div>`;
         })
         .join('')
@@ -317,12 +328,16 @@ function renderDeliverables(
     ? `<form method="post" action="${base}/deliverable${qs}" class="card">
         <label>Add a link</label><input name="title" required placeholder="Title, e.g. New Member Form">
         <input name="url" type="url" required placeholder="https://...">
+        <input name="short_url" placeholder="Short link (optional), e.g. zippa.run/m44Welcome">
+        <p class="muted" style="margin:.3rem 0 .5rem">Make short links on zippa.run under your ward's
+          prefix, then paste them here. The QR uses the short link when there is one.</p>
         <button class="btn" type="submit">Add link + generate QR</button>
       </form>
       <form method="post" action="${base}/deliverable-file${qs}" enctype="multipart/form-data" class="card">
         <label>Or upload a file (PDF, PNG, JPEG, WebP, SVG — max 10 MB)</label>
         <input name="title" required placeholder="Title">
         <input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,.svg,application/pdf,image/*">
+        <input name="short_url" placeholder="Short link (optional), e.g. zippa.run/m44Flyer">
         <button class="btn" type="submit">Upload file + generate QR</button>
       </form>`
     : '';
