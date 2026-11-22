@@ -3,6 +3,7 @@
 // talks to Resend (and, best-effort, Discord). Email always goes; Discord is extra.
 import type { Env } from '../types';
 import { listEditorUserIds } from './volEditors';
+import { sendDiscordDm } from './discord';
 
 export interface OutgoingMessage {
   kind: string; // e.g. 'vol_verify', 'vol_confirmed', 'approver_waiting'
@@ -62,6 +63,17 @@ async function sendEmail(env: Env, m: OutgoingMessage): Promise<void> {
   }
 }
 
+// Best-effort Discord DM for a confirmation/reminder: only to a volunteer who is approved and
+// has connected Discord (spec §6.9). Email has already gone; failures are logged, never thrown.
+async function sendDiscord(env: Env, m: OutgoingMessage): Promise<void> {
+  const v = await env.DB.prepare(`SELECT approval, discord_user_id FROM volunteers WHERE id = ?`)
+    .bind(m.volunteerId ?? '')
+    .first<{ approval: string; discord_user_id: string | null }>();
+  if (!v || v.approval !== 'approved' || !v.discord_user_id) return;
+  const r = await sendDiscordDm(env, v.discord_user_id, m.discordText ?? '');
+  if (r !== 'sent') console.log(`[deliver] Discord DM ${r} for kind=${m.kind}; email was sent`);
+}
+
 // Sends every message; never throws. With RESEND_API_KEY empty or 'dev', prints each message
 // (recipient, subject, every link, and the text) to the console so a local tester can click
 // the links.
@@ -71,6 +83,7 @@ export async function deliver(env: Env, msgs: OutgoingMessage[]): Promise<void> 
     try {
       if (!key || key === 'dev') devLog(m);
       else await sendEmail(env, m);
+      if (m.discordText && m.volunteerId) await sendDiscord(env, m);
     } catch (e) {
       console.error(`[deliver] ${(e as Error).message}`);
     }

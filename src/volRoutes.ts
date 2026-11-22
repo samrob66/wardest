@@ -7,7 +7,10 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { AppEnv, Env, SessionUser } from './types';
 import { requireAuth } from './lib/auth';
-import { sendDiscordDm } from './lib/discord';
+import { discordAuthorizeUrl, exchangeDiscordCode, sendDiscordDm } from './lib/discord';
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+import { randomToken } from './lib/ids';
+import { signToken, verifyToken } from './lib/session';
 import {
   canApproveVolunteer, canEditPost, canManageEditorList, canManageOrg, canSeeWardVolunteers, canViewPost,
 } from './lib/volAccess';
@@ -22,7 +25,7 @@ import {
 } from './lib/volSession';
 import { accessLink } from './lib/volEmails';
 import { getWardByPrefix } from './lib/db';
-import { renderLinkSent, renderMine, renderMineSignedOut } from './views/volMine';
+import { renderDiscordCard, renderLinkSent, renderMine, renderMineSignedOut } from './views/volMine';
 import { verifyTurnstile } from './lib/turnstile';
 import { addEditor, listEditors, removeEditor } from './lib/volEditors';
 import { deliver, type OutgoingMessage } from './lib/volMessages';
@@ -643,9 +646,10 @@ function noticeFor(n: string | undefined): string | undefined {
   )[n ?? ''];
 }
 
-// Overridden by the Discord section (Task 15); empty until then.
-async function discordCard(_c: Context<AppEnv>, _s: VolunteerSession): Promise<string> {
-  return '';
+// "Connect Discord" on My sign-ups: approved volunteers only (spec §6.9).
+async function discordCard(c: Context<AppEnv>, s: VolunteerSession): Promise<string> {
+  if (s.volunteer.approval !== 'approved' || !(c.env.DISCORD_CLIENT_ID ?? '').trim()) return '';
+  return renderDiscordCard({ connected: !!s.volunteer.discord_user_id });
 }
 
 volRoutes.post('/vol/:prefix/me/link', async (c) => {
@@ -691,6 +695,68 @@ volRoutes.post('/vol/:prefix/me/cancel/:signupId', async (c) => {
 volRoutes.post('/vol/:prefix/me/signout', (c) => {
   clearVolunteerSession(c);
   return c.redirect(`/vol/${encodeURIComponent(c.req.param('prefix'))}/me`, 302);
+});
+
+// ---------------------------------------------------------------- Discord connect
+
+const DC_COOKIE = 'wardest_vol_dc';
+
+interface DcState {
+  typ: 'vdc';
+  state: string;
+  vid: string;
+  wid: string;
+  exp: number;
+}
+
+volRoutes.get('/vol/discord/connect', async (c) => {
+  const sess = await getVolunteerSession(c);
+  if (!sess) return c.text('Please open My sign-ups from your email link first.', 403);
+  if (sess.volunteer.approval !== 'approved') return c.text('Discord can be connected once a leader has confirmed you.', 403);
+  if (!(c.env.DISCORD_CLIENT_ID ?? '').trim()) return c.text('Discord is not set up for Wardest yet.', 503);
+  const state = randomToken(16);
+  const exp = Math.floor(Date.now() / 1000) + 600;
+  const tok = await signToken(
+    { typ: 'vdc', state, vid: sess.volunteer.id, wid: sess.ward.id, exp } satisfies DcState,
+    c.env.SESSION_SECRET,
+  );
+  setCookie(c, DC_COOKIE, tok, {
+    httpOnly: true, secure: new URL(c.req.url).protocol === 'https:', sameSite: 'Lax', path: '/vol', maxAge: 600,
+  });
+  return c.redirect(discordAuthorizeUrl(c.env, state), 302);
+});
+
+volRoutes.get('/vol/discord/callback', async (c) => {
+  noindex(c);
+  const raw = getCookie(c, DC_COOKIE);
+  deleteCookie(c, DC_COOKIE, { path: '/vol' });
+  const sess = await getVolunteerSession(c);
+  const st = raw ? await verifyToken<DcState>(raw, c.env.SESSION_SECRET) : null;
+  const state = c.req.query('state') ?? '';
+  const code = c.req.query('code') ?? '';
+  if (
+    !sess || !st || st.typ !== 'vdc' || st.exp < Math.floor(Date.now() / 1000) || !state || st.state !== state ||
+    st.vid !== sess.volunteer.id || st.wid !== sess.ward.id || sess.volunteer.approval !== 'approved' || !code
+  ) {
+    return c.html(renderPublicNote({ title: 'Discord not connected', prefix: sess?.ward.prefix ?? null, message: 'That didn’t work. Please try Connect Discord again from My sign-ups.' }), 400);
+  }
+  const discordId = await exchangeDiscordCode(c.env, code);
+  if (!discordId) {
+    return c.html(renderPublicNote({ title: 'Discord not connected', prefix: sess.ward.prefix, message: 'Discord didn’t confirm your account. Please try again.' }), 502);
+  }
+  await c.env.DB.prepare(`UPDATE volunteers SET discord_user_id = ? WHERE id = ? AND ward_id = ?`)
+    .bind(discordId, sess.volunteer.id, sess.ward.id)
+    .run();
+  return c.redirect(`/vol/${sess.ward.prefix}/me?n=discord`, 302);
+});
+
+volRoutes.post('/vol/discord/disconnect', async (c) => {
+  const sess = await getVolunteerSession(c);
+  if (!sess) return c.text('Forbidden', 403);
+  await c.env.DB.prepare(`UPDATE volunteers SET discord_user_id = NULL WHERE id = ? AND ward_id = ?`)
+    .bind(sess.volunteer.id, sess.ward.id)
+    .run();
+  return c.redirect(`/vol/${sess.ward.prefix}/me?n=discord_off`, 302);
 });
 
 // ---------------------------------------------------------------- approvals

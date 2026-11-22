@@ -44,3 +44,47 @@ export async function sendDiscordDm(env: Env, discordUserId: string, text: strin
     return 'error';
   }
 }
+
+// ---------------------------------------------------------------- OAuth ("Connect Discord")
+// scope=identify only: we learn the volunteer's own Discord user id, nothing else.
+
+export function discordAuthorizeUrl(env: Env, state: string): string {
+  const p = new URLSearchParams({
+    client_id: env.DISCORD_CLIENT_ID ?? '',
+    response_type: 'code',
+    scope: 'identify',
+    redirect_uri: `${env.APP_URL}/vol/discord/callback`,
+    state,
+    prompt: 'consent',
+  });
+  return `https://discord.com/oauth2/authorize?${p.toString()}`;
+}
+
+// Authorization code -> the Discord user id (null on any failure).
+export async function exchangeDiscordCode(env: Env, code: string): Promise<string | null> {
+  const id = (env.DISCORD_CLIENT_ID ?? '').trim();
+  const secret = (env.DISCORD_CLIENT_SECRET ?? '').trim();
+  if (!id || !secret || !code) return null;
+  try {
+    const tok = await fetch(`${API}/oauth2/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: id,
+        client_secret: secret,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: `${env.APP_URL}/vol/discord/callback`,
+      }).toString(),
+    });
+    if (!tok.ok) return null;
+    const access = ((await tok.json()) as { access_token?: string }).access_token;
+    if (!access) return null;
+    const me = await fetch(`${API}/users/@me`, { headers: { Authorization: `Bearer ${access}` } });
+    if (!me.ok) return null;
+    const user = (await me.json()) as { id?: string };
+    return user.id && /^\d{5,25}$/.test(user.id) ? user.id : null;
+  } catch {
+    return null;
+  }
+}
