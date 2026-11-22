@@ -8,7 +8,14 @@ import type { Context } from 'hono';
 import type { AppEnv, Env, SessionUser } from './types';
 import { requireAuth } from './lib/auth';
 import { sendDiscordDm } from './lib/discord';
-import { canEditPost, canManageEditorList, canManageOrg, canViewPost } from './lib/volAccess';
+import {
+  canApproveVolunteer, canEditPost, canManageEditorList, canManageOrg, canSeeWardVolunteers, canViewPost,
+} from './lib/volAccess';
+import { hitLimit } from './lib/volRate';
+import {
+  approveVolunteer, declineVolunteer, revokeApproval, submitSignup, undoDecline, verifyAddress,
+} from './lib/volSignup';
+import { verifyTurnstile } from './lib/turnstile';
 import { addEditor, listEditors, removeEditor } from './lib/volEditors';
 import { deliver, type OutgoingMessage } from './lib/volMessages';
 import {
@@ -20,9 +27,12 @@ import { isValidDate, isValidTime } from './lib/wardTime';
 import { getWardById, getWardSpaces, listWardMembers, wardRole, type WardRow, type SpaceFull } from './lib/wards';
 import { notFoundPage } from './views/notfound';
 import {
-  renderEditorsCard, renderPostDeleteConfirm, renderPostManage, renderPostNew, type NewPostValues,
+  renderEditorsCard, renderPostDeleteConfirm, renderPostManage, renderPostNew, renderWardVolunteers,
+  type NewPostValues, type WardVolunteerRow,
 } from './views/volLeader';
-import { renderPublicPost, type SignupFormValues } from './views/volPublic';
+import {
+  renderConfirmAction, renderPublicNote, renderPublicPost, renderSignupResult, type SignupFormValues,
+} from './views/volPublic';
 
 export const volRoutes = new Hono<AppEnv>();
 
@@ -362,6 +372,156 @@ volRoutes.get('/v/:publicId', async (c) => {
     return c.html(notFoundPage('volunteer post'), 404);
   }
   return renderPublic(c, post);
+});
+
+function clientIp(c: Context<AppEnv>): string | null {
+  return c.req.header('cf-connecting-ip') ?? null;
+}
+
+volRoutes.post('/v/:publicId/signup', async (c) => {
+  const post = await getPostByPublicId(c.env, c.req.param('publicId'));
+  if (!post) {
+    noindex(c);
+    return c.html(notFoundPage('volunteer post'), 404);
+  }
+  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  const values: SignupFormValues = { role_id: str(b.role_id), name: str(b.name), email: str(b.email), bringing: str(b.bringing) };
+  const ip = clientIp(c);
+  // 1. Bot check first (the form sends email to whatever address is typed in).
+  if (!(await verifyTurnstile(c.env, str(b['cf-turnstile-response']), ip))) {
+    return renderPublic(c, post, { error: "We couldn't complete the bot check. Please try again.", values }, 400);
+  }
+  const now = new Date();
+  // 2. Per-IP cap.
+  if (await hitLimit(c.env, post.ward_id, 'ip:' + (ip ?? 'unknown'), 20, 60, now)) {
+    return renderPublic(c, post, { error: 'Too many sign-ups from here right now. Please try again later.', values }, 429);
+  }
+  let out;
+  try {
+    out = await submitSignup(c.env, {
+      wardId: post.ward_id, postId: post.id, roleId: values.role_id ?? '', name: values.name ?? '', email: values.email ?? '',
+      bringing: values.bringing || null, now,
+    });
+  } catch (e) {
+    if (e instanceof VolInputError) return renderPublic(c, post, { error: e.message, values }, 400);
+    throw e;
+  }
+  await sendLater(c, out.messages);
+  noindex(c);
+  return c.html(
+    renderSignupResult({ result: out.result, postTitle: post.title, publicId: post.public_id, prefix: post.ward.prefix }),
+    out.result === 'rate_limited' ? 429 : 200,
+  );
+});
+
+// ---------------------------------------------------------------- confirm your address
+
+volRoutes.get('/vol/verify/:token', (c) => {
+  noindex(c);
+  return c.html(
+    renderConfirmAction({
+      title: 'Confirm your email',
+      prefix: null,
+      intro: 'Press the button to confirm this is your email address. Then one of the ward’s leaders will confirm you.',
+      action: `/vol/verify/${encodeURIComponent(c.req.param('token'))}`,
+      button: 'Confirm my address',
+    }),
+  );
+});
+
+volRoutes.post('/vol/verify/:token', async (c) => {
+  noindex(c);
+  const out = await verifyAddress(c.env, c.req.param('token'), new Date());
+  await sendLater(c, out.messages);
+  if (out.result === 'invalid') {
+    return c.html(
+      renderPublicNote({ title: 'Link expired', prefix: null, message: 'This link has expired or was already used. If you signed up, try signing up again.' }),
+      400,
+    );
+  }
+  const approved = out.messages.some((m) => m.kind === 'vol_approved');
+  return c.html(
+    renderPublicNote({
+      title: 'Address confirmed',
+      prefix: null,
+      ok: true,
+      message: approved
+        ? "Thanks — your address is confirmed and you're all set. We've emailed you the details."
+        : 'Thanks — your address is confirmed. A leader will confirm you shortly, and we’ll email you when they do.',
+    }),
+  );
+});
+
+// ---------------------------------------------------------------- approvals
+
+// Back to the page the leader came from (same ward only), else the ward page.
+function backTo(c: Context<AppEnv>, wardId: string, notice = 'ok=1'): Response {
+  const ref = c.req.header('referer');
+  let path = `/w/${wardId}`;
+  if (ref) {
+    try {
+      const u = new URL(ref);
+      if (u.pathname.startsWith(`/w/${wardId}/`)) path = u.pathname;
+    } catch {
+      // ignore
+    }
+  }
+  return c.redirect(`${path}?${notice}`, 302);
+}
+
+volRoutes.post('/w/:wardId/vol/volunteer/:volunteerId/approve', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  const vid = c.req.param('volunteerId');
+  if (!(await canApproveVolunteer(c.env, lc.ward.id, vid, lc.user.id))) return c.text('Forbidden', 403);
+  await sendLater(c, (await approveVolunteer(c.env, lc.ward.id, vid, lc.user.id, new Date())).messages);
+  return backTo(c, lc.ward.id);
+});
+
+volRoutes.post('/w/:wardId/vol/volunteer/:volunteerId/decline', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  const vid = c.req.param('volunteerId');
+  if (!(await canApproveVolunteer(c.env, lc.ward.id, vid, lc.user.id))) return c.text('Forbidden', 403);
+  await sendLater(c, (await declineVolunteer(c.env, lc.ward.id, vid, lc.user.id, new Date())).messages);
+  return backTo(c, lc.ward.id);
+});
+
+volRoutes.post('/w/:wardId/vol/volunteer/:volunteerId/undo-decline', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  if (!(await canSeeWardVolunteers(c.env, lc.ward.id, lc.user.id))) return c.text('Forbidden', 403);
+  await undoDecline(c.env, lc.ward.id, c.req.param('volunteerId'), lc.user.id);
+  return backTo(c, lc.ward.id);
+});
+
+volRoutes.post('/w/:wardId/vol/volunteer/:volunteerId/revoke', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  if (!(await canSeeWardVolunteers(c.env, lc.ward.id, lc.user.id))) return c.text('Forbidden', 403);
+  const out = await revokeApproval(c.env, lc.ward.id, c.req.param('volunteerId'), lc.user.id, new Date());
+  await sendLater(c, out.messages);
+  return backTo(c, lc.ward.id);
+});
+
+volRoutes.get('/w/:wardId/volunteers', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  if (!(await canSeeWardVolunteers(c.env, lc.ward.id, lc.user.id))) return c.text('Forbidden', 403);
+  const rows = await c.env.DB.prepare(
+    `SELECT v.id, v.name, v.email, v.approval, v.email_verified_at, v.decided_at,
+            (SELECT COUNT(*) FROM vol_signups s WHERE s.volunteer_id = v.id AND s.ward_id = v.ward_id
+               AND s.status IN ('waiting','confirmed')) AS active
+       FROM volunteers v WHERE v.ward_id = ? ORDER BY v.name COLLATE NOCASE, v.email`,
+  )
+    .bind(lc.ward.id)
+    .all<WardVolunteerRow>();
+  return c.html(
+    renderWardVolunteers({
+      user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, volunteers: rows.results ?? [],
+      notice: c.req.query('ok') ? 'Saved.' : undefined,
+    }),
+  );
 });
 
 // ---------------------------------------------------------------- dev only

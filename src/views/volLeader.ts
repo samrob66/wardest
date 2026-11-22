@@ -282,3 +282,57 @@ export function renderPostDeleteConfirm(o: { user: SessionUser; post: PostFull; 
       </div>`,
   });
 }
+
+// ---------------------------------------------------------------- ward volunteers (Bishopric)
+
+export interface WardVolunteerRow {
+  id: string;
+  name: string;
+  email: string;
+  approval: string;
+  email_verified_at: string | null;
+  decided_at: string | null;
+  active: number;
+}
+
+export function renderWardVolunteers(o: {
+  user: SessionUser;
+  wardId: string;
+  wardName: string;
+  volunteers: WardVolunteerRow[];
+  notice?: string;
+}): string {
+  const act = (id: string, what: string, label: string, cls = 'btn sm ghost') =>
+    `<form method="post" action="/w/${esc(o.wardId)}/vol/volunteer/${esc(id)}/${what}" style="display:inline">
+       <button class="${cls}" type="submit">${esc(label)}</button></form>`;
+  const section = (title: string, rows: WardVolunteerRow[], actions: (v: WardVolunteerRow) => string, empty: string) =>
+    `<h2>${esc(title)}</h2>${
+      rows.length
+        ? rows
+            .map(
+              (v) => `<div class="card"><div class="row">
+                <span><strong>${esc(v.name)}</strong> <span class="muted">${esc(v.email)}</span>
+                  ${v.active ? `<span class="muted">· ${v.active} active sign-up${v.active === 1 ? '' : 's'}</span>` : ''}</span>
+                <span>${actions(v)}</span></div></div>`,
+            )
+            .join('')
+        : `<p class="muted">${esc(empty)}</p>`
+    }`;
+  const pending = o.volunteers.filter((v) => v.approval === 'pending');
+  const unverified = o.volunteers.filter((v) => v.approval === 'none');
+  const approved = o.volunteers.filter((v) => v.approval === 'approved');
+  const declined = o.volunteers.filter((v) => v.approval === 'declined');
+  return layout({
+    title: 'Volunteers',
+    userEmail: o.user.email,
+    body: `<h1>Volunteers</h1>
+      <p class="muted">${esc(o.wardName)} · <a href="/w/${esc(o.wardId)}">ward home</a></p>
+      ${o.notice ? `<div class="ok">${esc(o.notice)}</div>` : ''}
+      <p class="muted">Check each person against the ward's directory yourself before approving; one
+        approval covers the whole ward. Wardest stores only the name and email they typed.</p>
+      ${section('Waiting for approval', pending, (v) => act(v.id, 'approve', 'Approve', 'btn sm') + act(v.id, 'decline', 'Decline', 'btn sm ghost danger'), 'No one is waiting.')}
+      ${section('Address not confirmed yet', unverified, (v) => act(v.id, 'decline', 'Decline', 'btn sm ghost danger'), 'None.')}
+      ${section('Approved', approved, (v) => act(v.id, 'revoke', 'Revoke approval', 'btn sm ghost danger'), 'None yet.')}
+      ${section('Declined', declined, (v) => act(v.id, 'undo-decline', 'Undo decline'), 'None.')}`,
+  });
+}
