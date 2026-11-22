@@ -13,16 +13,22 @@ import {
 } from './lib/volAccess';
 import { hitLimit } from './lib/volRate';
 import {
-  approveVolunteer, cancelSignup, declineVolunteer, getSignup, removeSignup, revokeApproval, signupDateOver,
-  signupSummary, submitSignup, undoDecline, verifyAddress, withdrawOffer,
+  accessUrl, approveVolunteer, cancelSignup, declineVolunteer, getSignup, getVolunteer, getVolunteerByEmail,
+  listMySignups, normalizeEmail, removeSignup, revokeApproval, signupDateOver, signupSummary, submitSignup,
+  undoDecline, verifyAddress, withdrawOffer,
 } from './lib/volSignup';
-import { readLinkToken } from './lib/volSession';
+import {
+  clearVolunteerSession, getVolunteerSession, readLinkToken, setVolunteerSession, type VolunteerSession,
+} from './lib/volSession';
+import { accessLink } from './lib/volEmails';
+import { getWardByPrefix } from './lib/db';
+import { renderLinkSent, renderMine, renderMineSignedOut } from './views/volMine';
 import { verifyTurnstile } from './lib/turnstile';
 import { addEditor, listEditors, removeEditor } from './lib/volEditors';
 import { deliver, type OutgoingMessage } from './lib/volMessages';
 import {
   VolInputError, addDate, addRole, copyDate, copyPost, createPost, deleteDate, deletePost, deleteRole, getPost,
-  getPostByPublicId, listPostSignups, listPublicBringing, resetFullIfShort, updateDate, updatePost, updateRole,
+  getPostByPublicId, listPostSignups, listPublicBringing, listWardPosts, resetFullIfShort, updateDate, updatePost, updateRole,
   type PostFull, type PostInput, type RoleInput,
 } from './lib/volPosts';
 import { isValidDate, isValidTime } from './lib/wardTime';
@@ -552,6 +558,111 @@ volRoutes.post('/w/:wardId/vol/signup/:signupId/remove', requireAuth(), async (c
   if (!(await canEditPost(c.env, lc.user.id, post))) return c.text('Forbidden', 403);
   await sendLater(c, (await removeSignup(c.env, lc.ward.id, s.id, lc.user.id, new Date())).messages);
   return c.redirect(`${managePath(lc.ward.id, post.id)}?ok=1`, 302);
+});
+
+// ---------------------------------------------------------------- My sign-ups (volunteer session)
+
+// Opening an emailed access link sets the volunteer cookie (it changes no data).
+volRoutes.get('/vol/access/:token', async (c) => {
+  noindex(c);
+  const t = await readLinkToken(c.env, 'vacc', c.req.param('token'));
+  const v = t ? await getVolunteer(c.env, t.wardId, t.id) : null;
+  const ward = v ? await getWardById(c.env, v.ward_id) : null;
+  if (!t || !v || !ward || ward.status !== 'active' || !v.email_verified_at || v.approval === 'declined') {
+    return c.html(
+      renderPublicNote({ title: 'Link expired', prefix: ward?.prefix ?? null, message: 'This link has expired. You can ask for a new one on the My sign-ups page.' }),
+      400,
+    );
+  }
+  await setVolunteerSession(c, v.id, ward.id);
+  return c.redirect(`/vol/${ward.prefix}/me`, 302);
+});
+
+async function wardByPrefix(c: Context<AppEnv>) {
+  return getWardByPrefix(c.env, (c.req.param('prefix') ?? '').toLowerCase());
+}
+
+volRoutes.get('/vol/:prefix/me', async (c) => {
+  noindex(c);
+  const ward = await wardByPrefix(c);
+  if (!ward) return c.html(notFoundPage('ward'), 404);
+  const sess = await getVolunteerSession(c);
+  if (!sess || sess.ward.id !== ward.id) {
+    return c.html(renderMineSignedOut({ prefix: ward.prefix, wardName: ward.name, siteKey: c.env.TURNSTILE_SITE_KEY ?? '' }));
+  }
+  const now = new Date();
+  const approved = sess.volunteer.approval === 'approved';
+  const signups = await listMySignups(c.env, ward.id, sess.volunteer.id, approved, now);
+  const mine = new Set(signups.filter((s) => s.upcoming).map((s) => s.publicId));
+  const others = approved
+    ? (await listWardPosts(c.env, ward.id, { past: false, now })).filter((p) => !mine.has(p.public_id))
+    : [];
+  return c.html(
+    renderMine({
+      prefix: ward.prefix, wardName: ward.name, name: sess.volunteer.name, email: sess.volunteer.email, approved,
+      signups, others, discordHtml: await discordCard(c, sess), notice: noticeFor(c.req.query('n')),
+    }),
+  );
+});
+
+function noticeFor(n: string | undefined): string | undefined {
+  return (
+    {
+      cancelled: 'Cancelled. Thank you for letting them know.',
+      discord: 'Discord connected.',
+      discord_off: 'Discord disconnected.',
+    } as Record<string, string>
+  )[n ?? ''];
+}
+
+// Overridden by the Discord section (Task 15); empty until then.
+async function discordCard(_c: Context<AppEnv>, _s: VolunteerSession): Promise<string> {
+  return '';
+}
+
+volRoutes.post('/vol/:prefix/me/link', async (c) => {
+  noindex(c);
+  const ward = await wardByPrefix(c);
+  if (!ward) return c.html(notFoundPage('ward'), 404);
+  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  const siteKey = c.env.TURNSTILE_SITE_KEY ?? '';
+  const ip = clientIp(c);
+  if (!(await verifyTurnstile(c.env, str(b['cf-turnstile-response']), ip))) {
+    return c.html(
+      renderMineSignedOut({ prefix: ward.prefix, wardName: ward.name, siteKey, error: "We couldn't complete the bot check. Please try again." }),
+      400,
+    );
+  }
+  const now = new Date();
+  const email = normalizeEmail(str(b.email));
+  if (email) {
+    const overIp = await hitLimit(c.env, ward.id, 'ip:' + (ip ?? 'unknown'), 20, 60, now);
+    const overAddr = await hitLimit(c.env, ward.id, 'access:' + email, 3, 1440, now);
+    const v = await getVolunteerByEmail(c.env, ward.id, email);
+    if (!overIp && !overAddr && v && v.email_verified_at && v.approval !== 'declined') {
+      await sendLater(c, [accessLink({ to: v.email, wardName: ward.name, accessUrl: await accessUrl(c.env, ward.id, v.id, now) })]);
+    }
+  }
+  // Always the same answer, so the form can't be used to learn who has signed up.
+  return c.html(renderLinkSent({ prefix: ward.prefix, wardName: ward.name }));
+});
+
+volRoutes.post('/vol/:prefix/me/cancel/:signupId', async (c) => {
+  const ward = await wardByPrefix(c);
+  const sess = await getVolunteerSession(c);
+  if (!ward || !sess || sess.ward.id !== ward.id) return c.html(notFoundPage('sign-up'), 404);
+  const s = await getSignup(c.env, ward.id, c.req.param('signupId'));
+  const now = new Date();
+  if (!s || s.volunteer_id !== sess.volunteer.id || (await signupDateOver(c.env, s, now))) {
+    return c.html(notFoundPage('sign-up'), 404);
+  }
+  await sendLater(c, (await cancelSignup(c.env, ward.id, s.id, now)).messages);
+  return c.redirect(`/vol/${ward.prefix}/me?n=cancelled`, 302);
+});
+
+volRoutes.post('/vol/:prefix/me/signout', (c) => {
+  clearVolunteerSession(c);
+  return c.redirect(`/vol/${encodeURIComponent(c.req.param('prefix'))}/me`, 302);
 });
 
 // ---------------------------------------------------------------- approvals

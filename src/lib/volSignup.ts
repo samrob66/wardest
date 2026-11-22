@@ -14,7 +14,7 @@ import { newId, randomToken } from './ids';
 import { approverEmails, type Outcome, type OutgoingMessage } from './volMessages';
 import * as E from './volEmails';
 import {
-  emailPost, getPost, isDateOver, listWardPosts, postIsFull, resetFullIfShort, roleStartTime, whenText,
+  emailPost, getPost, isDateOver, isPostOver, listWardPosts, postIsFull, resetFullIfShort, roleStartTime, whenText,
   VolInputError, type PostFull, type DateFull, type RoleFull,
 } from './volPosts';
 import { hitLimit } from './volRate';
@@ -675,4 +675,82 @@ export async function signupSummary(
   const f = post ? findRole(post, s.role_id) : null;
   if (!post || !f) return null;
   return { signup: s, title: post.title, orgName: post.org_name, when: whenText(f.date, f.role), roleName: f.role.name, prefix: post.ward.prefix };
+}
+
+// ---------------------------------------------------------------- My sign-ups
+
+export interface MySignup {
+  id: string;
+  status: string;
+  overLimit: boolean;
+  bringing: string | null;
+  title: string;
+  orgName: string;
+  publicId: string;
+  when: string;
+  date: string;
+  roleName: string;
+  upcoming: boolean;
+  // Only for an approved volunteer's confirmed sign-up on a post that isn't over:
+  privateDetails: string | null;
+  otherNames: string[];
+}
+
+// A volunteer's own sign-ups in one ward. Private details and the other confirmed volunteers'
+// names are filled in only when `approved` and the post isn't over (spec §6.4, §6.8).
+export async function listMySignups(
+  env: Env,
+  wardId: string,
+  volunteerId: string,
+  approved: boolean,
+  now: Date,
+): Promise<MySignup[]> {
+  const rows = await env.DB.prepare(
+    `SELECT * FROM vol_signups WHERE ward_id = ? AND volunteer_id = ? AND status IN ('waiting','confirmed')
+      ORDER BY created_at, id`,
+  )
+    .bind(wardId, volunteerId)
+    .all<SignupRow>();
+  const cache = new Map<string, PostFull | null>();
+  const out: MySignup[] = [];
+  for (const s of rows.results ?? []) {
+    if (!cache.has(s.post_id)) cache.set(s.post_id, await getPost(env, wardId, s.post_id));
+    const post = cache.get(s.post_id);
+    if (!post) continue;
+    const f = findRole(post, s.role_id);
+    if (!f) continue;
+    const upcoming = !isDateOver(f.date.date, post.ward.timezone, now);
+    // A waiting sign-up whose date passed is about to lapse; it isn't "past" help.
+    if (!upcoming && s.status !== 'confirmed') continue;
+    const postOver = isPostOver(post, now);
+    const reveal = approved && s.status === 'confirmed' && !postOver;
+    let otherNames: string[] = [];
+    if (reveal) {
+      const names = await env.DB.prepare(
+        `SELECT DISTINCT v.name AS name FROM vol_signups x JOIN volunteers v ON v.id = x.volunteer_id AND v.ward_id = x.ward_id
+          WHERE x.ward_id = ? AND x.post_id = ? AND x.status = 'confirmed' AND x.volunteer_id <> ?
+          ORDER BY v.name`,
+      )
+        .bind(wardId, post.id, volunteerId)
+        .all<{ name: string }>();
+      otherNames = (names.results ?? []).map((n) => n.name);
+    }
+    out.push({
+      id: s.id,
+      status: s.status,
+      overLimit: !!s.over_limit,
+      bringing: s.bringing,
+      title: post.title,
+      orgName: post.org_name,
+      publicId: post.public_id,
+      when: whenText(f.date, f.role),
+      date: f.date.date,
+      roleName: f.role.name,
+      upcoming,
+      privateDetails: reveal ? post.private_details : null,
+      otherNames,
+    });
+  }
+  out.sort((a, b) => (a.upcoming === b.upcoming ? (a.upcoming ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)) : a.upcoming ? -1 : 1));
+  return out;
 }
