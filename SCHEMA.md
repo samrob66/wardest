@@ -183,7 +183,7 @@ times (`HH:MM`) are ward-local wall time.
 | `vol_dates` | One or more dates per post (optional start time); `approval_nudged_at` for the 48h nudge |
 | `vol_roles` | Helper roles per date: name, number needed (1–500), optional times, note, "what are you bringing?" prompt |
 | `volunteers` | Email-only people, unique per `(ward_id, email)`; `approval`; `discord_user_id` once connected |
-| `vol_signups` | A volunteer on a role: `status`, `over_limit`, `bringing`, `confirmed_at`, `ended_at`, `reminded_at`. Partial unique index: one `waiting`/`confirmed` row per `(role_id, volunteer_id)` |
+| `vol_signups` | A volunteer on a role: `status`, `over_limit`, `bringing`, `confirmed_at`, `confirm_seq` (order of confirmation on the role, set atomically; decides who is over the limit), `ended_at`, `reminded_at`. Partial unique index: one `waiting`/`confirmed` row per `(role_id, volunteer_id)` |
 | `vol_editors` | "Who can manage volunteer posts" for an org space, beyond its owners |
 | `vol_tokens` | Single-use email-confirmation tokens (SHA-256 hash only; 72h) |
 | `vol_rate_events` | Rate-limit events for the public forms; pruned by the hourly cron |

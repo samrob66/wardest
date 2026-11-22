@@ -396,6 +396,7 @@ CREATE TABLE vol_signups (
                  CHECK (status IN ('waiting','confirmed','cancelled','withdrawn','removed','declined','lapsed')),
   over_limit   INTEGER NOT NULL DEFAULT 0,
   confirmed_at TEXT,
+  confirm_seq  INTEGER,                         -- order of confirmation on the role (set atomically); decides who is over the limit
   ended_at     TEXT,
   reminded_at  TEXT,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
