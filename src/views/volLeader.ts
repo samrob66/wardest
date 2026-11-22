@@ -154,7 +154,8 @@ function renderRole(
           const remove = canEdit
             ? ` <form method="post" action="/w/${esc(wardId)}/vol/signup/${esc(s.id)}/remove" style="display:inline"><button class="btn sm ghost" type="submit">Remove</button></form>`
             : '';
-          return `<li><strong>${esc(s.name)}</strong> <span class="muted">${esc(s.email)}</span>
+          // Emails only for those who approve/manage (they check the directory); viewers see names.
+          return `<li><strong>${esc(s.name)}</strong>${canEdit ? ` <span class="muted">${esc(s.email)}</span>` : ''}
             ${s.bringing ? ` · bringing ${esc(s.bringing)}` : ''} ${statusTag(s)}${approve}${remove}</li>`;
         })
         .join('')}</ul>`

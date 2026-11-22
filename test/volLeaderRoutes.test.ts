@@ -44,6 +44,20 @@ describe('leader post pages', () => {
     expect(html).not.toContain('<form method="post"');
   });
 
+  it('read-only viewers see volunteer names but not their emails; editors see both', async () => {
+    const { submitSignup } = await import('../src/lib/volSignup');
+    const { makeLeader, uniqueEmail } = await import('./helpers');
+    const email = uniqueEmail('vis');
+    await makeLeader(env, c.wardId, { email, name: 'Vis Ible' });
+    const p = (await getPost(env, c.wardId, postId))!;
+    await submitSignup(env, { wardId: c.wardId, postId, roleId: p.dates[0]!.roles[0]!.id, name: 'Vis Ible', email, bringing: null, now: new Date('2026-11-21T18:00:00Z') });
+    const teacher = await (await get(c.eqTeacher, `/w/${c.wardId}/vol/${postId}`)).text();
+    expect(teacher).toContain('Vis Ible');
+    expect(teacher).not.toContain(email.toLowerCase());
+    const pres = await (await get(c.eqPres, `/w/${c.wardId}/vol/${postId}`)).text();
+    expect(pres).toContain(email.toLowerCase());
+  });
+
   it('eqPres sees edit forms', async () => {
     const html = await (await get(c.eqPres, `/w/${c.wardId}/vol/${postId}`)).text();
     expect(html).toContain(`action="/w/${c.wardId}/vol/${postId}/date"`);
