@@ -7,3 +7,14 @@ RESEND_API_KEY=            # Resend API key (O5) — used in Phase 1 onboarding 
 APP_URL=http://localhost:8787
 OPERATOR_EMAILS=you@example.com   # comma-separated operator (super-operator) emails
 DEV_LOGIN=1                # DEV ONLY: enables /auth/dev-login. Do not set in production.
+# --- Volunteer sign-ups ---
+# Cloudflare Turnstile (bot check on the public sign-up and "email me my link" forms). The value
+# below is Cloudflare's published always-pass TEST secret; the owner sets the real one at deploy.
+# (The site key is a [vars] entry in wrangler.toml.)
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+# Discord DMs for volunteer confirmations/reminders (owner step: register one Discord
+# application for Wardest; add http://localhost:8787/vol/discord/callback as a redirect).
+DISCORD_BOT_TOKEN=         # bot token (secret)
+DISCORD_CLIENT_ID=         # OAuth2 client id
+DISCORD_CLIENT_SECRET=     # OAuth2 client secret (secret)
+# Local only: RESEND_API_KEY=dev prints volunteer emails (with their links) to the console.

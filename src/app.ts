@@ -9,6 +9,7 @@ import { renderPortalPrint, isPrintSize, type PrintSize } from './views/portalpr
 import { notFoundPage } from './views/notfound';
 import { loadUser, requireAuth, isOperator } from './lib/auth';
 import { authRoutes } from './auth-routes';
+import { volRoutes } from './volRoutes';
 import { getUserWards } from './lib/users';
 import {
   PREFIX_RE,
@@ -120,6 +121,9 @@ appSite.use('*', loadUser());
 
 // --- Auth (Google OAuth + dev-login) ---
 appSite.route('/auth', authRoutes);
+
+// --- Volunteer sign-ups (/w/:wardId/vol/*, /v/*, /vol/*) ---
+appSite.route('/', volRoutes);
 
 // --- Operator guard (auth + allowlist) ---
 const operatorOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
