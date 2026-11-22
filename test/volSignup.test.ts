@@ -4,7 +4,7 @@ import { NOW, fixture, counts, tokenFrom, volunteerRow, signupRows, type Fx } fr
 import {
   submitSignup, verifyAddress, approveVolunteer, declineVolunteer, undoDecline, revokeApproval,
 } from '../src/lib/volSignup';
-import { makeLinkToken, readLinkToken } from '../src/lib/volSession';
+import { makeLinkToken, readLinkToken, sha256Hex } from '../src/lib/volSession';
 import { addDate, addRole, createPost } from '../src/lib/volPosts';
 import { barrierDb, hookDb } from './helpers';
 
@@ -63,9 +63,15 @@ describe('submitSignup / verify / approve', () => {
     const fx = await fixture();
     const email = uniqueEmail('twice');
     const a = await submit(fx, email, { roleId: fx.roleId });
-    const b = await submit(fx, email, { roleId: fx.bigRoleId });
     const t1 = tokenFrom(a.messages[0], '/vol/verify/');
-    const t2 = tokenFrom(b.messages[0], '/vol/verify/');
+    // A second still-unused link (sending a new one expires the old, so make it directly).
+    const t2 = 'second-unused-link-token';
+    const v0 = (await volunteerRow(fx.wardId, email))!;
+    await env.DB.prepare(
+      `INSERT INTO vol_tokens (id, ward_id, volunteer_id, purpose, token_hash, expires_at, created_at) VALUES (?, ?, ?, 'verify', ?, ?, ?)`,
+    )
+      .bind('vt_second_' + v0.id, fx.wardId, v0.id, await sha256Hex(t2), later(600).toISOString(), NOW.toISOString())
+      .run();
     expect((await verifyAddress(env, t1, later(1))).messages.filter((m) => m.kind === 'approver_waiting')).toHaveLength(2);
     const second = await verifyAddress(env, t2, later(2));
     expect(second.result).toBe('verified');
@@ -144,6 +150,7 @@ describe('submitSignup / verify / approve', () => {
     // Told by email (unverified, so no My sign-ups link).
     expect(second.messages.map((m) => m.kind)).toEqual(['vol_already']);
     expect(second.messages[0]!.html).not.toContain('/vol/access/');
+    expect(second.messages[0]!.html).toContain('/vol/verify/');
     const email2 = uniqueEmail('dbl2');
     const both = await Promise.all([submit(fx, email2, { roleId: fx.roleId }), submit(fx, email2, { roleId: fx.roleId })]);
     expect(both.map((b) => b.result).sort()).toEqual(['already_signed', 'waiting_verify']);
@@ -233,7 +240,7 @@ describe('submitSignup / verify / approve', () => {
     expect(a.messages.filter((m) => m.kind === 'approver_filled')).toHaveLength(0);
   });
 
-  it('a 4th verify email to the same address in 24h is not sent', async () => {
+  it('confirm-your-address emails: the first always goes; replacements count against the cap', async () => {
     const fx = await fixture();
     const email = uniqueEmail('spam');
     const p2 = await createPost(env, fx.wardId, fx.spaces['elders-quorum']!, fx.eqPres, {
@@ -241,16 +248,17 @@ describe('submitSignup / verify / approve', () => {
     });
     const d2 = await addDate(env, fx.wardId, p2, '2026-12-07', null);
     const roles = [fx.roleId, fx.bigRoleId];
-    for (let i = 0; i < 3; i++) roles.push(await addRole(env, fx.wardId, d2, { name: `R${i}`, needed: 3, start_time: null, end_time: null, note: null, bring_prompt: null }));
+    for (let i = 0; i < 4; i++) roles.push(await addRole(env, fx.wardId, d2, { name: `R${i}`, needed: 3, start_time: null, end_time: null, note: null, bring_prompt: null }));
     const sent: number[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const roleId = roles[i]!;
       const postId = i < 2 ? fx.postId : p2;
       const r = await submitSignup(env, { wardId: fx.wardId, postId, roleId, name: 'S', email, bringing: null, now: later(i) });
       expect(r.result).toBe('waiting_verify');
       sent.push(r.messages.filter((m) => m.kind === 'vol_verify').length);
     }
-    expect(sent).toEqual([1, 1, 1, 0]);
+    // 1st: no live link, always sent. 2nd–4th replace it (cap 3). 5th: capped, nothing sent.
+    expect(sent).toEqual([1, 1, 1, 1, 0]);
   });
 
   it('a role id from another post -> closed, nothing written', async () => {
@@ -296,17 +304,57 @@ describe('submitSignup / verify / approve', () => {
     expect((await volunteerRow(fx.wardId, email))!.name).toBe('Second Try');
   });
 
-  it('every public-form email to one address shares a cap: the 4th in 24h is not sent', async () => {
+  it('an approved address signed up for 5 roles in a day gets 5 confirmations (never capped)', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('five');
+    await makeLeader(env, fx.wardId, { email });
+    const roles = [fx.roleId, fx.bigRoleId];
+    for (let i = 0; i < 3; i++) roles.push(await addRole(env, fx.wardId, fx.dateId, { name: `Extra${i}`, needed: 2, start_time: null, end_time: null, note: null, bring_prompt: null }));
+    const confirmations: number[] = [];
+    for (const roleId of roles) {
+      const r = await submit(fx, email, { roleId });
+      expect(r.result).toBe('confirmed');
+      confirmations.push(r.messages.filter((m) => m.kind === 'vol_confirmed' && m.to === email.toLowerCase()).length);
+    }
+    expect(confirmations).toEqual([1, 1, 1, 1, 1]);
+  });
+
+  it('a newcomer flooded with resubmissions still has a working confirm link', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('flood');
+    const first = await submit(fx, email, { roleId: fx.roleId });
+    let newest = tokenFrom(first.messages[0], '/vol/verify/');
+    const kinds: string[][] = [];
+    for (let i = 0; i < 6; i++) {
+      const r = await submit(fx, email, { roleId: fx.roleId, now: later(i + 1) });
+      expect(r.result).toBe('already_signed');
+      kinds.push(r.messages.map((m) => m.kind));
+      const m = r.messages.find((x) => x.kind === 'vol_already');
+      if (m) {
+        expect(m.html).toContain('/vol/verify/');
+        newest = tokenFrom(m, '/vol/verify/');
+      }
+    }
+    // Replacements stop at the cap; the newest link sent still works.
+    expect(kinds).toEqual([['vol_already'], ['vol_already'], ['vol_already'], [], [], []]);
+    expect((await verifyAddress(env, newest, later(10))).result).toBe('verified');
+  });
+
+  it('the capped kinds stop at 3 a day (already signed up, contact your leaders)', async () => {
     const fx = await fixture();
     const email = uniqueEmail('cap');
-    const kinds: string[][] = [];
-    kinds.push((await submit(fx, email, { roleId: fx.roleId })).messages.map((m) => m.kind)); // verify
-    kinds.push((await submit(fx, email, { roleId: fx.roleId })).messages.map((m) => m.kind)); // already
-    kinds.push((await submit(fx, email, { roleId: fx.bigRoleId })).messages.map((m) => m.kind)); // verify
-    const fourth = await submit(fx, email, { roleId: fx.bigRoleId }); // already, over the cap
-    expect(kinds).toEqual([['vol_verify'], ['vol_already'], ['vol_verify']]);
-    expect(fourth.result).toBe('already_signed');
-    expect(fourth.messages).toHaveLength(0);
+    await makeLeader(env, fx.wardId, { email });
+    await submit(fx, email, { roleId: fx.bigRoleId }); // confirmed: not capped
+    const already: number[] = [];
+    for (let i = 0; i < 4; i++) already.push((await submit(fx, email, { roleId: fx.bigRoleId })).messages.length);
+    expect(already).toEqual([1, 1, 1, 0]);
+    const dec = uniqueEmail('dec');
+    const s = await submit(fx, dec);
+    await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), NOW);
+    await declineVolunteer(env, fx.wardId, (await volunteerRow(fx.wardId, dec))!.id, fx.eqPres, NOW);
+    const contact: number[] = [];
+    for (let i = 0; i < 4; i++) contact.push((await submit(fx, dec, { roleId: fx.roleId })).messages.length);
+    expect(contact).toEqual([1, 1, 1, 0]);
   });
 
   it('a full role reads the same for any address (checked before anything about the email)', async () => {

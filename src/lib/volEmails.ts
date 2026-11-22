@@ -39,8 +39,21 @@ function wrap(body: string, footer?: string): string {
   }</p></div>`;
 }
 
-const VOLUNTEER_FOOTER =
+// Footers that are true for the email they're on (round 2: not every email has a cancel link).
+// With a cancel link above (confirmation, reminder, approval listing sign-ups):
+const CANCEL_FOOTER =
   'You got this because someone signed up with this address. If that wasn&#39;t you, use the cancel link above and nothing more will be sent.';
+// With a My sign-ups link above (time changed; approval with nothing listed):
+const MY_SIGNUPS_FOOTER =
+  'You got this because this address is signed up to volunteer. If that wasn&#39;t you, you can cancel from My sign-ups above.';
+// Waiting for a leader: nothing counts until one confirms the volunteer.
+const WAITING_FOOTER =
+  'You got this because someone signed up with this address. If that wasn&#39;t you, you can ignore this: it won&#39;t count unless a leader confirms you.';
+// Already signed up (with My sign-ups or a confirm link, or neither):
+const ALREADY_FOOTER =
+  'You got this because someone used this address on a sign-up form. If that wasn&#39;t you, you can ignore this.';
+// No longer needed: nothing to do.
+const REMOVED_FOOTER = 'You got this because this address was signed up to volunteer. There&#39;s nothing more you need to do.';
 
 function otherWays(posts: OtherPost[]): string {
   if (!posts.length) return '';
@@ -109,7 +122,7 @@ export function signupConfirmed(o: {
        <p>Can't make it after all? ${link(o.cancelUrl, 'Cancel this sign-up')}.
        See everything you've signed up for: ${link(o.mySignupsUrl, 'My sign-ups')}.</p>
        ${otherWays(o.otherPosts)}`,
-      VOLUNTEER_FOOTER,
+      CANCEL_FOOTER,
     ),
     discordText:
       `You're signed up: ${o.post.title} (${o.post.orgName})\n${o.when} · ${o.roleName}` +
@@ -160,7 +173,7 @@ export function approved(o: {
        ${o.signups.length ? 'You are signed up for:' : ''}</p>
        ${items}
        <p>See everything you've signed up for: ${link(o.mySignupsUrl, 'My sign-ups')}.</p>`,
-      VOLUNTEER_FOOTER,
+      o.signups.length ? CANCEL_FOOTER : MY_SIGNUPS_FOOTER,
     ),
     discordText:
       `${o.wardName}: you're confirmed as a volunteer.` +
@@ -185,7 +198,7 @@ export function signupWaiting(o: { to: string; name: string; post: EmailPost; wh
       `<p>Hi ${esc(o.name)},</p>
        <p>You're signed up for <strong>${esc(o.post.title)}</strong> · ${esc(o.when)} · ${esc(o.roleName)}.
        A leader will confirm you shortly, and we'll email you the details when they do.</p>`,
-      VOLUNTEER_FOOTER,
+      WAITING_FOOTER,
     ),
   };
 }
@@ -198,6 +211,7 @@ export function alreadySignedUp(o: {
   when: string;
   roleName: string;
   mySignupsUrl: string | null;
+  verifyUrl: string | null; // set for an address that isn't confirmed yet
 }): OutgoingMessage {
   return {
     kind: 'vol_already',
@@ -205,10 +219,15 @@ export function alreadySignedUp(o: {
     subject: `${o.post.orgName}: you're already signed up — ${o.post.title}`,
     html: wrap(
       `<p>Hi ${esc(o.name)},</p>
-       <p>You're already signed up for <strong>${esc(o.post.title)}</strong> · ${esc(o.when)} · ${esc(o.roleName)},
-       so there's nothing more to do.</p>
+       <p>You're already signed up for <strong>${esc(o.post.title)}</strong> · ${esc(o.when)} · ${esc(o.roleName)}.</p>
+       ${
+         o.verifyUrl
+           ? `<p>One step left: please confirm this is your email address. After that, one of the ward's
+              leaders will confirm you, and we'll email you the details.</p>${button(o.verifyUrl, 'Confirm my email')}`
+           : `<p>There's nothing more to do.</p>`
+       }
        ${o.mySignupsUrl ? `<p>See or cancel your sign-ups: ${link(o.mySignupsUrl, 'My sign-ups')}.</p>` : ''}`,
-      VOLUNTEER_FOOTER,
+      ALREADY_FOOTER,
     ),
   };
 }
@@ -271,7 +290,7 @@ export function reminder(o: {
        ${details(o.privateDetails)}
        ${others}
        <p>Can't make it? ${link(o.cancelUrl, 'Let them know by cancelling')}. ${link(o.mySignupsUrl, 'My sign-ups')}</p>`,
-      VOLUNTEER_FOOTER,
+      CANCEL_FOOTER,
     ),
     discordText:
       `Reminder for tomorrow: ${o.post.title} (${o.post.orgName})\n${o.when} · ${o.roleName}` +
@@ -300,7 +319,7 @@ export function roleChanged(o: {
        <p>The time for <strong>${esc(o.roleName)}</strong> on <strong>${esc(o.post.title)}</strong> has changed.</p>
        <p>Was: ${esc(o.oldWhen)}<br>Now: <strong>${esc(o.newWhen)}</strong></p>
        <p>If the new time doesn't work, you can cancel from ${link(o.mySignupsUrl, 'My sign-ups')}.</p>`,
-      VOLUNTEER_FOOTER,
+      MY_SIGNUPS_FOOTER,
     ),
   };
 }
@@ -325,7 +344,7 @@ export function signupRemoved(o: {
       `<p>Hi ${esc(o.name)},</p>
        <p><strong>${esc(o.post.title)}</strong> · ${esc(o.when)} · ${esc(o.roleName)}</p>
        <p>${why} Thank you for offering.</p>`,
-      VOLUNTEER_FOOTER,
+      REMOVED_FOOTER,
     ),
   };
 }

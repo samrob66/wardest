@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { env, makeWard, makeLeader, uniqueEmail } from './helpers';
 import { addDate, addRole, createPost, getPost } from '../src/lib/volPosts';
+import { submitSignup } from '../src/lib/volSignup';
 import { newId } from '../src/lib/ids';
 import { addDays, wardToday } from '../src/lib/wardTime';
 
@@ -65,6 +66,14 @@ describe('public post page', () => {
     expect(html).not.toContain(`name="role_id" value="${s.dessert}"`);
     expect(html).toContain(`/vol/${s.prefix}/me`);
     expect(html).toContain('cf-turnstile');
+  });
+
+  it('shows "n of m filled" only; the waiting count is for leaders', async () => {
+    const s = await setup();
+    await submitSignup(env, { wardId: s.wardId, postId: s.postId, roleId: s.meal, name: 'W', email: uniqueEmail('w'), bringing: null, now: new Date() });
+    const html = await (await SELF.fetch(`http://localhost/v/${s.post.public_id}`)).text();
+    expect(html).toContain('0 of 3 filled');
+    expect(html).not.toMatch(/waiting/i);
   });
 
   it('a past post says it is over and has no forms', async () => {

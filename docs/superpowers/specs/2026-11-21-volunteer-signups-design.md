@@ -231,7 +231,11 @@ Saturday, Dec 6 · 9:00 AM · address emailed once you're confirmed
    at once (both get in). Whoever's sign-up counts after the role was already full is told
    by email that the need is already met, and is offered a one-click "withdraw my offer".
    (Email only, 2026-11-21: an on-screen notice would reveal that the address is approved;
-   every email-dependent result now shows the same page.) Staying is fine too. Withdrawing
+   every email-dependent result now shows the same page.)
+   (Accepted leak, 2026-11-21: because approved addresses count at once, a public count rising
+   after a sign-up shows the address was approved. Accepted as noisy, visible to leaders, and
+   the probed person gets the confirmation email. The waiting count is shown on leaders' pages
+   only.) Staying is fine too. Withdrawing
    this way sends the organizer nothing, since the role is still full. The bar shows
    over-filling plainly ("12 of 10").
 7. **Declines are remembered** for that ward: a declined email can't sign up again (it's told to

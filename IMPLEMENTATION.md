@@ -390,11 +390,29 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
      address (confirmed, over the limit, needs confirming, waiting for approval, already signed
      up, declined): "check your email to finish". The email says what happened. So the spec's
      on-screen over-limit notice (§6.3 step 6) is dropped; the email carries it. Only outcomes
-     that read the same for any address show on screen: closed, role just filled, rate limited,
-     a form error, a failed bot check.
-   - Every email the public form sends to one address shares a cap of 3 a day. Over it, nothing
-     is sent and the page is unchanged: e.g. an approved volunteer who signs up for a 4th meal
-     date in one day still counts, and sees it in My sign-ups, but gets no 4th confirmation.
+     that read the same for any address show on screen: closed, role full ("If you already signed
+     up for it, you're still on it"), rate limited, a form error, a failed bot check.
+   - Timing too: the route runs only the address-independent checks (bot check, IP limit, role
+     found and not over, input format, role full, per-post limit) before answering; everything
+     that depends on the address (the volunteer, the sign-up row, the emails) runs afterwards in
+     `waitUntil`, and a failure there is logged, never thrown.
+   - Email cap (round 2, option A): 3 a day per address, one shared bucket, for the emails that
+     don't come with a new sign-up that counts: "already signed up", "please contact your
+     leaders", and replacement confirm-your-address links. Never capped: the confirmation for a
+     sign-up that counts (the spec §6.3 step 2 safeguard), the "waiting for a leader" note, and a
+     new address's first confirm link. An unconfirmed address has one working confirm link at a
+     time: sending a new one expires the old, so the newest email always works, including the
+     confirm link inside "you're already signed up".
+   - The "· k waiting" count shows only on leaders' pages (manage page, space sections), never on
+     the public page or its preview card.
+   - Accepted leak (2026-11-21): because approved addresses count at once, a public count rising
+     after a sign-up shows the address was approved. Accepted as noisy, visible to leaders, and
+     the probed person gets the confirmation email. The waiting count is shown on leaders' pages
+     only.
+   - A date that's over can't be moved ("This date is over; use Copy date to reuse it"), so its
+     volunteers never land on a date they didn't choose.
+   - Later improvement: an impostor can rename an unconfirmed person just before they confirm.
+     Store the typed name with each confirm token and apply the name from the link that's clicked.
    - An email that belongs to a Wardest member of the ward is always approved, even after a
      decline or a revoked approval. Removing them from the ward is the real lever.
    - Ward prefixes `verify`, `cancel`, `withdraw`, `access` and `discord` are refused at ward

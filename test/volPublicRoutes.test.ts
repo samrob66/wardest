@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { env, asUser, makeLeader, uniqueEmail, sentFetches } from './helpers';
+import { env, asUser, makeLeader, uniqueEmail, sentFetches, waitFor } from './helpers';
+import { makeLinkToken } from '../src/lib/volSession';
 import { NOW, fixture, tokenFrom, volunteerRow, signupRows, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress } from '../src/lib/volSignup';
 import { verifyTurnstile } from '../src/lib/turnstile';
@@ -68,8 +69,17 @@ describe('public sign-up route', () => {
     expect(html).not.toContain('Existing Person');
     expect(html).not.toContain('Member Person');
     expect(html).not.toContain(existing);
-    const rows = await signupRows(fx.wardId, fx.bigRoleId);
-    expect(rows.filter((r) => r.status === 'confirmed')).toHaveLength(2);
+    // The sign-up itself is made after the response (waitUntil): the row appears.
+    const rows = await waitFor(async () => {
+      const r = (await signupRows(fx.wardId, fx.bigRoleId)).filter((x) => x.status === 'confirmed');
+      return r.length === 2 ? r : null;
+    });
+    expect(rows).not.toBeNull();
+    // ...and the real owner of the address is told (the spec's safeguard).
+    const mail = await waitFor(() =>
+      sentFetches().find((f) => f.url.startsWith('https://api.resend.com') && (f.body as { to: string[] }).to[0] === member.toLowerCase()),
+    );
+    expect((mail!.body as { subject: string }).subject).toContain("you're signed up");
   });
 
   it("a role from a different post -> closed, no row", async () => {
@@ -131,20 +141,61 @@ describe('the result page never depends on the address', () => {
     expect(new Set(pages).size).toBe(1);
     expect(pages[0]).toContain('check your email to finish');
     // And what happened went to each address by email.
-    for (let i = 0; i < 40 && sentFetches().filter((f) => f.url.startsWith('https://api.resend.com')).length < 4; i++) {
-      await new Promise((r) => setTimeout(r, 10));
+    const subjectsTo = (e: string) =>
+      sentFetches()
+        .filter((f) => f.url.startsWith('https://api.resend.com') && (f.body as { to: string[] }).to[0] === e.toLowerCase())
+        .map((f) => (f.body as { subject: string }).subject)
+        .join(' | ');
+    await waitFor(() => subjectsTo(approved) && subjectsTo(declined) && subjectsTo(already));
+    expect(subjectsTo(approved)).toContain("you're signed up");
+    expect(subjectsTo(declined)).toContain('about your volunteer sign-up');
+    expect(subjectsTo(already)).toContain("you're already signed up");
+    // The unconfirmed already-signed address gets a working confirm link in that email.
+    const alreadyMail = sentFetches().find(
+      (f) => f.url.startsWith('https://api.resend.com') && (f.body as { to: string[] }).to[0] === already.toLowerCase(),
+    )!;
+    expect((alreadyMail.body as { html: string }).html).toContain('/vol/verify/');
+  });
+
+  it('a full role reads the same for the person already on it, with wording true for them', async () => {
+    const fx = await fixture({ date: futureDate() });
+    const holder = uniqueEmail('holder');
+    await makeLeader(env, fx.wardId, { email: holder });
+    await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.roleId, name: 'H', email: holder, bringing: null, now: new Date() });
+    const pages: string[] = [];
+    for (const email of [holder, uniqueEmail('other')]) {
+      const res = await publicSignup(fx.publicId, { role_id: fx.roleId, name: 'H', email, 'cf-turnstile-response': 'ok' });
+      pages.push(await res.text());
     }
-    const subjects = sentFetches()
-      .filter((f) => f.url.startsWith('https://api.resend.com'))
-      .map((f) => [(f.body as { to: string[] }).to[0], (f.body as { subject: string }).subject]);
-    const to = (e: string) => subjects.filter(([t]) => t === e.toLowerCase()).map(([, sub]) => sub);
-    expect(to(approved).join()).toContain("you're signed up");
-    expect(to(declined).join()).toContain('about your volunteer sign-up');
-    expect(to(already).join()).toContain("you're already signed up");
+    expect(pages[0]).toBe(pages[1]);
+    expect(pages[0]).toContain('If you already signed up for it, you');
+    expect(pages[0]).not.toContain('don’t need to come');
   });
 });
 
 describe('suspended wards', () => {
+  it('emailed cancel/withdraw links and confirm-address links stop working', async () => {
+    const fx = await fixture({ date: futureDate() });
+    const member = uniqueEmail('susp');
+    await makeLeader(env, fx.wardId, { email: member });
+    await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'S', email: member, bringing: null, now: new Date() });
+    const row = (await signupRows(fx.wardId, fx.bigRoleId))[0]!;
+    await env.DB.prepare(`UPDATE vol_signups SET over_limit = 1 WHERE id = ?`).bind(row.id).run();
+    const newcomer = uniqueEmail('newc');
+    const s = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.roleId, name: 'N', email: newcomer, bringing: null, now: new Date() });
+    const vtok = tokenFrom(s.messages[0], '/vol/verify/');
+    const can = await makeLinkToken(env, { typ: 'vcan', wardId: fx.wardId, id: row.id });
+    const wd = await makeLinkToken(env, { typ: 'vwd', wardId: fx.wardId, id: row.id });
+    await env.DB.prepare(`UPDATE wards SET status = 'suspended' WHERE id = ?`).bind(fx.wardId).run();
+    expect((await SELF.fetch(`http://localhost/vol/cancel/${can}`)).status).toBe(404);
+    expect((await SELF.fetch(`http://localhost/vol/cancel/${can}`, { method: 'POST' })).status).toBe(404);
+    expect((await SELF.fetch(`http://localhost/vol/withdraw/${wd}`, { method: 'POST' })).status).toBe(404);
+    expect((await signupRows(fx.wardId, fx.bigRoleId))[0]!.status).toBe('confirmed');
+    const v = await SELF.fetch(`http://localhost/vol/verify/${vtok}`, { method: 'POST' });
+    expect(v.status).toBe(400);
+    expect((await volunteerRow(fx.wardId, newcomer))!.approval).toBe('none');
+  });
+
   it('their public posts and sign-up form are not found', async () => {
     const fx = await fixture({ date: futureDate() });
     await env.DB.prepare(`UPDATE wards SET status = 'suspended' WHERE id = ?`).bind(fx.wardId).run();

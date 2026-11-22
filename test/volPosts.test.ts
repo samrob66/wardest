@@ -111,7 +111,7 @@ describe('volPosts', () => {
     expect(dm).toHaveLength(1);
   });
 
-  it('saving a date unchanged does nothing; a real move resets reminders; a past date tells no one', async () => {
+  it('saving a date unchanged does nothing; a real move resets reminders; a past date cannot be moved', async () => {
     const s = await setup();
     const postId = await createPost(env, s.wardId, s.eq, s.pres, postInput());
     const d = await addDate(env, s.wardId, postId, '2026-12-06', '09:00');
@@ -127,11 +127,14 @@ describe('volPosts', () => {
     expect(await updateDate(env, s.wardId, d, '2026-12-06', '10:00', NOW)).toHaveLength(1);
     const reset = await env.DB.prepare(`SELECT reminded_at FROM vol_signups WHERE role_id = ?`).bind(r).first<{ reminded_at: string | null }>();
     expect(reset!.reminded_at).toBeNull();
-    // A date already over: moving it emails no one.
+    // A date already over can't be moved (its volunteers would land on a date they never
+    // chose); Copy date reuses it. Editing a past role's time emails no one.
     const past = await addDate(env, s.wardId, postId, '2026-11-01', '09:00');
     const pr = await addRole(env, s.wardId, past, role());
     await addVolunteer(s.wardId, postId, pr, 'confirmed');
-    expect(await updateDate(env, s.wardId, past, '2026-11-02', '09:00', NOW)).toEqual([]);
+    await expect(updateDate(env, s.wardId, past, '2026-11-28', '09:00', NOW)).rejects.toThrow('use Copy date');
+    const still = await env.DB.prepare(`SELECT date FROM vol_dates WHERE id = ?`).bind(past).first<{ date: string }>();
+    expect(still!.date).toBe('2026-11-01');
     expect(await updateRole(env, s.wardId, pr, role({ start_time: '11:00' }), NOW)).toEqual([]);
   });
 

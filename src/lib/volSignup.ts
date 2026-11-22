@@ -227,41 +227,102 @@ async function approverWaitingFor(env: Env, v: VolunteerRow, postIds: string[]):
 
 // ---------------------------------------------------------------- submit
 
-// Every email the public form sends to one address (confirmation, confirm-your-address,
-// waiting, already-signed, contact-your-leaders) shares this cap, so the form can't be used to
-// flood an inbox. Over the cap nothing is sent, and the page looks the same.
+// The per-address email cap (round 2, Sam's option A). It applies only to emails that don't
+// come with a new sign-up that counts: "you're already signed up", "please contact your
+// leaders", and extra confirm-your-address emails. Never capped: the confirmation for a
+// sign-up that counts (the safeguard that tells an approved member someone used their address),
+// the "waiting for a leader" note for a new waiting sign-up, and one working confirm link for a
+// new address. Over the cap nothing is sent, and the page looks the same.
 export const PUBLIC_MAIL_CAP = 3; // per address per 24 hours
 
-export async function submitSignup(
-  env: Env,
-  o: { wardId: string; postId: string; roleId: string; name: string; email: string; bringing: string | null; now: Date },
-): Promise<Outcome<SubmitResult>> {
+export interface SignupInput {
+  wardId: string;
+  postId: string;
+  roleId: string;
+  name: string;
+  email: string;
+  bringing: string | null;
+  now: Date;
+}
+
+export type PrecheckResult = 'ok' | 'closed' | 'role_full' | 'rate_limited';
+
+// The checks that never depend on the address (round 2): the public route runs only these
+// before answering, so neither the page nor its timing says anything about an email.
+// Throws VolInputError for a bad name or email format.
+export async function precheckSignup(env: Env, o: SignupInput): Promise<PrecheckResult> {
+  const post = await getPost(env, o.wardId, o.postId);
+  if (!post) return 'closed';
+  const found = findRole(post, o.roleId);
+  if (!found || isDateOver(found.date.date, post.ward.timezone, o.now)) return 'closed';
+  if (!normalizeEmail(o.email)) throw new VolInputError('Please enter a valid email address.');
+  const name = (o.name ?? '').trim();
+  if (name.length < 1 || name.length > 80) throw new VolInputError('Please enter your name (80 characters at most).');
+  // A full role turns everyone away (the button was closed; this is a stale page).
+  if (found.role.confirmed >= found.role.needed) return 'role_full';
+  // Per post, counting every submission whatever the address.
+  if (await hitLimit(env, o.wardId, 'signup:' + o.postId, 60, 60, o.now)) return 'rate_limited';
+  return 'ok';
+}
+
+// Precheck + the address-dependent work, in one call (tests and other callers). The public
+// route instead answers after precheckSignup and runs completeSignup in waitUntil.
+export async function submitSignup(env: Env, o: SignupInput): Promise<Outcome<SubmitResult>> {
+  const pre = await precheckSignup(env, o);
+  if (pre !== 'ok') return { result: pre, messages: [] };
+  return completeSignup(env, o);
+}
+
+async function hasLiveVerifyToken(env: Env, wardId: string, volunteerId: string, now: Date): Promise<boolean> {
+  const r = await env.DB.prepare(
+    `SELECT 1 AS ok FROM vol_tokens
+      WHERE ward_id = ? AND volunteer_id = ? AND purpose = 'verify' AND used_at IS NULL AND expires_at > ? LIMIT 1`,
+  )
+    .bind(wardId, volunteerId, now.toISOString())
+    .first();
+  return r != null;
+}
+
+// A fresh single-use confirm link; any older unused one stops working, so there is one working
+// link at a time and it's always the newest one sent.
+async function mintVerifyUrl(env: Env, wardId: string, volunteerId: string, now: Date): Promise<string> {
+  await env.DB.prepare(
+    `UPDATE vol_tokens SET expires_at = ?
+      WHERE ward_id = ? AND volunteer_id = ? AND purpose = 'verify' AND used_at IS NULL AND expires_at > ?`,
+  )
+    .bind(now.toISOString(), wardId, volunteerId, now.toISOString())
+    .run();
+  const token = randomToken(24);
+  await env.DB.prepare(
+    `INSERT INTO vol_tokens (id, ward_id, volunteer_id, purpose, token_hash, expires_at, created_at)
+     VALUES (?, ?, ?, 'verify', ?, ?, ?)`,
+  )
+    .bind(
+      newId('vt'), wardId, volunteerId, await sha256Hex(token),
+      new Date(now.getTime() + VERIFY_HOURS * 3_600_000).toISOString(), now.toISOString(),
+    )
+    .run();
+  return `${env.APP_URL}/vol/verify/${token}`;
+}
+
+// Everything that depends on the address. Doesn't re-check "role full": in a race for the last
+// spot both get in (spec items 18–19) and the later one is over the limit.
+export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<SubmitResult>> {
   const none = (result: SubmitResult): Outcome<SubmitResult> => ({ result, messages: [] });
   const { wardId, now } = o;
-
-  // 1. The role must belong to this post in this ward, and its date must not be over.
   const post = await getPost(env, wardId, o.postId);
   if (!post) return none('closed');
   const found = findRole(post, o.roleId);
   if (!found || isDateOver(found.date.date, post.ward.timezone, now)) return none('closed');
   const { date, role } = found;
-
-  // 2. Inputs.
   const email = normalizeEmail(o.email);
-  if (!email) throw new VolInputError('Please enter a valid email address.');
   const name = (o.name ?? '').trim();
-  if (name.length < 1 || name.length > 80) throw new VolInputError('Please enter your name (80 characters at most).');
+  if (!email || name.length < 1 || name.length > 80) return none('closed');
   const bringingRaw = (o.bringing ?? '').trim().slice(0, 200);
   const bringing = role.bring_prompt && bringingRaw ? bringingRaw : null;
 
-  // 3. Outcomes shown on screen come first and never depend on the address, so the page can't
-  //    be used to learn anything about an email: a full role turns everyone away (the button was
-  //    closed; this is a stale page), and the per-post cap counts every submission.
-  if (role.confirmed >= role.needed) return none('role_full');
-  if (await hitLimit(env, wardId, 'signup:' + o.postId, 60, 60, now)) return none('rate_limited');
-
-  // 4. The volunteer. Ward members are approved. The name follows the latest sign-up only while
-  //    the address is unconfirmed; once it's verified the name never changes.
+  // The volunteer. Ward members are approved. The name follows the latest sign-up only while
+  // the address is unconfirmed; once it's verified the name never changes.
   let v = await getVolunteerByEmail(env, wardId, email);
   const member = await isWardMemberEmail(env, wardId, email);
   if (!v) {
@@ -291,33 +352,39 @@ export async function submitSignup(
   }
   const vol = v;
   const ep = emailPost(post, env.APP_URL);
-  // Builds an email to the volunteer's address only while it's under the per-address cap.
-  const toVolunteer = async (build: () => Promise<OutgoingMessage> | OutgoingMessage): Promise<OutgoingMessage[]> =>
-    (await hitLimit(env, wardId, 'pubmail:' + email, PUBLIC_MAIL_CAP, 1440, now)) ? [] : [await build()];
+  const underCap = async (): Promise<boolean> => !(await hitLimit(env, wardId, 'pubmail:' + email, PUBLIC_MAIL_CAP, 1440, now));
+  // One working confirm link for an unconfirmed address: free when none is live; replacing a
+  // live one counts against the cap. Returns null when capped (their newest link still works).
+  const confirmLink = async (): Promise<string | null> => {
+    if (!(await hasLiveVerifyToken(env, wardId, vol.id, now))) return mintVerifyUrl(env, wardId, vol.id, now);
+    return (await underCap()) ? mintVerifyUrl(env, wardId, vol.id, now) : null;
+  };
 
-  // 5. Declined addresses can't sign up again; the email asks them to contact the leaders.
+  // Declined addresses can't sign up again; the (capped) email asks them to contact the leaders.
   if (vol.approval === 'declined') {
     return {
       result: 'declined_email',
-      messages: await toVolunteer(() => E.contactLeaders({ to: vol.email, name: vol.name, wardName: post.ward.name })),
+      messages: (await underCap()) ? [E.contactLeaders({ to: vol.email, name: vol.name, wardName: post.ward.name })] : [],
     };
   }
 
-  // 6. Already on this role.
+  // Already on this role.
   const active = await env.DB.prepare(
     `SELECT 1 AS ok FROM vol_signups WHERE ward_id = ? AND role_id = ? AND volunteer_id = ? AND status IN ('waiting','confirmed')`,
   )
     .bind(wardId, role.id, vol.id)
     .first();
   if (active) {
+    const already = (verifyUrl: string | null, mySignupsUrl: string | null) =>
+      E.alreadySignedUp({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name, verifyUrl, mySignupsUrl });
+    if (vol.approval === 'none') {
+      // Unconfirmed: the email must carry a working confirm link, or they'd be stranded.
+      const url = await confirmLink();
+      return { result: 'already_signed', messages: url ? [already(url, null)] : [] };
+    }
     return {
       result: 'already_signed',
-      messages: await toVolunteer(async () =>
-        E.alreadySignedUp({
-          to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name,
-          mySignupsUrl: vol.email_verified_at ? await accessUrl(env, wardId, vol.id, now) : null,
-        }),
-      ),
+      messages: (await underCap()) ? [already(null, await accessUrl(env, wardId, vol.id, now))] : [],
     };
   }
 
@@ -339,42 +406,35 @@ export async function submitSignup(
     }
   };
 
-  // 7. Approved: counts at once.
+  // Approved: counts at once, and the confirmation always goes (never capped).
   if (vol.approval === 'approved') {
     if (!(await insert())) return none('already_signed');
     const over = await stampConfirmed(env, wardId, signupId, role.id, role.needed, now);
     if (over === null) return none('closed'); // ended between insert and confirm
-    const messages = await toVolunteer(() => confirmationMessage(env, vol, post, date, role, signupId, bringing, over, now));
+    const messages = [await confirmationMessage(env, vol, post, date, role, signupId, bringing, over, now)];
     messages.push(...(await filledMessages(env, wardId, post.id, now)));
     return { result: over ? 'confirmed_over' : 'confirmed', messages };
   }
 
-  // 8. Address not verified yet: waiting + a confirm-your-address email.
+  // Address not confirmed yet: waiting + a confirm link (the first is always sent).
   if (vol.approval === 'none') {
     if (!(await insert())) return none('already_signed');
-    const messages = await toVolunteer(async () => {
-      const token = randomToken(24);
-      await env.DB.prepare(
-        `INSERT INTO vol_tokens (id, ward_id, volunteer_id, purpose, token_hash, expires_at, created_at)
-         VALUES (?, ?, ?, 'verify', ?, ?, ?)`,
-      )
-        .bind(
-          newId('vt'), wardId, vol.id, await sha256Hex(token),
-          new Date(now.getTime() + VERIFY_HOURS * 3_600_000).toISOString(), now.toISOString(),
-        )
-        .run();
-      return E.verifyEmail({ to: vol.email, name: vol.name, post: ep, verifyUrl: `${env.APP_URL}/vol/verify/${token}` });
-    });
-    return { result: 'waiting_verify', messages };
+    const url = await confirmLink();
+    return {
+      result: 'waiting_verify',
+      messages: url ? [E.verifyEmail({ to: vol.email, name: vol.name, post: ep, verifyUrl: url })] : [],
+    };
   }
 
-  // 9. Verified, waiting for a leader: tell this post's approvers, and the volunteer.
+  // Verified, waiting for a leader: tell this post's approvers, and the volunteer.
   if (!(await insert())) return none('already_signed');
-  const messages = await toVolunteer(() =>
-    E.signupWaiting({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name }),
-  );
-  messages.push(...(await approverWaitingFor(env, vol, [post.id])));
-  return { result: 'waiting_approval', messages };
+  return {
+    result: 'waiting_approval',
+    messages: [
+      E.signupWaiting({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name }),
+      ...(await approverWaitingFor(env, vol, [post.id])),
+    ],
+  };
 }
 
 // ---------------------------------------------------------------- verify

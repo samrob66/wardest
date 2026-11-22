@@ -299,6 +299,10 @@ export async function updateDate(
   const old = await dateRow(env, wardId, dateId);
   req(old != null, 'That date no longer exists.');
   if (old!.date === d.date && (old!.start_time ?? null) === d.start) return [];
+  // A date that's over keeps its history; moving it would carry its volunteers to a date they
+  // never chose (round 2). Reuse it with Copy date instead.
+  const tzRow = await env.DB.prepare(`SELECT timezone FROM wards WHERE id = ?`).bind(wardId).first<{ timezone: string }>();
+  req(tzRow != null && !isDateOver(old!.date, tzRow.timezone, now), 'This date is over; use Copy date to reuse it.');
   const before = await affectedSignups(env, wardId, 'd.id', dateId);
   await env.DB.prepare(`UPDATE vol_dates SET date = ?, start_time = ?, approval_nudged_at = NULL WHERE id = ? AND ward_id = ?`)
     .bind(d.date, d.start, dateId, wardId)

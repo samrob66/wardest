@@ -17,8 +17,9 @@ import {
 import { hitLimit } from './lib/volRate';
 import {
   accessUrl, approveVolunteer, cancelSignup, declineVolunteer, getSignup, getVolunteer, getVolunteerByEmail,
-  listMySignups, normalizeEmail, removeSignup, revokeApproval, signupDateOver, signupSummary, submitSignup,
-  undoDecline, verifyAddress, withdrawOffer,
+  listMySignups, normalizeEmail, removeSignup, revokeApproval, signupDateOver, signupSummary,
+  undoDecline, verifyAddress, withdrawOffer, precheckSignup, completeSignup,
+  type PrecheckResult, type SignupInput,
 } from './lib/volSignup';
 import {
   clearVolunteerSession, getVolunteerSession, readLinkToken, setVolunteerSession, type VolunteerSession,
@@ -435,22 +436,38 @@ volRoutes.post('/v/:publicId/signup', async (c) => {
   if (await hitLimit(c.env, post.ward_id, 'ip:' + (ip ?? 'unknown'), 20, 60, now)) {
     return renderPublic(c, post, { error: 'Too many sign-ups from here right now. Please try again later.', values }, 429);
   }
-  let out;
+  // 3. Only the checks that don't depend on the address run before we answer, so neither the
+  //    page nor how long it takes says anything about an email (round 2).
+  const input: SignupInput = {
+    wardId: post.ward_id, postId: post.id, roleId: values.role_id ?? '', name: values.name ?? '', email: values.email ?? '',
+    bringing: values.bringing || null, now,
+  };
+  let pre: PrecheckResult;
   try {
-    out = await submitSignup(c.env, {
-      wardId: post.ward_id, postId: post.id, roleId: values.role_id ?? '', name: values.name ?? '', email: values.email ?? '',
-      bringing: values.bringing || null, now,
-    });
+    pre = await precheckSignup(c.env, input);
   } catch (e) {
     if (e instanceof VolInputError) return renderPublic(c, post, { error: e.message, values }, 400);
     throw e;
   }
-  await sendLater(c, out.messages);
   noindex(c);
-  return c.html(
-    renderSignupResult({ result: out.result, postTitle: post.title, publicId: post.public_id, prefix: post.ward.prefix }),
-    out.result === 'rate_limited' ? 429 : 200,
-  );
+  if (pre !== 'ok') {
+    return c.html(
+      renderSignupResult({ result: pre, postTitle: post.title, publicId: post.public_id, prefix: post.ward.prefix }),
+      pre === 'rate_limited' ? 429 : 200,
+    );
+  }
+  // 4. Everything that depends on the address (the volunteer, the sign-up, its emails) runs
+  //    after the response. A failure there is logged, never thrown.
+  const env = c.env;
+  const job = completeSignup(env, input)
+    .then((out) => deliver(env, out.messages))
+    .catch((e) => console.error(`[signup] background sign-up failed: ${(e as Error).message}`));
+  try {
+    c.executionCtx.waitUntil(job);
+  } catch {
+    await job;
+  }
+  return c.html(renderSignupResult({ result: 'ok', postTitle: post.title, publicId: post.public_id, prefix: post.ward.prefix }));
 });
 
 // ---------------------------------------------------------------- confirm your address

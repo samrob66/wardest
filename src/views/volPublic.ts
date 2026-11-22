@@ -110,7 +110,7 @@ export function renderPublicPost(o: {
       ${post.public_note ? mdLite(post.public_note) : ''}
       ${o.error ? `<div class="err">${esc(o.error)}</div>` : ''}
       ${over ? '<div class="ok">This opportunity is over. Thank you to everyone who helped!</div>' : ''}
-      <div class="card">${fillBar(t.confirmed, t.needed, t.waiting)}</div>
+      <div class="card">${fillBar(t.confirmed, t.needed)}</div>
       ${dates || '<p class="muted">No dates yet.</p>'}
       <p class="muted" style="margin-top:1.4rem"><a href="/vol/${esc(post.ward.prefix)}/me">My sign-ups</a> — see or cancel what you've signed up for.</p>`,
   });
@@ -136,9 +136,11 @@ const CHECK_EMAIL = {
 };
 
 const SCREEN_COPY: Record<string, { title: string; body: string }> = {
+  // Shown to anyone who submits for a full role, including someone already on it (a browser
+  // resubmission), so it must be true for both.
   role_full: {
-    title: 'Just filled',
-    body: 'Sorry, that role just filled up, so you don’t need to come. Thank you for offering! Other roles may still need help.',
+    title: 'That role is full',
+    body: 'That role is full now. If you already signed up for it, you’re still on it — check your email. Otherwise, thank you for offering; other roles may still need help.',
   },
   closed: { title: 'Sign-up closed', body: 'This sign-up is closed.' },
   rate_limited: { title: 'Please try again later', body: 'We’re getting a lot of sign-ups right now. Please try again in a little while.' },

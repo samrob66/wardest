@@ -258,3 +258,14 @@ export function hookDb(db: D1Database, marker: string, before: () => Promise<voi
     },
   });
 }
+
+// Polls until `check` returns truthy (or `ms` pass). For work a route hands to waitUntil, which
+// SELF.fetch doesn't wait for.
+export async function waitFor<T>(check: () => Promise<T> | T, ms = 4000): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = await check();
+    if (v || Date.now() > end) return v;
+    await new Promise((r) => setTimeout(r, 15));
+  }
+}
