@@ -1,5 +1,6 @@
 import type { Env } from '../types';
 import { newId } from './ids';
+import { isValidTimezone } from './wardTime';
 
 export interface DefaultSpace {
   kind: 'public' | 'bishopric' | 'ward_council' | 'org';
@@ -30,16 +31,25 @@ export interface WardRow {
   prefix: string;
   unit_number: string;
   status: string;
+  timezone: string;
 }
 
 export async function getWardById(env: Env, id: string): Promise<WardRow | null> {
-  return env.DB.prepare(`SELECT id, name, prefix, unit_number, status FROM wards WHERE id = ?`)
+  return env.DB.prepare(`SELECT id, name, prefix, unit_number, status, timezone FROM wards WHERE id = ?`)
     .bind(id)
     .first<WardRow>();
 }
 
+// Superadmin-only setting (checked by the route). Throws on an unknown IANA zone.
+export async function setWardTimezone(env: Env, wardId: string, tz: string): Promise<void> {
+  if (!isValidTimezone(tz)) throw new Error('Unknown time zone.');
+  await env.DB.prepare(`UPDATE wards SET timezone = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(tz, wardId)
+    .run();
+}
+
 export async function getWardByUnitNumber(env: Env, unit: string): Promise<WardRow | null> {
-  return env.DB.prepare(`SELECT id, name, prefix, unit_number, status FROM wards WHERE unit_number = ?`)
+  return env.DB.prepare(`SELECT id, name, prefix, unit_number, status, timezone FROM wards WHERE unit_number = ?`)
     .bind(unit)
     .first<WardRow>();
 }

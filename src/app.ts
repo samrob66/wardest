@@ -29,7 +29,9 @@ import {
   setWardMemberRole,
   getSpaceById,
   listSpaceMembers,
+  setWardTimezone,
 } from './lib/wards';
+import { isValidTimezone } from './lib/wardTime';
 import {
   listOpenTasks,
   listArchivedTasks,
@@ -239,6 +241,20 @@ appSite.post('/w/:wardId/members/:userId/role', requireAuth(), async (c) => {
   const newRole: 'superadmin' | 'member' = body.role === 'superadmin' ? 'superadmin' : 'member';
   const err = await setWardMemberRole(c.env, ward.id, c.req.param('userId'), newRole);
   return c.redirect(`/w/${ward.id}${err ? `?err=${encodeURIComponent(err)}` : '?ok=1'}`, 302);
+});
+
+// Ward time zone (volunteer cutoffs and reminders run in it). Superadmin only.
+appSite.post('/w/:wardId/timezone', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  if ((await wardRole(c.env, ward.id, user.id)) !== 'superadmin') return c.text('Forbidden', 403);
+  const tz = String((await c.req.parseBody()).timezone ?? '').trim();
+  if (!isValidTimezone(tz)) {
+    return c.redirect(`/w/${ward.id}?err=${encodeURIComponent('That time zone is not recognized.')}`, 302);
+  }
+  await setWardTimezone(c.env, ward.id, tz);
+  return c.redirect(`/w/${ward.id}?ok=1`, 302);
 });
 
 // ===== Phase 3: per-space portals =====
