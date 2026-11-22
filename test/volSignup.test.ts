@@ -6,6 +6,7 @@ import {
 } from '../src/lib/volSignup';
 import { makeLinkToken, readLinkToken } from '../src/lib/volSession';
 import { addDate, addRole, createPost } from '../src/lib/volPosts';
+import { barrierDb, hookDb } from './helpers';
 
 const later = (min: number) => new Date(NOW.getTime() + min * 60_000);
 
@@ -54,7 +55,21 @@ describe('submitSignup / verify / approve', () => {
     // A pending volunteer's next sign-up goes straight to the approvers.
     const again = await submit(fx, email, { roleId: fx.roleId });
     expect(again.result).toBe('waiting_approval');
-    expect(again.messages.map((m) => m.kind).sort()).toEqual(['approver_waiting', 'approver_waiting']);
+    expect(again.messages.map((m) => m.kind).sort()).toEqual(['approver_waiting', 'approver_waiting', 'vol_waiting']);
+    expect(again.messages.find((m) => m.kind === 'vol_waiting')!.to).toBe(email.toLowerCase());
+  });
+
+  it('a second, unused verify link while already pending tells no one again', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('twice');
+    const a = await submit(fx, email, { roleId: fx.roleId });
+    const b = await submit(fx, email, { roleId: fx.bigRoleId });
+    const t1 = tokenFrom(a.messages[0], '/vol/verify/');
+    const t2 = tokenFrom(b.messages[0], '/vol/verify/');
+    expect((await verifyAddress(env, t1, later(1))).messages.filter((m) => m.kind === 'approver_waiting')).toHaveLength(2);
+    const second = await verifyAddress(env, t2, later(2));
+    expect(second.result).toBe('verified');
+    expect(second.messages).toHaveLength(0);
   });
 
   it('an expired verify token is invalid', async () => {
@@ -99,7 +114,7 @@ describe('submitSignup / verify / approve', () => {
     expect(v.email_verified_at).not.toBeNull();
   });
 
-  it('a declined email -> declined_email and no messages', async () => {
+  it('a declined email -> declined_email, and the address gets a contact-your-leaders email', async () => {
     const fx = await fixture();
     const email = uniqueEmail('nope');
     const s = await submit(fx, email);
@@ -110,7 +125,9 @@ describe('submitSignup / verify / approve', () => {
     expect((await signupRows(fx.wardId, fx.bigRoleId))[0]!.status).toBe('declined');
     const r = await submit(fx, email, { roleId: fx.roleId });
     expect(r.result).toBe('declined_email');
-    expect(r.messages).toHaveLength(0);
+    expect(r.messages.map((m) => [m.kind, m.to])).toEqual([['vol_contact_leaders', email.toLowerCase()]]);
+    expect(r.messages[0]!.html).toContain("contact your ward's leaders");
+    expect(r.messages[0]!.html).not.toMatch(/declined|reason/i);
     expect(await signupRows(fx.wardId, fx.roleId)).toHaveLength(0);
     // Undo: verified -> pending; they can sign up again.
     await undoDecline(env, fx.wardId, v.id, fx.eqPres);
@@ -124,7 +141,9 @@ describe('submitSignup / verify / approve', () => {
     await submit(fx, email);
     const second = await submit(fx, email);
     expect(second.result).toBe('already_signed');
-    expect(second.messages).toHaveLength(0);
+    // Told by email (unverified, so no My sign-ups link).
+    expect(second.messages.map((m) => m.kind)).toEqual(['vol_already']);
+    expect(second.messages[0]!.html).not.toContain('/vol/access/');
     const email2 = uniqueEmail('dbl2');
     const both = await Promise.all([submit(fx, email2, { roleId: fx.roleId }), submit(fx, email2, { roleId: fx.roleId })]);
     expect(both.map((b) => b.result).sort()).toEqual(['already_signed', 'waiting_verify']);
@@ -152,14 +171,22 @@ describe('submitSignup / verify / approve', () => {
     const b = uniqueEmail('rb');
     await makeLeader(env, fx.wardId, { email: a });
     await makeLeader(env, fx.wardId, { email: b });
-    const res = await Promise.all([submit(fx, a, { roleId: fx.roleId }), submit(fx, b, { roleId: fx.roleId })]);
-    const results = res.map((r) => r.result).sort();
-    // Whether both passed the "is it full?" check depends on interleaving; either way at most
-    // one is over, and an over one is the later to be confirmed (confirm_seq).
-    expect([['confirmed', 'confirmed_over'], ['confirmed', 'role_full']]).toContainEqual(results);
+    // Hold both sign-up inserts until both requests have passed the "is it full?" check, so
+    // they really race for the last spot.
+    const raceEnv = { ...env, DB: barrierDb(env.DB, 'INSERT INTO vol_signups', 2) };
+    const sub = (email: string) =>
+      submitSignup(raceEnv, { wardId: fx.wardId, postId: fx.postId, roleId: fx.roleId, name: 'R', email, bringing: null, now: NOW });
+    const res = await Promise.all([sub(a), sub(b)]);
+    expect(res.map((r) => r.result).sort()).toEqual(['confirmed', 'confirmed_over']);
     const rows = (await signupRows(fx.wardId, fx.roleId)).filter((r) => r.status === 'confirmed');
+    expect(rows).toHaveLength(2);
     rows.sort((x, y) => x.confirm_seq! - y.confirm_seq!);
-    expect(rows.map((r) => r.over_limit)).toEqual(rows.length === 2 ? [0, 1] : [0]);
+    expect(rows.map((r) => r.over_limit)).toEqual([0, 1]);
+    // The one marked over is the one told so.
+    const overEmail = rows[1]!.email;
+    const overResult = res.find((r) => r.messages.some((m) => m.kind === 'vol_confirmed' && m.to === overEmail))!;
+    expect(overResult.result).toBe('confirmed_over');
+    expect(overResult.messages.find((m) => m.kind === 'vol_confirmed')!.html).toContain('already met');
   });
 
   it('late approval after the role filled -> confirmed over the limit, with the withdraw paragraph', async () => {
@@ -253,12 +280,49 @@ describe('submitSignup / verify / approve', () => {
     expect((await signupRows(fx.wardId, fx.roleId))[0]!).toMatchObject({ bringing: null });
   });
 
-  it("an existing volunteer's name is never overwritten", async () => {
+  it('the latest name wins while the address is unconfirmed; once verified it never changes', async () => {
     const fx = await fixture();
     const email = uniqueEmail('nm');
-    await submit(fx, email, { name: 'Real Name' });
-    await submit(fx, email, { roleId: fx.roleId, name: 'Impostor' });
-    expect((await volunteerRow(fx.wardId, email))!.name).toBe('Real Name');
+    const s = await submit(fx, email, { name: 'First Try' });
+    const s2 = await submit(fx, email, { roleId: fx.roleId, name: 'Second Try' });
+    expect((await volunteerRow(fx.wardId, email))!.name).toBe('Second Try');
+    await verifyAddress(env, tokenFrom(s2.messages[0] ?? s.messages[0], '/vol/verify/'), NOW);
+    const p2 = await createPost(env, fx.wardId, fx.spaces['elders-quorum']!, fx.eqPres, {
+      title: 'Another', public_note: null, private_details: null, cancel_cutoff_hours: 24,
+    });
+    const d2 = await addDate(env, fx.wardId, p2, '2026-12-07', null);
+    const r2 = await addRole(env, fx.wardId, d2, { name: 'R', needed: 3, start_time: null, end_time: null, note: null, bring_prompt: null });
+    await submitSignup(env, { wardId: fx.wardId, postId: p2, roleId: r2, name: 'Impostor', email, bringing: null, now: NOW });
+    expect((await volunteerRow(fx.wardId, email))!.name).toBe('Second Try');
+  });
+
+  it('every public-form email to one address shares a cap: the 4th in 24h is not sent', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('cap');
+    const kinds: string[][] = [];
+    kinds.push((await submit(fx, email, { roleId: fx.roleId })).messages.map((m) => m.kind)); // verify
+    kinds.push((await submit(fx, email, { roleId: fx.roleId })).messages.map((m) => m.kind)); // already
+    kinds.push((await submit(fx, email, { roleId: fx.bigRoleId })).messages.map((m) => m.kind)); // verify
+    const fourth = await submit(fx, email, { roleId: fx.bigRoleId }); // already, over the cap
+    expect(kinds).toEqual([['vol_verify'], ['vol_already'], ['vol_verify']]);
+    expect(fourth.result).toBe('already_signed');
+    expect(fourth.messages).toHaveLength(0);
+  });
+
+  it('a full role reads the same for any address (checked before anything about the email)', async () => {
+    const fx = await fixture();
+    const filler = uniqueEmail('fill');
+    await makeLeader(env, fx.wardId, { email: filler });
+    await submit(fx, filler, { roleId: fx.roleId });
+    // The filler themselves, a new address and a declined one all get role_full, nothing sent.
+    const declinedEmail = uniqueEmail('dec');
+    const s = await submit(fx, declinedEmail, { roleId: fx.bigRoleId });
+    await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), NOW);
+    await declineVolunteer(env, fx.wardId, (await volunteerRow(fx.wardId, declinedEmail))!.id, fx.eqPres, NOW);
+    for (const e of [filler, uniqueEmail('new'), declinedEmail]) {
+      const r = await submit(fx, e, { roleId: fx.roleId });
+      expect(r).toEqual({ result: 'role_full', messages: [] });
+    }
   });
 
   it('revokeApproval removes upcoming confirmed sign-ups and tells the approvers', async () => {
@@ -280,6 +344,27 @@ describe('submitSignup / verify / approve', () => {
     const v = (await volunteerRow(fx.wardId, email))!;
     expect((await approveVolunteer(env, other.wardId, v.id, other.eqPres, NOW)).messages).toHaveLength(0);
     expect((await volunteerRow(fx.wardId, email))!.approval).toBe('pending');
+  });
+});
+
+describe('approval only promotes sign-ups that are still waiting', () => {
+  it('a sign-up cancelled between the read and the confirm stays cancelled', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('slip');
+    const s = await submit(fx, email);
+    await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), NOW);
+    const v = (await volunteerRow(fx.wardId, email))!;
+    const row = (await signupRows(fx.wardId, fx.bigRoleId))[0]!;
+    // Cancel it right before approveVolunteer's confirm statement runs.
+    const sneaky = {
+      ...env,
+      DB: hookDb(env.DB, "SET status = 'confirmed'", async () => {
+        await env.DB.prepare(`UPDATE vol_signups SET status = 'cancelled' WHERE id = ?`).bind(row.id).run();
+      }),
+    };
+    const a = await approveVolunteer(sneaky, fx.wardId, v.id, fx.eqPres, NOW);
+    expect((await signupRows(fx.wardId, fx.bigRoleId))[0]!.status).toBe('cancelled');
+    expect(a.messages.find((m) => m.kind === 'vol_approved')!.html).not.toContain('Door code 4242');
   });
 });
 

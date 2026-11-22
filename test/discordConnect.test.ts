@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { env, makeLeader, uniqueEmail, sentFetches, mockFetch, jsonResponse } from './helpers';
-import { fixture, tokenFrom, type Fx } from './volFixtures';
+import { fixture, tokenFrom, type Fx, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress } from '../src/lib/volSignup';
 import { makeLinkToken } from '../src/lib/volSession';
 import { deliver } from '../src/lib/volMessages';
@@ -26,9 +26,9 @@ async function startConnect(cookie: string) {
   return res;
 }
 
-function reminderFor(vid: string) {
+function reminderFor(vid: string, wardId: string) {
   return E.reminder({
-    to: 'dee@example.test', volunteerId: vid, name: 'Dee', post: { orgName: 'EQ', title: 'Move', publicUrl: 'http://x/v/1' },
+    to: 'dee@example.test', volunteerId: vid, wardId, name: 'Dee', post: { orgName: 'EQ', title: 'Move', publicUrl: 'http://x/v/1' },
     when: 'Sunday, Dec 6', roleName: 'Movers', bringing: null, privateDetails: 'Door code', otherNames: [],
     cancelUrl: 'http://x/c', mySignupsUrl: 'http://x/m',
   });
@@ -54,7 +54,7 @@ describe('discord oauth helpers', () => {
 
 describe('Connect Discord', () => {
   it('a mismatched state -> 400 and nothing stored; a matching one stores the Discord id', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const vid = await approvedVol(fx);
     const cookie = await volCookie(fx, vid);
     const start = await startConnect(cookie);
@@ -83,7 +83,7 @@ describe('Connect Discord', () => {
   });
 
   it("another volunteer's state cookie can't be used", async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const a = await approvedVol(fx);
     const b = await approvedVol(fx);
     const ca = await volCookie(fx, a);
@@ -96,7 +96,7 @@ describe('Connect Discord', () => {
   });
 
   it('a pending volunteer cannot start connect', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const email = uniqueEmail('pend');
     const s = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'P', email, bringing: null, now: new Date() });
     await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), new Date());
@@ -108,10 +108,10 @@ describe('Connect Discord', () => {
 
 describe('deliver with Discord', () => {
   it('a connected, approved volunteer gets the email and a DM', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const vid = await approvedVol(fx);
     await env.DB.prepare(`UPDATE volunteers SET discord_user_id = '999888777666' WHERE id = ?`).bind(vid).run();
-    await deliver(env, [reminderFor(vid)]);
+    await deliver(env, [reminderFor(vid, fx.wardId)]);
     const calls = sentFetches();
     expect(calls.filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(1);
     const dc = calls.filter((f) => f.url.startsWith('https://discord.com'));
@@ -123,27 +123,27 @@ describe('deliver with Discord', () => {
   });
 
   it('a connected but declined volunteer gets no DM', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const vid = await approvedVol(fx);
     await env.DB.prepare(`UPDATE volunteers SET discord_user_id = '999888777666', approval = 'declined' WHERE id = ?`).bind(vid).run();
-    await deliver(env, [reminderFor(vid)]);
+    await deliver(env, [reminderFor(vid, fx.wardId)]);
     expect(sentFetches().filter((f) => f.url.startsWith('https://discord.com'))).toHaveLength(0);
     expect(sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(1);
   });
 
   it('Discord 50007 -> the email still goes, nothing throws', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const vid = await approvedVol(fx);
     await env.DB.prepare(`UPDATE volunteers SET discord_user_id = '999888777666' WHERE id = ?`).bind(vid).run();
     mockFetch((f) => (f.url.endsWith('/messages') ? jsonResponse({ code: 50007, message: 'Cannot send messages to this user' }, 403) : undefined));
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await expect(deliver(env, [reminderFor(vid)])).resolves.toBeUndefined();
+    await expect(deliver(env, [reminderFor(vid, fx.wardId)])).resolves.toBeUndefined();
     log.mockRestore();
     expect(sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(1);
   });
 
   it('messages without discordText never touch Discord', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const vid = await approvedVol(fx);
     await env.DB.prepare(`UPDATE volunteers SET discord_user_id = '999888777666' WHERE id = ?`).bind(vid).run();
     await deliver(env, [E.declined({ to: 'x@example.test', name: 'X', wardName: 'W' })]);

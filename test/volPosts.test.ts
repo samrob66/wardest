@@ -111,6 +111,30 @@ describe('volPosts', () => {
     expect(dm).toHaveLength(1);
   });
 
+  it('saving a date unchanged does nothing; a real move resets reminders; a past date tells no one', async () => {
+    const s = await setup();
+    const postId = await createPost(env, s.wardId, s.eq, s.pres, postInput());
+    const d = await addDate(env, s.wardId, postId, '2026-12-06', '09:00');
+    const r = await addRole(env, s.wardId, d, role());
+    await addVolunteer(s.wardId, postId, r, 'confirmed');
+    await env.DB.prepare(`UPDATE vol_signups SET reminded_at = 'x' WHERE role_id = ?`).bind(r).run();
+    await env.DB.prepare(`UPDATE vol_dates SET approval_nudged_at = 'y' WHERE id = ?`).bind(d).run();
+    expect(await updateDate(env, s.wardId, d, '2026-12-06', '09:00', NOW)).toEqual([]);
+    const kept = await env.DB.prepare(`SELECT reminded_at FROM vol_signups WHERE role_id = ?`).bind(r).first<{ reminded_at: string | null }>();
+    expect(kept!.reminded_at).toBe('x');
+    const nudge = await env.DB.prepare(`SELECT approval_nudged_at FROM vol_dates WHERE id = ?`).bind(d).first<{ approval_nudged_at: string | null }>();
+    expect(nudge!.approval_nudged_at).toBe('y');
+    expect(await updateDate(env, s.wardId, d, '2026-12-06', '10:00', NOW)).toHaveLength(1);
+    const reset = await env.DB.prepare(`SELECT reminded_at FROM vol_signups WHERE role_id = ?`).bind(r).first<{ reminded_at: string | null }>();
+    expect(reset!.reminded_at).toBeNull();
+    // A date already over: moving it emails no one.
+    const past = await addDate(env, s.wardId, postId, '2026-11-01', '09:00');
+    const pr = await addRole(env, s.wardId, past, role());
+    await addVolunteer(s.wardId, postId, pr, 'confirmed');
+    expect(await updateDate(env, s.wardId, past, '2026-11-02', '09:00', NOW)).toEqual([]);
+    expect(await updateRole(env, s.wardId, pr, role({ start_time: '11:00' }), NOW)).toEqual([]);
+  });
+
   it('deletePost tells confirmed (and verified waiting) volunteers and removes every row', async () => {
     const s = await setup();
     const postId = await createPost(env, s.wardId, s.eq, s.pres, postInput());

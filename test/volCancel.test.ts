@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { env, asUser, makeLeader, uniqueEmail } from './helpers';
-import { NOW, fixture, signupRows, tokenFrom, type Fx } from './volFixtures';
+import { NOW, fixture, signupRows, tokenFrom, type Fx, futureDate } from './volFixtures';
 import {
   submitSignup, cancelSignup, withdrawOffer, removeSignup, cutoffInstant, approveVolunteer, verifyAddress,
 } from '../src/lib/volSignup';
@@ -82,7 +82,40 @@ describe('cancelSignup', () => {
     const p = (await getPost(env, fx.wardId, fx.postId))!;
     const t = cutoffInstant(p, p.dates[0]!, p.dates[0]!.roles[0]!);
     expect(Number.isNaN(t.getTime())).toBe(false);
-    expect(['2026-10-31T07:30:00.000Z', '2026-10-31T08:30:00.000Z']).toContain(t.toISOString());
+    // 01:30 on the fall-back day resolves to its first occurrence (MDT, 07:30Z); minus 24h.
+    expect(t.toISOString()).toBe('2026-10-31T07:30:00.000Z');
+  });
+});
+
+describe('over the limit is cleared once they are needed', () => {
+  it('after the person ahead of them cancels, an over-limit volunteer is no longer over', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('late');
+    const s = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.roleId, name: 'Late', email, bringing: null, now: NOW });
+    await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), NOW);
+    const first = await memberSignup(fx, fx.roleId); // fills the 1-person role
+    const v = await env.DB.prepare(`SELECT id FROM volunteers WHERE ward_id = ? AND email = ?`).bind(fx.wardId, email.toLowerCase()).first<{ id: string }>();
+    await approveVolunteer(env, fx.wardId, v!.id, fx.eqPres, NOW);
+    let late = (await signupRows(fx.wardId, fx.roleId)).find((r) => r.email === email.toLowerCase())!;
+    expect(late.over_limit).toBe(1);
+    await cancelSignup(env, fx.wardId, first.id, NOW);
+    late = (await signupRows(fx.wardId, fx.roleId)).find((r) => r.email === email.toLowerCase())!;
+    expect(late.over_limit).toBe(0);
+    // No longer offered a withdraw: they're needed now.
+    expect((await withdrawOffer(env, fx.wardId, late.id, NOW)).result).toBe('not_found');
+  });
+
+  it('raising the number needed clears it too', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('late2');
+    const s = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.roleId, name: 'Late', email, bringing: null, now: NOW });
+    await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), NOW);
+    await memberSignup(fx, fx.roleId);
+    const v = await env.DB.prepare(`SELECT id FROM volunteers WHERE ward_id = ? AND email = ?`).bind(fx.wardId, email.toLowerCase()).first<{ id: string }>();
+    await approveVolunteer(env, fx.wardId, v!.id, fx.eqPres, NOW);
+    const { updateRole } = await import('../src/lib/volPosts');
+    await updateRole(env, fx.wardId, fx.roleId, { name: 'Truck driver', needed: 2, start_time: null, end_time: null, note: null, bring_prompt: null }, NOW);
+    expect((await signupRows(fx.wardId, fx.roleId)).every((r) => r.over_limit === 0)).toBe(true);
   });
 });
 
@@ -120,7 +153,7 @@ describe('removeSignup', () => {
 
 describe('cancel / withdraw / remove routes', () => {
   it('GET the cancel page changes nothing; POST cancels', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const a = await memberSignup(fx, fx.bigRoleId, new Date());
     const tok = await makeLinkToken(env, { typ: 'vcan', wardId: fx.wardId, id: a.id });
     for (let i = 0; i < 2; i++) {
@@ -135,8 +168,8 @@ describe('cancel / withdraw / remove routes', () => {
   });
 
   it("a token naming ward A but holding ward B's sign-up id -> not found", async () => {
-    const fx = await fixture({ date: '2027-06-06' });
-    const other = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
+    const other = await fixture({ date: futureDate() });
     const b = await memberSignup(other, other.bigRoleId, new Date());
     const forged = await makeLinkToken(env, { typ: 'vcan', wardId: fx.wardId, id: b.id });
     expect((await SELF.fetch(`http://localhost/vol/cancel/${forged}`)).status).toBe(404);
@@ -149,7 +182,7 @@ describe('cancel / withdraw / remove routes', () => {
 
   it('a cancel link for a date that is over -> not found', async () => {
     const fx = await fixture({ date: '2026-11-01' });
-    await env.DB.prepare(`UPDATE vol_dates SET date = '2027-06-06' WHERE id = ?`).bind(fx.dateId).run();
+    await env.DB.prepare(`UPDATE vol_dates SET date = ? WHERE id = ?`).bind(futureDate(), fx.dateId).run();
     const a = await memberSignup(fx, fx.bigRoleId, new Date());
     await env.DB.prepare(`UPDATE vol_dates SET date = '2026-01-01' WHERE id = ?`).bind(fx.dateId).run();
     const tok = await makeLinkToken(env, { typ: 'vcan', wardId: fx.wardId, id: a.id });
@@ -157,7 +190,7 @@ describe('cancel / withdraw / remove routes', () => {
   });
 
   it('GET withdraw page changes nothing', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const a = await memberSignup(fx, fx.bigRoleId, new Date());
     await env.DB.prepare(`UPDATE vol_signups SET over_limit = 1 WHERE id = ?`).bind(a.id).run();
     const tok = await makeLinkToken(env, { typ: 'vwd', wardId: fx.wardId, id: a.id });
@@ -168,7 +201,7 @@ describe('cancel / withdraw / remove routes', () => {
   });
 
   it('eqTeacher cannot remove a volunteer; eqPres can', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const teacher = await makeLeader(env, fx.wardId, { email: uniqueEmail('t'), spaces: [['elders-quorum', 'member']] });
     const a = await memberSignup(fx, fx.bigRoleId, new Date());
     const post = async (uid: string) =>

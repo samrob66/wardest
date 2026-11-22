@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { env, asUser, makeLeader, uniqueEmail, sentFetches } from './helpers';
-import { NOW, fixture, tokenFrom, volunteerRow, signupRows } from './volFixtures';
+import { NOW, fixture, tokenFrom, volunteerRow, signupRows, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress } from '../src/lib/volSignup';
 import { verifyTurnstile } from '../src/lib/turnstile';
 
@@ -41,7 +41,7 @@ describe('verifyTurnstile', () => {
 
 describe('public sign-up route', () => {
   it('a failed bot check -> 400 and no sign-up', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const res = await publicSignup(fx.publicId, {
       role_id: fx.bigRoleId, name: 'Bot', email: uniqueEmail('bot'), 'cf-turnstile-response': 'fail',
     });
@@ -51,7 +51,7 @@ describe('public sign-up route', () => {
   });
 
   it("someone typing an approved member's email: counts, but the page shows no private details or names", async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const existing = uniqueEmail('existing');
     await makeLeader(env, fx.wardId, { email: existing, name: 'Existing Person' });
     await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'Zed Unique', email: existing, bringing: null, now: NOW });
@@ -62,7 +62,7 @@ describe('public sign-up route', () => {
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('You&#39;re signed up');
+    expect(html).toContain('check your email to finish');
     expect(html).not.toContain('Door code 4242');
     expect(html).not.toContain('Zed Unique');
     expect(html).not.toContain('Existing Person');
@@ -73,8 +73,8 @@ describe('public sign-up route', () => {
   });
 
   it("a role from a different post -> closed, no row", async () => {
-    const fx = await fixture({ date: '2027-06-06' });
-    const other = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
+    const other = await fixture({ date: futureDate() });
     const res = await publicSignup(fx.publicId, {
       role_id: other.roleId, name: 'X', email: uniqueEmail('x'), 'cf-turnstile-response': 'ok',
     });
@@ -84,24 +84,24 @@ describe('public sign-up route', () => {
   });
 
   it('a new email gets the check-your-email page', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const res = await publicSignup(fx.publicId, {
       role_id: fx.bigRoleId, name: 'New Person', email: uniqueEmail('np'), 'cf-turnstile-response': 'ok',
     });
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('Check your email to confirm your address');
+    expect(await res.text()).toContain('check your email to finish');
     expect(res.headers.get('x-robots-tag')).toBe('noindex');
   });
 
   it('a bad email re-renders the form with an error', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const res = await publicSignup(fx.publicId, { role_id: fx.bigRoleId, name: 'N', email: 'not-an-email', 'cf-turnstile-response': 'ok' });
     expect(res.status).toBe(400);
     expect(await res.text()).toContain('valid email');
   });
 
   it('more than 20 sign-ups an hour from one IP are refused', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     let last: Response | null = null;
     for (let i = 0; i < 21; i++) {
       last = await publicSignup(fx.publicId, { role_id: fx.bigRoleId, name: 'R', email: uniqueEmail('r' + i), 'cf-turnstile-response': 'ok' }, '198.51.100.7');
@@ -110,9 +110,54 @@ describe('public sign-up route', () => {
   });
 });
 
+describe('the result page never depends on the address', () => {
+  it('is byte-identical for a new, an approved, a declined and an already-signed address', async () => {
+    const fx = await fixture({ date: futureDate() });
+    const approved = uniqueEmail('appr');
+    await makeLeader(env, fx.wardId, { email: approved, name: 'Approved Person' });
+    const declined = uniqueEmail('decl');
+    const s = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.roleId, name: 'D', email: declined, bringing: null, now: new Date() });
+    await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), new Date());
+    const { declineVolunteer } = await import('../src/lib/volSignup');
+    await declineVolunteer(env, fx.wardId, (await volunteerRow(fx.wardId, declined))!.id, fx.eqPres, new Date());
+    const already = uniqueEmail('already');
+    await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'A', email: already, bringing: null, now: new Date() });
+    const pages: string[] = [];
+    for (const email of [uniqueEmail('brand-new'), approved, declined, already]) {
+      const res = await publicSignup(fx.publicId, { role_id: fx.bigRoleId, name: 'Some Name', email, 'cf-turnstile-response': 'ok' });
+      expect(res.status).toBe(200);
+      pages.push(await res.text());
+    }
+    expect(new Set(pages).size).toBe(1);
+    expect(pages[0]).toContain('check your email to finish');
+    // And what happened went to each address by email.
+    for (let i = 0; i < 40 && sentFetches().filter((f) => f.url.startsWith('https://api.resend.com')).length < 4; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const subjects = sentFetches()
+      .filter((f) => f.url.startsWith('https://api.resend.com'))
+      .map((f) => [(f.body as { to: string[] }).to[0], (f.body as { subject: string }).subject]);
+    const to = (e: string) => subjects.filter(([t]) => t === e.toLowerCase()).map(([, sub]) => sub);
+    expect(to(approved).join()).toContain("you're signed up");
+    expect(to(declined).join()).toContain('about your volunteer sign-up');
+    expect(to(already).join()).toContain("you're already signed up");
+  });
+});
+
+describe('suspended wards', () => {
+  it('their public posts and sign-up form are not found', async () => {
+    const fx = await fixture({ date: futureDate() });
+    await env.DB.prepare(`UPDATE wards SET status = 'suspended' WHERE id = ?`).bind(fx.wardId).run();
+    expect((await SELF.fetch(`http://localhost/v/${fx.publicId}`)).status).toBe(404);
+    const res = await publicSignup(fx.publicId, { role_id: fx.bigRoleId, name: 'S', email: uniqueEmail('s'), 'cf-turnstile-response': 'ok' });
+    expect(res.status).toBe(404);
+    expect(await signupRows(fx.wardId, fx.bigRoleId)).toHaveLength(0);
+  });
+});
+
 describe('verify route', () => {
   it('GET changes nothing (mail scanners); POST confirms the address', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const email = uniqueEmail('v');
     const s = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'V', email, bringing: null, now: new Date() });
     const tok = tokenFrom(s.messages[0], '/vol/verify/');
@@ -135,7 +180,7 @@ describe('verify route', () => {
 
 describe('approvals', () => {
   it('eqTeacher cannot approve; eqPres can; the ward volunteers page is Bishopric only', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const teacher = await makeLeader(env, fx.wardId, { email: uniqueEmail('teacher'), spaces: [['elders-quorum', 'member']] });
     const bishop = await makeLeader(env, fx.wardId, { email: uniqueEmail('bishop'), spaces: [['bishopric', 'member']] });
     const email = uniqueEmail('ap');
@@ -166,7 +211,7 @@ describe('approvals', () => {
   });
 
   it('decline from the manage page', async () => {
-    const fx = await fixture({ date: '2027-06-06' });
+    const fx = await fixture({ date: futureDate() });
     const email = uniqueEmail('dc');
     const s = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'Dc', email, bringing: null, now: new Date() });
     await verifyAddress(env, tokenFrom(s.messages[0], '/vol/verify/'), new Date());

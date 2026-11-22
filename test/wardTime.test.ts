@@ -14,15 +14,18 @@ describe('wardTime', () => {
   });
 
   it('localToUtc across the 2026-11-01 fall-back and 2027-03-14 spring-forward', () => {
-    const amb = localToUtc('2026-11-01', '01:30', DEN);
-    expect(Number.isNaN(amb.getTime())).toBe(false);
-    expect(['2026-11-01T07:30:00.000Z', '2026-11-01T08:30:00.000Z']).toContain(amb.toISOString());
+    // Ambiguous fall-back hour: the first occurrence (01:30 MDT).
+    expect(localToUtc('2026-11-01', '01:30', DEN).toISOString()).toBe('2026-11-01T07:30:00.000Z');
     // The day after fall-back is UTC-7, the day before is UTC-6.
     expect(localToUtc('2026-10-31', '12:00', DEN).toISOString()).toBe('2026-10-31T18:00:00.000Z');
     expect(localToUtc('2026-11-02', '12:00', DEN).toISOString()).toBe('2026-11-02T19:00:00.000Z');
-    // Spring forward: 02:30 doesn't exist; it lands one hour later (03:30 MDT = 09:30Z) or at 08:30Z.
-    const gap = localToUtc('2027-03-14', '02:30', DEN);
-    expect(Number.isNaN(gap.getTime())).toBe(false);
+    // Spring forward: 02:30 doesn't exist; it lands one hour later on the clock (03:30 MDT).
+    expect(localToUtc('2027-03-14', '02:30', DEN).toISOString()).toBe('2027-03-14T09:30:00.000Z');
+    expect(localToUtc('2027-03-14', '01:59', DEN).toISOString()).toBe('2027-03-14T08:59:00.000Z');
+    expect(localToUtc('2027-03-14', '03:00', DEN).toISOString()).toBe('2027-03-14T09:00:00.000Z');
+    expect(localToUtc('2027-03-14', '05:00', DEN).toISOString()).toBe('2027-03-14T11:00:00.000Z');
+    expect(localToUtc('2026-11-01', '00:30', DEN).toISOString()).toBe('2026-11-01T06:30:00.000Z');
+    expect(localToUtc('2026-11-01', '02:30', DEN).toISOString()).toBe('2026-11-01T09:30:00.000Z');
     expect(localToUtc('2027-03-14', '12:00', DEN).toISOString()).toBe('2027-03-14T18:00:00.000Z');
     expect(localToUtc('2027-03-13', '12:00', DEN).toISOString()).toBe('2027-03-13T19:00:00.000Z');
   });

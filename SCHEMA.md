@@ -211,6 +211,11 @@ Who may see and do what (`src/lib/volAccess.ts`, fail closed; `space_shares` gra
 | Volunteer | email, verified by link; `wardest_vol` cookie | Sign up, see and cancel their own sign-ups; private details and other volunteers' names only while approved and the post isn't over |
 | Anyone with the link | nothing | The public page: counts and what's being brought, never names, emails or private details |
 
+Deliberate privacy choice (Sam, 2026-11-21): on a post's manage page, read-only viewers (the
+organization's other members, the Ward Council) see volunteers' **names only**. Their **email
+addresses** are shown only to those who can edit the post and approve volunteers (they check
+people against the directory).
+
 ## Not modeled yet (deferred, by design)
 
 - **Callings default template** as a reference table — `calling_title` is free text, with the

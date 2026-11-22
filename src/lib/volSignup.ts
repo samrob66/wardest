@@ -14,7 +14,7 @@ import { newId, randomToken } from './ids';
 import { approverEmails, type Outcome, type OutgoingMessage } from './volMessages';
 import * as E from './volEmails';
 import {
-  emailPost, getPost, isDateOver, isPostOver, listWardPosts, postIsFull, resetFullIfShort, roleStartTime, whenText,
+  clearOverLimit, emailPost, getPost, isDateOver, isPostOver, listWardPosts, postIsFull, resetFullIfShort, roleStartTime, whenText,
   VolInputError, type PostFull, type DateFull, type RoleFull,
 } from './volPosts';
 import { hitLimit } from './volRate';
@@ -134,19 +134,21 @@ export async function otherOpenPosts(env: Env, wardId: string, excludePostIds: s
 
 // ---------------------------------------------------------------- confirmation core
 
-// Marks a sign-up confirmed (from 'waiting', or a fresh insert already 'confirmed') with the
+// Promotes a 'waiting' sign-up (a fresh insert, or one being approved) to confirmed with the
 // next confirm_seq for its role, in one statement, then decides whether it's over the limit:
 // it is when more than `needed` sign-ups on the role were confirmed before it (by confirm_seq).
-async function stampConfirmed(env: Env, wardId: string, signupId: string, roleId: string, needed: number, at: Date): Promise<boolean> {
-  await env.DB.prepare(
+// Returns null when the sign-up was no longer 'waiting' (cancelled/removed/declined meanwhile).
+async function stampConfirmed(env: Env, wardId: string, signupId: string, roleId: string, needed: number, at: Date): Promise<boolean | null> {
+  const stamped = await env.DB.prepare(
     `UPDATE vol_signups
         SET status = 'confirmed',
             confirmed_at = ?,
             confirm_seq = (SELECT COALESCE(MAX(confirm_seq), 0) + 1 FROM vol_signups WHERE role_id = ? AND ward_id = ?)
-      WHERE id = ? AND ward_id = ? AND confirm_seq IS NULL`,
+      WHERE id = ? AND ward_id = ? AND status = 'waiting' AND confirm_seq IS NULL`,
   )
     .bind(at.toISOString(), roleId, wardId, signupId, wardId)
     .run();
+  if (!stamped.meta.changes) return null;
   const rank = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM vol_signups
       WHERE role_id = ? AND ward_id = ? AND status = 'confirmed'
@@ -191,6 +193,7 @@ async function confirmationMessage(
   return E.signupConfirmed({
     to: v.email,
     volunteerId: v.id,
+    wardId: post.ward_id,
     name: v.name,
     post: emailPost(post, env.APP_URL),
     when: whenText(date, role),
@@ -224,6 +227,11 @@ async function approverWaitingFor(env: Env, v: VolunteerRow, postIds: string[]):
 
 // ---------------------------------------------------------------- submit
 
+// Every email the public form sends to one address (confirmation, confirm-your-address,
+// waiting, already-signed, contact-your-leaders) shares this cap, so the form can't be used to
+// flood an inbox. Over the cap nothing is sent, and the page looks the same.
+export const PUBLIC_MAIL_CAP = 3; // per address per 24 hours
+
 export async function submitSignup(
   env: Env,
   o: { wardId: string; postId: string; roleId: string; name: string; email: string; bringing: string | null; now: Date },
@@ -246,13 +254,16 @@ export async function submitSignup(
   const bringingRaw = (o.bringing ?? '').trim().slice(0, 200);
   const bringing = role.bring_prompt && bringingRaw ? bringingRaw : null;
 
-  // 3. The volunteer (never overwriting an existing name). Ward members are approved.
+  // 3. Outcomes shown on screen come first and never depend on the address, so the page can't
+  //    be used to learn anything about an email: a full role turns everyone away (the button was
+  //    closed; this is a stale page), and the per-post cap counts every submission.
+  if (role.confirmed >= role.needed) return none('role_full');
+  if (await hitLimit(env, wardId, 'signup:' + o.postId, 60, 60, now)) return none('rate_limited');
+
+  // 4. The volunteer. Ward members are approved. The name follows the latest sign-up only while
+  //    the address is unconfirmed; once it's verified the name never changes.
   let v = await getVolunteerByEmail(env, wardId, email);
   const member = await isWardMemberEmail(env, wardId, email);
-  if (!v || (v.approval === 'none' && !member)) {
-    // New (or still unverified) addresses are what can be abused: cap them per post.
-    if (await hitLimit(env, wardId, 'newsignup:' + o.postId, 60, 60, now)) return none('rate_limited');
-  }
   if (!v) {
     await env.DB.prepare(
       `INSERT OR IGNORE INTO volunteers (id, ward_id, email, name, approval, created_at) VALUES (?, ?, ?, ?, 'none', ?)`,
@@ -261,6 +272,13 @@ export async function submitSignup(
       .run();
     v = await getVolunteerByEmail(env, wardId, email);
     if (!v) return none('closed');
+  } else if (v.approval === 'none' && !v.email_verified_at && v.name !== name) {
+    await env.DB.prepare(
+      `UPDATE volunteers SET name = ? WHERE id = ? AND ward_id = ? AND approval = 'none' AND email_verified_at IS NULL`,
+    )
+      .bind(name, v.id, wardId)
+      .run();
+    v = (await getVolunteer(env, wardId, v.id))!;
   }
   if (member && v.approval !== 'approved') {
     await env.DB.prepare(
@@ -271,20 +289,37 @@ export async function submitSignup(
       .run();
     v = (await getVolunteer(env, wardId, v.id))!;
   }
+  const vol = v;
+  const ep = emailPost(post, env.APP_URL);
+  // Builds an email to the volunteer's address only while it's under the per-address cap.
+  const toVolunteer = async (build: () => Promise<OutgoingMessage> | OutgoingMessage): Promise<OutgoingMessage[]> =>
+    (await hitLimit(env, wardId, 'pubmail:' + email, PUBLIC_MAIL_CAP, 1440, now)) ? [] : [await build()];
 
-  // 4. Declined addresses can't sign up again (no email either).
-  if (v.approval === 'declined') return none('declined_email');
+  // 5. Declined addresses can't sign up again; the email asks them to contact the leaders.
+  if (vol.approval === 'declined') {
+    return {
+      result: 'declined_email',
+      messages: await toVolunteer(() => E.contactLeaders({ to: vol.email, name: vol.name, wardName: post.ward.name })),
+    };
+  }
 
-  // 5. Already on this role.
+  // 6. Already on this role.
   const active = await env.DB.prepare(
     `SELECT 1 AS ok FROM vol_signups WHERE ward_id = ? AND role_id = ? AND volunteer_id = ? AND status IN ('waiting','confirmed')`,
   )
-    .bind(wardId, role.id, v.id)
+    .bind(wardId, role.id, vol.id)
     .first();
-  if (active) return none('already_signed');
-
-  // 6. Full roles turn everyone away (the button was closed; this is a stale page).
-  if (role.confirmed >= role.needed) return none('role_full');
+  if (active) {
+    return {
+      result: 'already_signed',
+      messages: await toVolunteer(async () =>
+        E.alreadySignedUp({
+          to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name,
+          mySignupsUrl: vol.email_verified_at ? await accessUrl(env, wardId, vol.id, now) : null,
+        }),
+      ),
+    };
+  }
 
   const signupId = newId('vs');
   // Every sign-up starts as 'waiting'; stampConfirmed promotes an approved one atomically.
@@ -294,50 +329,52 @@ export async function submitSignup(
         `INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, bringing, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-        .bind(signupId, wardId, post.id, role.id, v!.id, bringing, 'waiting', now.toISOString())
+        .bind(signupId, wardId, post.id, role.id, vol.id, bringing, 'waiting', now.toISOString())
         .run();
       return true;
     } catch (e) {
-      // The partial unique index: a double click raced us to it.
+      // The partial unique index: a double click raced us to it (that request sends the email).
       if (/UNIQUE/i.test((e as Error).message)) return false;
       throw e;
     }
   };
 
   // 7. Approved: counts at once.
-  if (v.approval === 'approved') {
+  if (vol.approval === 'approved') {
     if (!(await insert())) return none('already_signed');
     const over = await stampConfirmed(env, wardId, signupId, role.id, role.needed, now);
-    const messages = [await confirmationMessage(env, v, post, date, role, signupId, bringing, over, now)];
+    if (over === null) return none('closed'); // ended between insert and confirm
+    const messages = await toVolunteer(() => confirmationMessage(env, vol, post, date, role, signupId, bringing, over, now));
     messages.push(...(await filledMessages(env, wardId, post.id, now)));
     return { result: over ? 'confirmed_over' : 'confirmed', messages };
   }
 
-  // 8. Address not verified yet: waiting + a confirm-your-address email (capped per address).
-  if (v.approval === 'none') {
+  // 8. Address not verified yet: waiting + a confirm-your-address email.
+  if (vol.approval === 'none') {
     if (!(await insert())) return none('already_signed');
-    const messages: OutgoingMessage[] = [];
-    if (!(await hitLimit(env, wardId, 'verify:' + email, 3, 1440, now))) {
+    const messages = await toVolunteer(async () => {
       const token = randomToken(24);
       await env.DB.prepare(
         `INSERT INTO vol_tokens (id, ward_id, volunteer_id, purpose, token_hash, expires_at, created_at)
          VALUES (?, ?, ?, 'verify', ?, ?, ?)`,
       )
         .bind(
-          newId('vt'), wardId, v.id, await sha256Hex(token),
+          newId('vt'), wardId, vol.id, await sha256Hex(token),
           new Date(now.getTime() + VERIFY_HOURS * 3_600_000).toISOString(), now.toISOString(),
         )
         .run();
-      messages.push(
-        E.verifyEmail({ to: v.email, name: v.name, post: emailPost(post, env.APP_URL), verifyUrl: `${env.APP_URL}/vol/verify/${token}` }),
-      );
-    }
+      return E.verifyEmail({ to: vol.email, name: vol.name, post: ep, verifyUrl: `${env.APP_URL}/vol/verify/${token}` });
+    });
     return { result: 'waiting_verify', messages };
   }
 
-  // 9. Verified, waiting for a leader: tell this post's approvers.
+  // 9. Verified, waiting for a leader: tell this post's approvers, and the volunteer.
   if (!(await insert())) return none('already_signed');
-  return { result: 'waiting_approval', messages: await approverWaitingFor(env, v, [post.id]) };
+  const messages = await toVolunteer(() =>
+    E.signupWaiting({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name }),
+  );
+  messages.push(...(await approverWaitingFor(env, vol, [post.id])));
+  return { result: 'waiting_approval', messages };
 }
 
 // ---------------------------------------------------------------- verify
@@ -345,38 +382,44 @@ export async function submitSignup(
 export async function verifyAddress(env: Env, token: string, now: Date): Promise<Outcome<'verified' | 'invalid'>> {
   const invalid = { result: 'invalid' as const, messages: [] };
   if (!token || token.length > 200) return invalid;
+  // The token hash is globally unique; its row names the ward. Suspended wards don't verify.
   const row = await env.DB.prepare(
-    `SELECT id, ward_id, volunteer_id FROM vol_tokens
-      WHERE token_hash = ? AND purpose = 'verify' AND used_at IS NULL AND expires_at > ?`,
+    `SELECT t.id, t.ward_id, t.volunteer_id FROM vol_tokens t JOIN wards w ON w.id = t.ward_id
+      WHERE t.token_hash = ? AND t.purpose = 'verify' AND t.used_at IS NULL AND t.expires_at > ? AND w.status = 'active'`,
   )
     .bind(await sha256Hex(token), now.toISOString())
     .first<{ id: string; ward_id: string; volunteer_id: string }>();
   if (!row) return invalid;
-  const claim = await env.DB.prepare(`UPDATE vol_tokens SET used_at = ? WHERE id = ? AND used_at IS NULL`)
-    .bind(now.toISOString(), row.id)
+  const wardId = row.ward_id;
+  const claim = await env.DB.prepare(`UPDATE vol_tokens SET used_at = ? WHERE id = ? AND ward_id = ? AND used_at IS NULL`)
+    .bind(now.toISOString(), row.id, wardId)
     .run();
   if (!claim.meta.changes) return invalid;
-  const wardId = row.ward_id;
-  let v = await getVolunteer(env, wardId, row.volunteer_id);
+  const v = await getVolunteer(env, wardId, row.volunteer_id);
   if (!v) return invalid;
   await env.DB.prepare(`UPDATE volunteers SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ? AND ward_id = ?`)
     .bind(now.toISOString(), v.id, wardId)
     .run();
-  if (v.approval === 'none') {
-    if (await isWardMemberEmail(env, wardId, v.email)) {
-      // Became a leader in the meantime: approved, and their waiting sign-ups count now.
-      await env.DB.prepare(`UPDATE volunteers SET approval = 'pending' WHERE id = ? AND ward_id = ?`).bind(v.id, wardId).run();
-      const a = await approveVolunteer(env, wardId, v.id, null, now);
-      return { result: 'verified', messages: a.messages };
-    }
+  // Only the click that moves the address from 'none' to 'pending' notifies the approvers
+  // (rule 10: one notification when the address is verified); later links change nothing.
+  if (v.approval !== 'none') return { result: 'verified', messages: [] };
+  if (await isWardMemberEmail(env, wardId, v.email)) {
+    // Became a leader in the meantime: approved, and their waiting sign-ups count now.
     await env.DB.prepare(`UPDATE volunteers SET approval = 'pending' WHERE id = ? AND ward_id = ? AND approval = 'none'`)
       .bind(v.id, wardId)
       .run();
+    const a = await approveVolunteer(env, wardId, v.id, null, now);
+    return { result: 'verified', messages: a.messages };
   }
-  v = (await getVolunteer(env, wardId, v.id))!;
-  if (v.approval !== 'pending') return { result: 'verified', messages: [] };
+  const moved = await env.DB.prepare(`UPDATE volunteers SET approval = 'pending' WHERE id = ? AND ward_id = ? AND approval = 'none'`)
+    .bind(v.id, wardId)
+    .run();
+  if (!moved.meta.changes) return { result: 'verified', messages: [] };
   const waiting = await upcomingSignups(env, wardId, v.id, 'waiting', now);
-  return { result: 'verified', messages: await approverWaitingFor(env, v, waiting.map((s) => s.signup.post_id)) };
+  return {
+    result: 'verified',
+    messages: await approverWaitingFor(env, { ...v, approval: 'pending' }, waiting.map((s) => s.signup.post_id)),
+  };
 }
 
 interface SignupWithPost {
@@ -434,6 +477,7 @@ export async function approveVolunteer(
   for (const s of await upcomingSignups(env, wardId, v.id, 'waiting', now)) {
     // Each confirmation reads the role's current count, so order within the batch holds.
     const over = await stampConfirmed(env, wardId, s.signup.id, s.role.id, s.role.needed, now);
+    if (over === null) continue; // cancelled/removed since we read it
     touchedPosts.add(s.post.id);
     items.push({
       post: emailPost(s.post, env.APP_URL),
@@ -448,7 +492,7 @@ export async function approveVolunteer(
   const ward = await env.DB.prepare(`SELECT name FROM wards WHERE id = ?`).bind(wardId).first<{ name: string }>();
   const messages: OutgoingMessage[] = [
     E.approved({
-      to: v.email, volunteerId: v.id, name: approvedV.name, wardName: ward?.name ?? 'Your ward',
+      to: v.email, volunteerId: v.id, wardId, name: approvedV.name, wardName: ward?.name ?? 'Your ward',
       mySignupsUrl: await accessUrl(env, wardId, v.id, now), signups: items,
     }),
   ];
@@ -555,6 +599,7 @@ export async function revokeApproval(
       .bind(now.toISOString(), s.signup.id, wardId)
       .run();
     await resetFullIfShort(env, wardId, s.post.id);
+    await clearOverLimit(env, wardId, s.role.id);
     messages.push(...(await cancelledMessages(env, wardId, s.post.id, s.role.id, v.name, now)));
   }
   await env.DB.prepare(
@@ -601,6 +646,7 @@ export async function cancelSignup(env: Env, wardId: string, signupId: string, n
   if (!claim.meta.changes) return { result: 'already', messages: [] };
   if (s.status === 'waiting') return { result: 'cancelled', messages: [] };
   await resetFullIfShort(env, wardId, s.post_id);
+  await clearOverLimit(env, wardId, s.role_id);
   const name = await volunteerName(env, wardId, s.volunteer_id);
   return { result: 'cancelled', messages: await cancelledMessages(env, wardId, s.post_id, s.role_id, name, now) };
 }
@@ -622,6 +668,7 @@ export async function withdrawOffer(env: Env, wardId: string, signupId: string, 
   const f = post ? findRole(post, s.role_id) : null;
   if (!f || f.role.confirmed >= f.role.needed) return { result: 'withdrawn', messages: [] };
   await resetFullIfShort(env, wardId, s.post_id);
+  await clearOverLimit(env, wardId, s.role_id);
   const name = await volunteerName(env, wardId, s.volunteer_id);
   return { result: 'withdrawn', messages: await cancelledMessages(env, wardId, s.post_id, s.role_id, name, now) };
 }
@@ -646,6 +693,7 @@ export async function removeSignup(
     .run();
   if (!claim.meta.changes) return { result: 'already', messages: [] };
   await resetFullIfShort(env, wardId, s.post_id);
+  await clearOverLimit(env, wardId, s.role_id);
   const v = await getVolunteer(env, wardId, s.volunteer_id);
   const post = await getPost(env, wardId, s.post_id);
   const f = post ? findRole(post, s.role_id) : null;

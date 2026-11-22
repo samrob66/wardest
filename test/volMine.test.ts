@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { env, makeLeader, uniqueEmail, sentFetches } from './helpers';
-import { fixture, tokenFrom, signupRows, type Fx } from './volFixtures';
+import { fixture, tokenFrom, signupRows, type Fx, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress, revokeApproval } from '../src/lib/volSignup';
 import { makeLinkToken } from '../src/lib/volSession';
 import { addDate, addRole, createPost } from '../src/lib/volPosts';
 
-const FUTURE = '2027-06-06';
+const FUTURE = futureDate();
 
 async function memberVolunteer(fx: Fx, name: string, roleId: string) {
   const email = uniqueEmail(name.split(' ')[0]!.toLowerCase());

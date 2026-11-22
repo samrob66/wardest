@@ -333,6 +333,9 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    account → Google plan → calendars → booking pages → interview router → zippa.run creator +
    links → ward links site / portal → flyer → Zoom → assignment rotations → Wardest spaces +
    callings.
+   Step 2 (callings and spaces) must say: put the Ward Clerk in the Bishopric space; an
+   Activities chair or Ward Mission Leader who isn't in the Ward Council space sees only their
+   own organization's volunteer posts until they're added (volunteer sign-ups spec §5).
 4. **Catalog how-tos from the Playbook.** Revise the 3 drafted solutions (zippa.run + demo site),
    seed them in place of `sol_ex_interviews` / `sol_ex_bulletin`, and ship the generalized
    `InterviewRouter` template with the real calendar IDs stripped. Then the remaining Playbook
@@ -376,3 +379,27 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    - **Resend:** check the plan's daily send limit before a second ward goes live (reminders and
      confirmations count against it).
    - Cron: the `[triggers]` hourly cron deploys with the Worker; nothing else to set up.
+
+   Local hand check (e.g. from the main checkout): its `.dev.vars` needs
+   `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA` (Cloudflare's always-pass test
+   secret; the site key is already the test key in `wrangler.toml`) and `RESEND_API_KEY=dev`,
+   which prints every volunteer email, with its links, to the `wrangler dev` console.
+
+   Decisions and known limitations (2026-11-21):
+   - The page after the public sign-up form is the same for every outcome that depends on the
+     address (confirmed, over the limit, needs confirming, waiting for approval, already signed
+     up, declined): "check your email to finish". The email says what happened. So the spec's
+     on-screen over-limit notice (§6.3 step 6) is dropped; the email carries it. Only outcomes
+     that read the same for any address show on screen: closed, role just filled, rate limited,
+     a form error, a failed bot check.
+   - Every email the public form sends to one address shares a cap of 3 a day. Over it, nothing
+     is sent and the page is unchanged: e.g. an approved volunteer who signs up for a 4th meal
+     date in one day still counts, and sees it in My sign-ups, but gets no 4th confirmation.
+   - An email that belongs to a Wardest member of the ward is always approved, even after a
+     decline or a revoked approval. Removing them from the ward is the real lever.
+   - Ward prefixes `verify`, `cancel`, `withdraw`, `access` and `discord` are refused at ward
+     approval: they're fixed segments under `/vol/`.
+   - Toolchain (accepted with the test harness): `npm install` of `@cloudflare/vitest-plugin`
+     1.5.1 + `vitest` 5.1.0 moved the lockfile to **wrangler 4.157.0** (miniflare
+     5.20261103.0-beta, `@cloudflare/workers-types` 5.20261121.1); `package.json` still says
+     `wrangler ^4.111.0`, which that satisfies.

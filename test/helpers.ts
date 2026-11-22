@@ -186,3 +186,75 @@ export async function asUser(userId: string): Promise<string> {
 export function uniqueEmail(label: string): string {
   return `${label}-${tag()}@example.test`;
 }
+
+// A D1 wrapper that holds every run() of a statement containing `marker` until `n` of them are
+// waiting, then lets them all go. Used to force a real race (e.g. two sign-ups that have both
+// passed the "is it full?" check before either inserts).
+export function barrierDb(db: D1Database, marker: string, n: number): D1Database {
+  let arrived = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(st, {
+      get(target, prop) {
+        if (prop === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
+        if (prop === 'run') {
+          return async () => {
+            arrived++;
+            if (arrived >= n) release();
+            await gate;
+            return target.run();
+          };
+        }
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+  return new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'prepare') {
+        return (sql: string) => {
+          const st = target.prepare(sql);
+          return sql.includes(marker) ? wrap(st) : st;
+        };
+      }
+      const v = Reflect.get(target, prop, target);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}
+
+// A D1 wrapper that runs `before()` once, just before the first run() of a statement containing
+// `marker`. Used to slip a change in between a read and the write that depends on it.
+export function hookDb(db: D1Database, marker: string, before: () => Promise<void>): D1Database {
+  let done = false;
+  const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(st, {
+      get(target, prop) {
+        if (prop === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
+        if (prop === 'run') {
+          return async () => {
+            if (!done) {
+              done = true;
+              await before();
+            }
+            return target.run();
+          };
+        }
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+  return new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'prepare') {
+        return (sql: string) => {
+          const st = target.prepare(sql);
+          return sql.includes(marker) ? wrap(st) : st;
+        };
+      }
+      const v = Reflect.get(target, prop, target);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}

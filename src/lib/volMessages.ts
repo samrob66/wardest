@@ -12,6 +12,7 @@ export interface OutgoingMessage {
   html: string;
   discordText?: string; // set only for volunteer confirmations/reminders (spec §6.9)
   volunteerId?: string; // lets deliver() find a connected Discord account
+  wardId?: string; // the volunteer's ward (every lookup is ward-scoped)
 }
 
 export type Outcome<T> = { result: T; messages: OutgoingMessage[] };
@@ -22,7 +23,9 @@ function dedupe(msgs: OutgoingMessage[]): OutgoingMessage[] {
   const seen = new Set<string>();
   const out: OutgoingMessage[] = [];
   for (const m of msgs) {
-    const key = `${m.to.toLowerCase()}\u0000${m.kind}\u0000${m.subject}`;
+    // Only truly identical messages collapse: two reminders for two roles on one post share a
+    // subject but not a body, and both must go.
+    const key = `${m.to.toLowerCase()}\u0000${m.kind}\u0000${m.subject}\u0000${m.html}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(m);
@@ -66,8 +69,9 @@ async function sendEmail(env: Env, m: OutgoingMessage): Promise<void> {
 // Best-effort Discord DM for a confirmation/reminder: only to a volunteer who is approved and
 // has connected Discord (spec §6.9). Email has already gone; failures are logged, never thrown.
 async function sendDiscord(env: Env, m: OutgoingMessage): Promise<void> {
-  const v = await env.DB.prepare(`SELECT approval, discord_user_id FROM volunteers WHERE id = ?`)
-    .bind(m.volunteerId ?? '')
+  if (!m.volunteerId || !m.wardId) return;
+  const v = await env.DB.prepare(`SELECT approval, discord_user_id FROM volunteers WHERE id = ? AND ward_id = ?`)
+    .bind(m.volunteerId, m.wardId)
     .first<{ approval: string; discord_user_id: string | null }>();
   if (!v || v.approval !== 'approved' || !v.discord_user_id) return;
   const r = await sendDiscordDm(env, v.discord_user_id, m.discordText ?? '');
@@ -83,7 +87,7 @@ export async function deliver(env: Env, msgs: OutgoingMessage[]): Promise<void> 
     try {
       if (!key || key === 'dev') devLog(m);
       else await sendEmail(env, m);
-      if (m.discordText && m.volunteerId) await sendDiscord(env, m);
+      if (m.discordText && m.volunteerId && m.wardId) await sendDiscord(env, m);
     } catch (e) {
       console.error(`[deliver] ${(e as Error).message}`);
     }

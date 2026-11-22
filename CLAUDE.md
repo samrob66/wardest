@@ -85,7 +85,8 @@ is http(s)-only, normalized on write and guarded on render (`src/lib/urls.ts`).
 ## Deploy / develop
 
 Cloudflare Wrangler (Wrangler ≥ 3.60.0 uses space-separated subcommands; the colon form is
-deprecated). Prefix with `npx ` if not installed globally.
+deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **wrangler 4.157.0**
+(miniflare 5.20261103.0-beta), pulled in with the test harness in 2026-11.
 
 - Local: `npm run db:init:local` → `npm run db:seed:local` → `npm run db:seed:solutions:local` →
   `npm run dev` (portal at `http://localhost:8787/p/m44`; `/auth/dev-login?email=…` needs

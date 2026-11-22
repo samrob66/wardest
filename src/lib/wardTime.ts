@@ -80,17 +80,23 @@ function dateUtcMs(date: string): number {
 }
 
 // Wall-clock `date` + `time` in `tz` -> the UTC instant. Guess the wall time as if it were UTC,
-// subtract the zone's offset at that guess, then re-read the offset at the result and correct
-// once (handles DST). A time that doesn't exist (spring-forward gap) resolves to the instant an
-// hour away from it; an ambiguous fall-back time resolves to one of its two instants.
+// subtract the zone's offset at that guess, and keep the result if it reads back as the wanted
+// wall time; otherwise try the offset at that result. If neither reads back, the time falls in
+// a spring-forward gap (02:30 on 2027-03-14 in Denver doesn't exist) and we take the later
+// instant, i.e. one hour later on the clock (03:30 MDT). An ambiguous fall-back time (01:30 on
+// 2026-11-01) resolves to its first occurrence.
 export function localToUtc(date: string, time: string, tz: string): Date {
   const [hh, mm] = time.split(':').map(Number) as [number, number];
   const guess = dateUtcMs(date) + hh * 3_600_000 + mm * 60_000;
-  const off1 = offsetMs(tz, new Date(guess));
-  let t = guess - off1;
-  const off2 = offsetMs(tz, new Date(t));
-  if (off2 !== off1) t = guess - off2;
-  return new Date(t);
+  const readsBack = (t: number): boolean => {
+    const w = wallParts(tz, new Date(t));
+    return Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute) === guess;
+  };
+  const t1 = guess - offsetMs(tz, new Date(guess));
+  if (readsBack(t1)) return new Date(t1);
+  const t2 = guess - offsetMs(tz, new Date(t1));
+  if (readsBack(t2)) return new Date(t2);
+  return new Date(Math.max(t1, t2));
 }
 
 // Today's date (YYYY-MM-DD) in the ward's zone.

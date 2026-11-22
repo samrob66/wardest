@@ -79,6 +79,7 @@ export function verifyEmail(o: { to: string; name: string; post: EmailPost; veri
 export function signupConfirmed(o: {
   to: string;
   volunteerId: string;
+  wardId: string;
   name: string;
   post: EmailPost;
   when: string;
@@ -96,6 +97,7 @@ export function signupConfirmed(o: {
     kind: 'vol_confirmed',
     to: o.to,
     volunteerId: o.volunteerId,
+    wardId: o.wardId,
     subject: `${o.post.orgName}: you're signed up — ${o.post.title}`,
     html: wrap(
       `<p>Hi ${esc(o.name)},</p>
@@ -131,6 +133,7 @@ export interface ApprovedSignup {
 export function approved(o: {
   to: string;
   volunteerId: string;
+  wardId: string;
   name: string;
   wardName: string;
   mySignupsUrl: string;
@@ -149,6 +152,7 @@ export function approved(o: {
     kind: 'vol_approved',
     to: o.to,
     volunteerId: o.volunteerId,
+    wardId: o.wardId,
     subject: `${o.wardName}: you're confirmed as a volunteer`,
     html: wrap(
       `<p>Hi ${esc(o.name)},</p>
@@ -171,6 +175,57 @@ export function approved(o: {
   };
 }
 
+// After the public form: verified, waiting for a leader to confirm them.
+export function signupWaiting(o: { to: string; name: string; post: EmailPost; when: string; roleName: string }): OutgoingMessage {
+  return {
+    kind: 'vol_waiting',
+    to: o.to,
+    subject: `${o.post.orgName}: thanks for signing up — ${o.post.title}`,
+    html: wrap(
+      `<p>Hi ${esc(o.name)},</p>
+       <p>You're signed up for <strong>${esc(o.post.title)}</strong> · ${esc(o.when)} · ${esc(o.roleName)}.
+       A leader will confirm you shortly, and we'll email you the details when they do.</p>`,
+      VOLUNTEER_FOOTER,
+    ),
+  };
+}
+
+// After the public form: this address is already on that role.
+export function alreadySignedUp(o: {
+  to: string;
+  name: string;
+  post: EmailPost;
+  when: string;
+  roleName: string;
+  mySignupsUrl: string | null;
+}): OutgoingMessage {
+  return {
+    kind: 'vol_already',
+    to: o.to,
+    subject: `${o.post.orgName}: you're already signed up — ${o.post.title}`,
+    html: wrap(
+      `<p>Hi ${esc(o.name)},</p>
+       <p>You're already signed up for <strong>${esc(o.post.title)}</strong> · ${esc(o.when)} · ${esc(o.roleName)},
+       so there's nothing more to do.</p>
+       ${o.mySignupsUrl ? `<p>See or cancel your sign-ups: ${link(o.mySignupsUrl, 'My sign-ups')}.</p>` : ''}`,
+      VOLUNTEER_FOOTER,
+    ),
+  };
+}
+
+// After the public form, for an address the leaders declined. Plain wording, no reason given.
+export function contactLeaders(o: { to: string; name: string; wardName: string }): OutgoingMessage {
+  return {
+    kind: 'vol_contact_leaders',
+    to: o.to,
+    subject: `${o.wardName}: about your volunteer sign-up`,
+    html: wrap(
+      `<p>Hi ${esc(o.name)},</p>
+       <p>Thank you for offering to help. To sign up, please contact your ward's leaders.</p>`,
+    ),
+  };
+}
+
 export function declined(o: { to: string; name: string; wardName: string }): OutgoingMessage {
   return {
     kind: 'vol_declined',
@@ -188,6 +243,7 @@ export function declined(o: { to: string; name: string; wardName: string }): Out
 export function reminder(o: {
   to: string;
   volunteerId: string;
+  wardId: string;
   name: string;
   post: EmailPost;
   when: string;
@@ -205,6 +261,7 @@ export function reminder(o: {
     kind: 'vol_reminder',
     to: o.to,
     volunteerId: o.volunteerId,
+    wardId: o.wardId,
     subject: `${o.post.orgName}: reminder for tomorrow — ${o.post.title}`,
     html: wrap(
       `<p>Hi ${esc(o.name)},</p>

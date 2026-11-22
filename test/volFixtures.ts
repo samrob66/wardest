@@ -4,8 +4,15 @@ import { env, makeWard, makeLeader, uniqueEmail } from './helpers';
 import { addDate, addRole, createPost, getPost } from '../src/lib/volPosts';
 import type { OutgoingMessage } from '../src/lib/volMessages';
 import { addEditor } from '../src/lib/volEditors';
+import { addDays, wardToday } from '../src/lib/wardTime';
 
 export const NOW = new Date('2026-11-21T18:00:00Z'); // Saturday 11:00 in Denver
+
+// A Denver date `days` after today on the real clock, for route tests whose handlers use the
+// real clock (a fixed calendar date would make them fail once it passes).
+export function futureDate(days = 30): string {
+  return addDays(wardToday('America/Denver', new Date()), days);
+}
 
 export interface Fx {
   wardId: string;

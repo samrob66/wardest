@@ -499,6 +499,8 @@ async function linkedSignup(c: Context<AppEnv>, typ: 'vcan' | 'vwd') {
   const now = new Date();
   const t = await readLinkToken(c.env, typ, c.req.param('token') ?? '', now);
   if (!t) return null;
+  const ward = await getWardById(c.env, t.wardId);
+  if (!ward || ward.status !== 'active') return null;
   const sum = await signupSummary(c.env, t.wardId, t.id);
   if (!sum || (await signupDateOver(c.env, sum.signup, now))) return null;
   return { wardId: t.wardId, ...sum };

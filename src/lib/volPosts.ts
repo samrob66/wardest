@@ -286,21 +286,24 @@ async function postHeader(env: Env, wardId: string, postId: string): Promise<{ p
 }
 
 // Changing a date (or its start time) tells confirmed volunteers whose role time changed.
+// Saving it unchanged does nothing; a date that was already over tells no one.
 export async function updateDate(
   env: Env,
   wardId: string,
   dateId: string,
   date: string,
   startTime: string | null,
+  now: Date = new Date(),
 ): Promise<OutgoingMessage[]> {
   const d = checkDate(date, startTime);
   const old = await dateRow(env, wardId, dateId);
   req(old != null, 'That date no longer exists.');
+  if (old!.date === d.date && (old!.start_time ?? null) === d.start) return [];
   const before = await affectedSignups(env, wardId, 'd.id', dateId);
   await env.DB.prepare(`UPDATE vol_dates SET date = ?, start_time = ?, approval_nudged_at = NULL WHERE id = ? AND ward_id = ?`)
     .bind(d.date, d.start, dateId, wardId)
     .run();
-  // A moved date gets a fresh reminder.
+  // A moved date gets a fresh reminder (and a fresh 48h nudge, above).
   await env.DB.prepare(
     `UPDATE vol_signups SET reminded_at = NULL
       WHERE ward_id = ? AND role_id IN (SELECT id FROM vol_roles WHERE date_id = ? AND ward_id = ?)`,
@@ -308,7 +311,7 @@ export async function updateDate(
     .bind(wardId, dateId, wardId)
     .run();
   const head = await postHeader(env, wardId, old!.post_id);
-  if (!head) return [];
+  if (!head || isDateOver(old!.date, head.tz, now) || isDateOver(d.date, head.tz, now)) return [];
   const out: OutgoingMessage[] = [];
   for (const s of before) {
     if (s.status !== 'confirmed') continue;
@@ -386,7 +389,13 @@ export async function addRole(env: Env, wardId: string, dateId: string, input: R
 }
 
 // Changing a role's times tells its confirmed volunteers; other edits send nothing.
-export async function updateRole(env: Env, wardId: string, roleId: string, input: RoleInput): Promise<OutgoingMessage[]> {
+export async function updateRole(
+  env: Env,
+  wardId: string,
+  roleId: string,
+  input: RoleInput,
+  now: Date = new Date(),
+): Promise<OutgoingMessage[]> {
   const r = checkRole(input);
   const old = await roleRow(env, wardId, roleId);
   req(old != null, 'That role no longer exists.');
@@ -397,10 +406,11 @@ export async function updateRole(env: Env, wardId: string, roleId: string, input
     .bind(r.name, r.needed, r.start_time, r.end_time, r.note, r.bring_prompt, roleId, wardId)
     .run();
   await resetFullIfShort(env, wardId, old!.post_id);
+  if (r.needed > old!.needed) await clearOverLimit(env, wardId, roleId);
   if (old!.start_time === r.start_time && old!.end_time === r.end_time) return [];
   const d = await dateRow(env, wardId, old!.date_id);
   const head = await postHeader(env, wardId, old!.post_id);
-  if (!d || !head) return [];
+  if (!d || !head || isDateOver(d.date, head.tz, now)) return [];
   const oldWhen = whenText(d, old!);
   const newWhen = whenText(d, r);
   if (oldWhen === newWhen) return [];
@@ -501,9 +511,14 @@ export async function getPost(env: Env, wardId: string, postId: string): Promise
 }
 
 // Public ids are globally unique; everything after this lookup is scoped to the post's ward.
+// A suspended ward's posts are not found (like its public portal).
 export async function getPostByPublicId(env: Env, publicId: string): Promise<PostFull | null> {
   if (!publicId || publicId.length > 64) return null;
-  const p = await env.DB.prepare(`SELECT * FROM vol_posts WHERE public_id = ?`).bind(publicId).first<PostRow>();
+  const p = await env.DB.prepare(
+    `SELECT p.* FROM vol_posts p JOIN wards w ON w.id = p.ward_id WHERE p.public_id = ? AND w.status = 'active'`,
+  )
+    .bind(publicId)
+    .first<PostRow>();
   return p ? loadFull(env, p) : null;
 }
 
@@ -518,6 +533,26 @@ export async function resetFullIfShort(env: Env, wardId: string, postId: string)
   const p = await getPost(env, wardId, postId);
   if (p && p.full_notified_at && !postIsFull(p)) {
     await env.DB.prepare(`UPDATE vol_posts SET full_notified_at = NULL WHERE id = ? AND ward_id = ?`).bind(postId, wardId).run();
+  }
+}
+
+// "Over the limit" means the need was already met when this sign-up counted. Once someone ahead
+// of them leaves (or the number needed goes up) they're needed after all: clear the flag for the
+// confirmed sign-ups that now fall within the role's number. It is never set here (whoever
+// lands over is told by email at the time, with a withdraw link).
+export async function clearOverLimit(env: Env, wardId: string, roleId: string): Promise<void> {
+  const role = await roleRow(env, wardId, roleId);
+  if (!role) return;
+  const rows = await env.DB.prepare(
+    `SELECT id, over_limit FROM vol_signups WHERE role_id = ? AND ward_id = ? AND status = 'confirmed'
+      ORDER BY confirm_seq, confirmed_at, id`,
+  )
+    .bind(roleId, wardId)
+    .all<{ id: string; over_limit: number }>();
+  for (const r of (rows.results ?? []).slice(0, role.needed)) {
+    if (r.over_limit) {
+      await env.DB.prepare(`UPDATE vol_signups SET over_limit = 0 WHERE id = ? AND ward_id = ?`).bind(r.id, wardId).run();
+    }
   }
 }
 

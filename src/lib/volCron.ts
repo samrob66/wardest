@@ -58,6 +58,7 @@ async function remindersFor(env: Env, ward: { id: string; timezone: string }, no
       E.reminder({
         to: r.email,
         volunteerId: r.vid,
+        wardId: ward.id,
         name: r.name,
         post: emailPost(post, env.APP_URL),
         when: whenText(d, role),

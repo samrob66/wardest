@@ -228,11 +228,12 @@ Saturday, Dec 6 · 9:00 AM · address emailed once you're confirmed
    the date, the post's approvers get an urgent nudge to approve or decline. (My call.)
 6. **Over the number is fine** (Sam, items 18–19). A role can end up over its number in two
    ways: a waiting sign-up is approved after the role filled, or two people take the last spot
-   at once (both get in). Whoever's sign-up counts after the role was already full is told,
-   on screen if it's happening there and by email, that the need is already met, and is
-   offered a one-click "withdraw my offer". Staying is fine too. Withdrawing this way sends
-   the organizer nothing, since the role is still full. The bar shows over-filling plainly
-   ("12 of 10").
+   at once (both get in). Whoever's sign-up counts after the role was already full is told
+   by email that the need is already met, and is offered a one-click "withdraw my offer".
+   (Email only, 2026-11-21: an on-screen notice would reveal that the address is approved;
+   every email-dependent result now shows the same page.) Staying is fine too. Withdrawing
+   this way sends the organizer nothing, since the role is still full. The bar shows
+   over-filling plainly ("12 of 10").
 7. **Declines are remembered** for that ward: a declined email can't sign up again (it's told to
    contact the ward's leaders), so a stranger can't keep sending approval requests. Bishopric
    members can undo a decline, and can revoke an approval later (someone moved out). (My call.)

@@ -25,6 +25,10 @@ export const DEFAULT_SPACES: DefaultSpace[] = [
 
 export const PREFIX_RE = /^[a-z0-9]{2,12}$/;
 
+// Words used as fixed path segments under /vol/ (emailed-link routes and Discord), which would
+// shadow a ward's /vol/<prefix>/me. Refused as ward prefixes at approval.
+export const RESERVED_PREFIXES: ReadonlySet<string> = new Set(['verify', 'cancel', 'withdraw', 'access', 'discord']);
+
 export interface WardRow {
   id: string;
   name: string;

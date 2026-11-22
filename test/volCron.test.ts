@@ -8,10 +8,10 @@ import { createExecutionContext, createScheduledController, waitOnExecutionConte
 
 const at = (iso: string) => new Date(iso);
 
-async function confirmedMember(fx: Fx, name = 'Rita Reminder') {
+async function confirmedMember(fx: Fx, name = 'Rita Reminder', when = at('2026-11-21T18:00:00Z')) {
   const email = uniqueEmail('rem');
   await makeLeader(env, fx.wardId, { email, name });
-  await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name, email, bringing: null, now: at('2026-11-21T18:00:00Z') });
+  await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name, email, bringing: null, now: when });
   return email.toLowerCase();
 }
 
@@ -75,6 +75,34 @@ describe('runVolunteerCron', () => {
     await env.DB.prepare(`INSERT INTO vol_rate_events (id, ward_id, bucket, created_at) VALUES ('old-ev', ?, 'x', '2026-01-01T00:00:00.000Z')`).bind(fx.wardId).run();
     await runVolunteerCron(env, at('2026-12-05T00:00:00Z'), { wardIds: [fx.wardId] });
     expect(await env.DB.prepare(`SELECT 1 FROM vol_rate_events WHERE id = 'old-ev'`).first()).toBeNull();
+  });
+});
+
+describe('runVolunteerCron on DST change days (Denver)', () => {
+  it('fall back, 2026-11-01: the reminder for Nov 2 goes at 9:00 MST (16:00Z); Nov 1 lapses at midnight MST', async () => {
+    const fx = await fixture({ date: '2026-11-02' });
+    await confirmedMember(fx, 'Fall Back', at('2026-10-20T18:00:00Z'));
+    const only = { wardIds: [fx.wardId] };
+    expect((await runVolunteerCron(env, at('2026-11-01T15:00:00Z'), only)).reminders).toBe(0); // 08:00 MST
+    expect((await runVolunteerCron(env, at('2026-11-01T16:00:00Z'), only)).reminders).toBe(1); // 09:00 MST
+    const fx2 = await fixture({ date: '2026-11-01' });
+    await submitSignup(env, { wardId: fx2.wardId, postId: fx2.postId, roleId: fx2.bigRoleId, name: 'W', email: uniqueEmail('w'), bringing: null, now: at('2026-10-20T18:00:00Z') });
+    const only2 = { wardIds: [fx2.wardId] };
+    expect((await runVolunteerCron(env, at('2026-11-02T06:30:00Z'), only2)).lapsed).toBe(0); // 23:30 MST Nov 1
+    expect((await runVolunteerCron(env, at('2026-11-02T07:30:00Z'), only2)).lapsed).toBe(1); // 00:30 MST Nov 2
+  });
+
+  it('spring forward, 2027-03-14: the reminder for Mar 15 goes at 9:00 MDT (15:00Z); Mar 14 lapses at midnight MDT', async () => {
+    const fx = await fixture({ date: '2027-03-15' });
+    await confirmedMember(fx, 'Spring Forward', at('2027-03-01T18:00:00Z'));
+    const only = { wardIds: [fx.wardId] };
+    expect((await runVolunteerCron(env, at('2027-03-14T14:00:00Z'), only)).reminders).toBe(0); // 08:00 MDT
+    expect((await runVolunteerCron(env, at('2027-03-14T15:00:00Z'), only)).reminders).toBe(1); // 09:00 MDT
+    const fx2 = await fixture({ date: '2027-03-14' });
+    await submitSignup(env, { wardId: fx2.wardId, postId: fx2.postId, roleId: fx2.bigRoleId, name: 'W', email: uniqueEmail('w'), bringing: null, now: at('2027-03-01T18:00:00Z') });
+    const only2 = { wardIds: [fx2.wardId] };
+    expect((await runVolunteerCron(env, at('2027-03-15T05:30:00Z'), only2)).lapsed).toBe(0); // 23:30 MDT Mar 14
+    expect((await runVolunteerCron(env, at('2027-03-15T06:30:00Z'), only2)).lapsed).toBe(1); // 00:30 MDT Mar 15
   });
 });
 

@@ -126,23 +126,16 @@ export function publicMessagePage(o: { title: string; prefix: string | null; bod
 }
 
 // The page after the public form. Never shows names or private details: anyone can type any
-// address there, including an approved member's (spec §6.4). Details go only to the email.
-const RESULT_COPY: Record<string, { title: string; body: string }> = {
-  confirmed: { title: "You're signed up", body: "You're signed up. We've emailed you the details and a link to cancel." },
-  confirmed_over: {
-    title: "You're signed up",
-    body: "You're signed up. We've emailed you the details and a link to cancel. This role is already full, so we've emailed you a link to withdraw if you'd like.",
-  },
-  waiting_verify: {
-    title: 'Check your email',
-    body: "Check your email to confirm your address. Your sign-up won't count until you do and a leader confirms you.",
-  },
-  waiting_approval: { title: 'Thanks', body: 'Thanks — a leader will confirm you shortly. We’ll email you when they do.' },
-  declined_email: { title: 'Please contact your leaders', body: "Please contact your ward's leaders." },
-  already_signed: {
-    title: 'Already received',
-    body: "We've already got this sign-up. If it's yours, check your email for the details; there's nothing more to do.",
-  },
+// address there, including an approved member's (spec §6.4). And every outcome that depends on
+// the address shows the SAME page, so the form can't be used to learn whether an email is new,
+// approved, declined or already signed up (spec §2: not a ward directory). What happened is in
+// the email. Only outcomes that read the same for every address show on screen.
+const CHECK_EMAIL = {
+  title: 'Check your email',
+  body: "Thanks — check your email to finish. We've sent a message to the address you entered saying what happens next. If it doesn't arrive in a few minutes, check your spam folder.",
+};
+
+const SCREEN_COPY: Record<string, { title: string; body: string }> = {
   role_full: {
     title: 'Just filled',
     body: 'Sorry, that role just filled up, so you don’t need to come. Thank you for offering! Other roles may still need help.',
@@ -152,13 +145,13 @@ const RESULT_COPY: Record<string, { title: string; body: string }> = {
 };
 
 export function renderSignupResult(o: { result: string; postTitle: string; publicId: string; prefix: string }): string {
-  const copy = RESULT_COPY[o.result] ?? RESULT_COPY.closed!;
-  const good = o.result === 'confirmed' || o.result === 'confirmed_over' || o.result === 'waiting_verify' || o.result === 'waiting_approval';
+  const onScreen = SCREEN_COPY[o.result];
+  const copy = onScreen ?? CHECK_EMAIL;
   return publicMessagePage({
     title: copy.title,
     prefix: o.prefix,
     body: `<h1>${esc(copy.title)}</h1>
-      <div class="${good ? 'ok' : 'card'}">${esc(copy.body)}</div>
+      <div class="${onScreen ? 'card' : 'ok'}">${esc(copy.body)}</div>
       <p><a href="/v/${esc(o.publicId)}">Back to “${esc(o.postTitle)}”</a> · <a href="/vol/${esc(o.prefix)}/me">My sign-ups</a></p>`,
   });
 }

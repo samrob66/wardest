@@ -20,6 +20,11 @@ describe('deliver', () => {
     expect(resend[0]!.headers.authorization).toBe('Bearer test');
   });
 
+  it('messages that share a subject but differ in body both go (two roles on one post)', async () => {
+    await deliver(env, [msg({ html: '<p>Setup</p>' }), msg({ html: '<p>Teardown</p>' })]);
+    expect(sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(2);
+  });
+
   it("with key 'dev' logs instead of sending", async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await deliver({ ...env, RESEND_API_KEY: 'dev' }, [msg()]);
@@ -52,6 +57,7 @@ describe('volEmails', () => {
     const m = E.signupConfirmed({
       to: 'a@example.test',
       volunteerId: 'vv_1',
+      wardId: 'w_1',
       name: '<script>alert(1)</script>',
       post: { ...post, title: 'Move <b>' },
       when: 'Sunday, Dec 6 · 9:00 AM',
@@ -75,7 +81,7 @@ describe('volEmails', () => {
 
   it('over the limit adds the withdraw paragraph; other ways to serve are listed', () => {
     const m = E.signupConfirmed({
-      to: 'a@example.test', volunteerId: 'vv_1', name: 'Al', post, when: 'Sunday, Dec 6', roleName: 'Movers',
+      to: 'a@example.test', volunteerId: 'vv_1', wardId: 'w_1', name: 'Al', post, when: 'Sunday, Dec 6', roleName: 'Movers',
       bringing: 'a dolly', privateDetails: null, cancelUrl: 'http://c', mySignupsUrl: 'http://m',
       overLimit: true, withdrawUrl: 'http://localhost:8787/vol/withdraw/t',
       otherPosts: [{ orgName: 'Relief Society', title: 'Meals', confirmed: 1, needed: 3, publicUrl: 'http://localhost:8787/v/zzz' }],
@@ -89,9 +95,9 @@ describe('volEmails', () => {
   it('every builder returns a message with a kind, subject and html', () => {
     const all: OutgoingMessage[] = [
       E.verifyEmail({ to: 'a@x.test', name: 'A', post, verifyUrl: 'http://v' }),
-      E.approved({ to: 'a@x.test', volunteerId: 'v', name: 'A', wardName: 'W', mySignupsUrl: 'http://m', signups: [] }),
+      E.approved({ to: 'a@x.test', volunteerId: 'v', wardId: 'w', name: 'A', wardName: 'W', mySignupsUrl: 'http://m', signups: [] }),
       E.declined({ to: 'a@x.test', name: 'A', wardName: 'W' }),
-      E.reminder({ to: 'a@x.test', volunteerId: 'v', name: 'A', post, when: 'w', roleName: 'r', bringing: null, privateDetails: 'p', otherNames: ['B'], cancelUrl: 'http://c', mySignupsUrl: 'http://m' }),
+      E.reminder({ to: 'a@x.test', volunteerId: 'v', wardId: 'w', name: 'A', post, when: 'w', roleName: 'r', bringing: null, privateDetails: 'p', otherNames: ['B'], cancelUrl: 'http://c', mySignupsUrl: 'http://m' }),
       E.roleChanged({ to: 'a@x.test', name: 'A', post, roleName: 'r', oldWhen: 'o', newWhen: 'n', mySignupsUrl: 'http://m' }),
       E.signupRemoved({ to: 'a@x.test', name: 'A', post, when: 'w', roleName: 'r', reason: 'removed' }),
       E.approverWaiting({ to: 'p@x.test', volunteerName: 'A', volunteerEmail: 'a@x.test', posts: [{ ...post, manageUrl: 'http://mg' }] }),
