@@ -578,3 +578,30 @@ export async function listWardPosts(
   );
   return out;
 }
+
+export interface PostSignupRow {
+  id: string;
+  role_id: string;
+  volunteer_id: string;
+  status: string;
+  over_limit: number;
+  bringing: string | null;
+  name: string;
+  email: string;
+  approval: string;
+  email_verified_at: string | null;
+}
+
+// Active (waiting or confirmed) sign-ups on a post, for leaders who may view it.
+export async function listPostSignups(env: Env, wardId: string, postId: string): Promise<PostSignupRow[]> {
+  const res = await env.DB.prepare(
+    `SELECT s.id, s.role_id, s.volunteer_id, s.status, s.over_limit, s.bringing,
+            v.name, v.email, v.approval, v.email_verified_at
+       FROM vol_signups s JOIN volunteers v ON v.id = s.volunteer_id AND v.ward_id = s.ward_id
+      WHERE s.ward_id = ? AND s.post_id = ? AND s.status IN ('waiting','confirmed')
+      ORDER BY s.status = 'waiting', s.confirmed_at, s.created_at, s.id`,
+  )
+    .bind(wardId, postId)
+    .all<PostSignupRow>();
+  return res.results ?? [];
+}
