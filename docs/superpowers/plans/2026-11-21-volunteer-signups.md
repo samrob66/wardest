@@ -451,7 +451,7 @@ Rules (spec §6.3, items 17–19):
 8. `approval='none'` → insert `waiting`; if `hitLimit(ward, 'verify:'+email, 3, 1440)` is false,
    create a `vol_tokens` row (store SHA-256 of a `randomToken(24)`, 72h expiry) and send
    `verifyEmail`; `'waiting_verify'` either way (don't reveal the limit). Also
-   `hitLimit(ward, 'newsignup:'+postId, 60, 60)` over → `'rate_limited'` before inserting.
+   `hitLimit(ward, 'signup:'+postId, 60, 60)` over → `'rate_limited'` before inserting.
 9. `approval='pending'` → insert `waiting`; `approverWaiting` to this post's approvers;
    `'waiting_approval'`.
 10. `verifyAddress`: token hash found, unused, unexpired → mark used, set `email_verified_at`;

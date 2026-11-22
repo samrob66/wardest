@@ -461,7 +461,9 @@ volRoutes.post('/v/:publicId/signup', async (c) => {
   const env = c.env;
   const job = completeSignup(env, input)
     .then((out) => deliver(env, out.messages))
-    .catch((e) => console.error(`[signup] background sign-up failed: ${(e as Error).message}`));
+    .catch((e) =>
+      console.error(`[signup] background sign-up failed ward=${input.wardId} post=${input.postId} role=${input.roleId}: ${(e as Error).message}`),
+    );
   try {
     c.executionCtx.waitUntil(job);
   } catch {
@@ -491,7 +493,7 @@ volRoutes.post('/vol/verify/:token', async (c) => {
   await sendLater(c, out.messages);
   if (out.result === 'invalid') {
     return c.html(
-      renderPublicNote({ title: 'Link expired', prefix: null, message: 'This link has expired or was already used. If you signed up, try signing up again.' }),
+      renderPublicNote({ title: 'Link expired', prefix: null, message: 'This link has expired or was already used. Please use the link in the most recent email we sent you, or sign up again.' }),
       400,
     );
   }

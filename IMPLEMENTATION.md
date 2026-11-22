@@ -400,9 +400,15 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
      don't come with a new sign-up that counts: "already signed up", "please contact your
      leaders", and replacement confirm-your-address links. Never capped: the confirmation for a
      sign-up that counts (the spec §6.3 step 2 safeguard), the "waiting for a leader" note, and a
-     new address's first confirm link. An unconfirmed address has one working confirm link at a
-     time: sending a new one expires the old, so the newest email always works, including the
-     confirm link inside "you're already signed up".
+     new address's first confirm link (free whenever none is live). Every confirm link sent stays
+     valid until used or its 72h runs out (round 3), so a newcomer who signs up for several dates
+     can click any of their emails; "you're already signed up" to an unconfirmed address carries
+     one too.
+   - Approved sign-ups are inserted and confirmed in one D1 batch (one transaction). A ward member
+     who had waiting sign-ups from before is approved through the normal approval, so those count;
+     an approved volunteer resubmitting where a sign-up was left waiting gets it promoted. If the
+     confirmation can't be built or sent after a sign-up counts, one log line names the ward,
+     the sign-up and the kind (no retry in v1).
    - The "· k waiting" count shows only on leaders' pages (manage page, space sections), never on
      the public page or its preview card.
    - Accepted leak (2026-11-21): because approved addresses count at once, a public count rising

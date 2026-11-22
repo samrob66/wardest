@@ -187,23 +187,30 @@ export function uniqueEmail(label: string): string {
   return `${label}-${tag()}@example.test`;
 }
 
-// A D1 wrapper that holds every run() of a statement containing `marker` until `n` of them are
-// waiting, then lets them all go. Used to force a real race (e.g. two sign-ups that have both
-// passed the "is it full?" check before either inserts).
+// A D1 wrapper that holds every run() or batch() involving a statement containing `marker`
+// until `n` of them are waiting, then lets them all go. Used to force a real race (e.g. two
+// sign-ups that have both passed the "is it full?" check before either inserts).
 export function barrierDb(db: D1Database, marker: string, n: number): D1Database {
   let arrived = 0;
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
-  const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
+  const wait = async () => {
+    arrived++;
+    if (arrived >= n) release();
+    await gate;
+  };
+  const marked = new WeakSet<object>();
+  // bind() hands back the real bound statement (batch needs real ones), remembered as marked.
+  const track = (st: D1PreparedStatement): D1PreparedStatement =>
     new Proxy(st, {
       get(target, prop) {
-        if (prop === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
-        if (prop === 'run') {
-          return async () => {
-            arrived++;
-            if (arrived >= n) release();
-            await gate;
-            return target.run();
+        if (prop === 'bind') {
+          return (...args: unknown[]) => {
+            const bound = target.bind(...args);
+            marked.add(bound);
+            const run = bound.run.bind(bound);
+            (bound as { run: () => Promise<D1Result> }).run = async () => (await wait(), run());
+            return bound;
           };
         }
         const v = Reflect.get(target, prop, target);
@@ -215,7 +222,13 @@ export function barrierDb(db: D1Database, marker: string, n: number): D1Database
       if (prop === 'prepare') {
         return (sql: string) => {
           const st = target.prepare(sql);
-          return sql.includes(marker) ? wrap(st) : st;
+          return sql.includes(marker) ? track(st) : st;
+        };
+      }
+      if (prop === 'batch') {
+        return async (stmts: D1PreparedStatement[]) => {
+          if (stmts.some((x) => marked.has(x))) await wait();
+          return target.batch(stmts);
         };
       }
       const v = Reflect.get(target, prop, target);
@@ -224,33 +237,30 @@ export function barrierDb(db: D1Database, marker: string, n: number): D1Database
   });
 }
 
-// A D1 wrapper that runs `before()` once, just before the first run() of a statement containing
-// `marker`. Used to slip a change in between a read and the write that depends on it.
+// A D1 wrapper that runs `before()` once, just before the first batch() after a statement
+// containing `marker` is prepared. Used to slip a change in between a read and the batched
+// write that depends on it.
 export function hookDb(db: D1Database, marker: string, before: () => Promise<void>): D1Database {
+  let armed = false;
   let done = false;
-  const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
-    new Proxy(st, {
-      get(target, prop) {
-        if (prop === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
-        if (prop === 'run') {
-          return async () => {
-            if (!done) {
-              done = true;
-              await before();
-            }
-            return target.run();
-          };
-        }
-        const v = Reflect.get(target, prop, target);
-        return typeof v === 'function' ? v.bind(target) : v;
-      },
-    });
+  const fire = async () => {
+    if (armed && !done) {
+      done = true;
+      await before();
+    }
+  };
   return new Proxy(db, {
     get(target, prop) {
       if (prop === 'prepare') {
         return (sql: string) => {
-          const st = target.prepare(sql);
-          return sql.includes(marker) ? wrap(st) : st;
+          if (sql.includes(marker)) armed = true;
+          return target.prepare(sql);
+        };
+      }
+      if (prop === 'batch') {
+        return async (stmts: D1PreparedStatement[]) => {
+          await fire();
+          return target.batch(stmts);
         };
       }
       const v = Reflect.get(target, prop, target);

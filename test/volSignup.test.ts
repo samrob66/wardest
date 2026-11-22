@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { env, makeLeader, uniqueEmail } from './helpers';
 import { NOW, fixture, counts, tokenFrom, volunteerRow, signupRows, type Fx } from './volFixtures';
 import {
@@ -335,9 +335,94 @@ describe('submitSignup / verify / approve', () => {
         newest = tokenFrom(m, '/vol/verify/');
       }
     }
-    // Replacements stop at the cap; the newest link sent still works.
+    // Extra links stop at the cap. Every link sent stays valid (single use, 72h): the first one
+    // still works even after newer ones were sent.
     expect(kinds).toEqual([['vol_already'], ['vol_already'], ['vol_already'], [], [], []]);
-    expect((await verifyAddress(env, newest, later(10))).result).toBe('verified');
+    const firstLink = tokenFrom(first.messages[0], '/vol/verify/');
+    expect((await verifyAddress(env, firstLink, later(10))).result).toBe('verified');
+    // Single use: that same link can't be used twice; the others are simply no longer needed.
+    expect((await verifyAddress(env, firstLink, later(11))).result).toBe('invalid');
+    void newest;
+  });
+
+  it('a newcomer with 3 sign-ups clicks the FIRST email and the address is confirmed', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('meals');
+    const p2 = await createPost(env, fx.wardId, fx.spaces['relief-society']!, fx.eqPres, {
+      title: 'Meals', public_note: null, private_details: null, cancel_cutoff_hours: 24,
+    });
+    const days = ['2026-12-01', '2026-12-02', '2026-12-03'];
+    const links: string[] = [];
+    for (const day of days) {
+      const d = await addDate(env, fx.wardId, p2, day, '17:00');
+      const r = await addRole(env, fx.wardId, d, { name: 'Dinner', needed: 1, start_time: null, end_time: null, note: null, bring_prompt: null });
+      const out = await submitSignup(env, { wardId: fx.wardId, postId: p2, roleId: r, name: 'Mel', email, bringing: null, now: NOW });
+      expect(out.result).toBe('waiting_verify');
+      const m = out.messages.find((x) => x.kind === 'vol_verify');
+      if (m) links.push(tokenFrom(m, '/vol/verify/'));
+    }
+    expect(links).toHaveLength(3); // first free, two extra under the cap
+    const v = await verifyAddress(env, links[0]!, later(30));
+    expect(v.result).toBe('verified');
+    expect((await volunteerRow(fx.wardId, email))!.approval).toBe('pending');
+    // One approver notification lists all three waiting sign-ups' post.
+    expect(v.messages.filter((m) => m.kind === 'approver_waiting').length).toBeGreaterThan(0);
+  });
+
+  it('someone who signed up before becoming a ward member: their waiting sign-ups count when they sign up as a member', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('later-member');
+    const first = await submit(fx, email, { roleId: fx.roleId }); // waiting, unconfirmed
+    expect(first.result).toBe('waiting_verify');
+    await makeLeader(env, fx.wardId, { email, name: 'Now A Leader' });
+    const second = await submit(fx, email, { roleId: fx.bigRoleId });
+    expect(second.result).toBe('confirmed');
+    expect((await volunteerRow(fx.wardId, email))!.approval).toBe('approved');
+    const earlier = (await signupRows(fx.wardId, fx.roleId)).find((r) => r.email === email.toLowerCase())!;
+    expect(earlier.status).toBe('confirmed');
+    expect(earlier.over_limit).toBe(0);
+    const kinds = second.messages.map((m) => m.kind);
+    expect(kinds).toContain('vol_approved'); // lists the earlier sign-up, with its cancel link
+    expect(kinds).toContain('vol_confirmed'); // this one
+  });
+
+  it('an approved volunteer resubmitting where a sign-up was left waiting gets it promoted', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('stuck');
+    await makeLeader(env, fx.wardId, { email });
+    await submit(fx, email, { roleId: fx.roleId });
+    // Simulate a sign-up left behind as 'waiting' on the other role.
+    const vid = (await volunteerRow(fx.wardId, email))!.id;
+    await env.DB.prepare(
+      `INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'waiting', ?)`,
+    )
+      .bind('vs_stuck_' + vid, fx.wardId, fx.postId, fx.bigRoleId, vid, NOW.toISOString())
+      .run();
+    const r = await submit(fx, email, { roleId: fx.bigRoleId });
+    expect(r.result).toBe('confirmed');
+    expect(r.messages.map((m) => m.kind)).toContain('vol_confirmed');
+    const rows = (await signupRows(fx.wardId, fx.bigRoleId)).filter((x) => x.email === email.toLowerCase());
+    expect(rows.map((x) => x.status)).toEqual(['confirmed']);
+  });
+
+  it('if the confirmation cannot be built after a sign-up counts, one line names the ward, sign-up and kind', async () => {
+    const fx = await fixture();
+    const email = uniqueEmail('lost');
+    await makeLeader(env, fx.wardId, { email });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // An empty signing secret makes minting the cancel/access links fail.
+    const broken = { ...env, SESSION_SECRET: '' };
+    const r = await submitSignup(broken, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'L', email, bringing: null, now: NOW });
+    const lines = err.mock.calls.map((c) => c.join(' '));
+    err.mockRestore();
+    expect(r.result).toBe('confirmed');
+    const row = (await signupRows(fx.wardId, fx.bigRoleId)).find((x) => x.email === email.toLowerCase())!;
+    expect(row.status).toBe('confirmed');
+    const line = lines.find((l) => l.includes('confirmation not built'));
+    expect(line).toBeDefined();
+    expect(line).toContain(`ward=${fx.wardId}`);
+    expect(line).toContain(`signup=${row.id}`);
+    expect(line).toContain('kind=vol_confirmed');
   });
 
   it('the capped kinds stop at 3 a day (already signed up, contact your leaders)', async () => {

@@ -135,32 +135,43 @@ export async function otherOpenPosts(env: Env, wardId: string, excludePostIds: s
 // ---------------------------------------------------------------- confirmation core
 
 // Promotes a 'waiting' sign-up (a fresh insert, or one being approved) to confirmed with the
-// next confirm_seq for its role, in one statement, then decides whether it's over the limit:
-// it is when more than `needed` sign-ups on the role were confirmed before it (by confirm_seq).
+// next confirm_seq for its role, and marks it over the limit when more than `needed` sign-ups on
+// the role were confirmed before it (by confirm_seq). All in one batch, i.e. one D1 transaction,
+// optionally with the sign-up's INSERT in front, so a failure can never leave it half done.
 // Returns null when the sign-up was no longer 'waiting' (cancelled/removed/declined meanwhile).
-async function stampConfirmed(env: Env, wardId: string, signupId: string, roleId: string, needed: number, at: Date): Promise<boolean | null> {
-  const stamped = await env.DB.prepare(
-    `UPDATE vol_signups
-        SET status = 'confirmed',
-            confirmed_at = ?,
-            confirm_seq = (SELECT COALESCE(MAX(confirm_seq), 0) + 1 FROM vol_signups WHERE role_id = ? AND ward_id = ?)
-      WHERE id = ? AND ward_id = ? AND status = 'waiting' AND confirm_seq IS NULL`,
-  )
-    .bind(at.toISOString(), roleId, wardId, signupId, wardId)
-    .run();
-  if (!stamped.meta.changes) return null;
-  const rank = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM vol_signups
-      WHERE role_id = ? AND ward_id = ? AND status = 'confirmed'
-        AND confirm_seq <= (SELECT confirm_seq FROM vol_signups WHERE id = ? AND ward_id = ?)`,
-  )
-    .bind(roleId, wardId, signupId, wardId)
-    .first<{ n: number }>();
-  const over = (rank?.n ?? 0) > needed;
-  if (over) {
-    await env.DB.prepare(`UPDATE vol_signups SET over_limit = 1 WHERE id = ? AND ward_id = ?`).bind(signupId, wardId).run();
-  }
-  return over;
+async function stampConfirmed(
+  env: Env,
+  wardId: string,
+  signupId: string,
+  roleId: string,
+  needed: number,
+  at: Date,
+  insertFirst?: D1PreparedStatement,
+): Promise<boolean | null> {
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare(
+      `UPDATE vol_signups
+          SET status = 'confirmed',
+              confirmed_at = ?,
+              confirm_seq = (SELECT COALESCE(MAX(confirm_seq), 0) + 1 FROM vol_signups WHERE role_id = ? AND ward_id = ?)
+        WHERE id = ? AND ward_id = ? AND status = 'waiting' AND confirm_seq IS NULL`,
+    ).bind(at.toISOString(), roleId, wardId, signupId, wardId),
+    env.DB.prepare(
+      `UPDATE vol_signups
+          SET over_limit = CASE WHEN (
+                SELECT COUNT(*) FROM vol_signups x
+                 WHERE x.role_id = ? AND x.ward_id = ? AND x.status = 'confirmed'
+                   AND x.confirm_seq <= (SELECT y.confirm_seq FROM vol_signups y WHERE y.id = ? AND y.ward_id = ?)
+              ) > ? THEN 1 ELSE over_limit END
+        WHERE id = ? AND ward_id = ? AND status = 'confirmed'`,
+    ).bind(roleId, wardId, signupId, wardId, needed, signupId, wardId),
+    env.DB.prepare(`SELECT over_limit FROM vol_signups WHERE id = ? AND ward_id = ?`).bind(signupId, wardId),
+  ];
+  const res = await env.DB.batch(insertFirst ? [insertFirst, ...stmts] : stmts);
+  const off = insertFirst ? 1 : 0;
+  if (!res[off]!.meta.changes) return null;
+  const row = (res[off + 2]!.results as Array<{ over_limit: number }>)[0];
+  return !!row?.over_limit;
 }
 
 // "Fully filled" email to the post's approvers, at most once per time it fills (rule 14 resets).
@@ -283,15 +294,10 @@ async function hasLiveVerifyToken(env: Env, wardId: string, volunteerId: string,
   return r != null;
 }
 
-// A fresh single-use confirm link; any older unused one stops working, so there is one working
-// link at a time and it's always the newest one sent.
+// A fresh single-use confirm link (72h). Earlier unused links stay valid until used or expired:
+// each is single use and only ever emailed to this address, and a newcomer who signs up for
+// several dates must be able to click any of their emails (round 3).
 async function mintVerifyUrl(env: Env, wardId: string, volunteerId: string, now: Date): Promise<string> {
-  await env.DB.prepare(
-    `UPDATE vol_tokens SET expires_at = ?
-      WHERE ward_id = ? AND volunteer_id = ? AND purpose = 'verify' AND used_at IS NULL AND expires_at > ?`,
-  )
-    .bind(now.toISOString(), wardId, volunteerId, now.toISOString())
-    .run();
   const token = randomToken(24);
   await env.DB.prepare(
     `INSERT INTO vol_tokens (id, ward_id, volunteer_id, purpose, token_hash, expires_at, created_at)
@@ -303,6 +309,23 @@ async function mintVerifyUrl(env: Env, wardId: string, volunteerId: string, now:
     )
     .run();
   return `${env.APP_URL}/vol/verify/${token}`;
+}
+
+// Builds the confirmation for a sign-up that has just counted. If that fails, the sign-up still
+// counts, so log one line leaders can follow up on (ward, sign-up, kind); no retry in v1.
+async function confirmationOrLog(
+  env: Env,
+  args: Parameters<typeof confirmationMessage>,
+): Promise<OutgoingMessage[]> {
+  const [, v, post, , , signupId] = args;
+  try {
+    const m = await confirmationMessage(...args);
+    m.ref = signupId;
+    return [m];
+  } catch (e) {
+    console.error(`[signup] confirmation not built ward=${post.ward_id} signup=${signupId} kind=vol_confirmed volunteer=${v.id}: ${(e as Error).message}`);
+    return [];
+  }
 }
 
 // Everything that depends on the address. Doesn't re-check "role full": in a race for the last
@@ -321,8 +344,8 @@ export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<
   const bringingRaw = (o.bringing ?? '').trim().slice(0, 200);
   const bringing = role.bring_prompt && bringingRaw ? bringingRaw : null;
 
-  // The volunteer. Ward members are approved. The name follows the latest sign-up only while
-  // the address is unconfirmed; once it's verified the name never changes.
+  // The volunteer. The name follows the latest sign-up only while the address is unconfirmed;
+  // once it's verified the name never changes.
   let v = await getVolunteerByEmail(env, wardId, email);
   const member = await isWardMemberEmail(env, wardId, email);
   if (!v) {
@@ -341,23 +364,56 @@ export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<
       .run();
     v = (await getVolunteer(env, wardId, v.id))!;
   }
+
+  // Ward members are approved. If they already have waiting sign-ups (signed up before they
+  // were a member), approve through approveVolunteer so those count too, in order, with the
+  // over-limit rule (round 3: they mustn't be left waiting for good).
+  const autoMessages: OutgoingMessage[] = [];
   if (member && v.approval !== 'approved') {
     await env.DB.prepare(
-      `UPDATE volunteers SET approval = 'approved', email_verified_at = COALESCE(email_verified_at, ?), decided_at = ?
-        WHERE id = ? AND ward_id = ?`,
+      `UPDATE volunteers SET approval = 'pending', email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ? AND ward_id = ?`,
     )
-      .bind(now.toISOString(), now.toISOString(), v.id, wardId)
+      .bind(now.toISOString(), v.id, wardId)
       .run();
+    if ((await upcomingSignups(env, wardId, v.id, 'waiting', now)).length) {
+      autoMessages.push(...(await approveVolunteer(env, wardId, v.id, null, now)).messages);
+    } else {
+      await env.DB.prepare(`UPDATE volunteers SET approval = 'approved', decided_at = ? WHERE id = ? AND ward_id = ?`)
+        .bind(now.toISOString(), v.id, wardId)
+        .run();
+    }
     v = (await getVolunteer(env, wardId, v.id))!;
   }
   const vol = v;
+  const out = await afterVolunteer(env, o, post, date, role, vol, bringing, autoMessages.length > 0);
+  return { result: out.result, messages: [...autoMessages, ...out.messages] };
+}
+
+async function afterVolunteer(
+  env: Env,
+  o: SignupInput,
+  post: PostFull,
+  date: DateFull,
+  role: RoleFull,
+  vol: VolunteerRow,
+  bringing: string | null,
+  justApproved: boolean,
+): Promise<Outcome<SubmitResult>> {
+  const none = (result: SubmitResult): Outcome<SubmitResult> => ({ result, messages: [] });
+  const { wardId, now } = o;
+  const email = vol.email;
   const ep = emailPost(post, env.APP_URL);
   const underCap = async (): Promise<boolean> => !(await hitLimit(env, wardId, 'pubmail:' + email, PUBLIC_MAIL_CAP, 1440, now));
-  // One working confirm link for an unconfirmed address: free when none is live; replacing a
-  // live one counts against the cap. Returns null when capped (their newest link still works).
+  // A confirm link for an unconfirmed address: free when none is live; extra ones count against
+  // the cap. Returns null when capped (their earlier links still work).
   const confirmLink = async (): Promise<string | null> => {
     if (!(await hasLiveVerifyToken(env, wardId, vol.id, now))) return mintVerifyUrl(env, wardId, vol.id, now);
     return (await underCap()) ? mintVerifyUrl(env, wardId, vol.id, now) : null;
+  };
+  const counted = async (signupId: string, over: boolean): Promise<Outcome<SubmitResult>> => {
+    const messages = await confirmationOrLog(env, [env, vol, post, date, role, signupId, bringing, over, now]);
+    messages.push(...(await filledMessages(env, wardId, post.id, now)));
+    return { result: over ? 'confirmed_over' : 'confirmed', messages };
   };
 
   // Declined addresses can't sign up again; the (capped) email asks them to contact the leaders.
@@ -370,15 +426,23 @@ export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<
 
   // Already on this role.
   const active = await env.DB.prepare(
-    `SELECT 1 AS ok FROM vol_signups WHERE ward_id = ? AND role_id = ? AND volunteer_id = ? AND status IN ('waiting','confirmed')`,
+    `SELECT id, status FROM vol_signups WHERE ward_id = ? AND role_id = ? AND volunteer_id = ? AND status IN ('waiting','confirmed')`,
   )
     .bind(wardId, role.id, vol.id)
-    .first();
+    .first<{ id: string; status: string }>();
   if (active) {
+    // An approved volunteer with a sign-up still waiting here (e.g. left behind by a failure):
+    // resubmitting promotes it, and the confirmation goes.
+    if (vol.approval === 'approved' && active.status === 'waiting') {
+      const over = await stampConfirmed(env, wardId, active.id, role.id, role.needed, now);
+      if (over !== null) return counted(active.id, over);
+    }
+    // Just approved as a ward member: the approval email already lists this sign-up.
+    if (justApproved) return none('already_signed');
     const already = (verifyUrl: string | null, mySignupsUrl: string | null) =>
       E.alreadySignedUp({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name, verifyUrl, mySignupsUrl });
     if (vol.approval === 'none') {
-      // Unconfirmed: the email must carry a working confirm link, or they'd be stranded.
+      // Unconfirmed: the email carries a working confirm link, so they're never stranded.
       const url = await confirmLink();
       return { result: 'already_signed', messages: url ? [already(url, null)] : [] };
     }
@@ -389,32 +453,36 @@ export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<
   }
 
   const signupId = newId('vs');
-  // Every sign-up starts as 'waiting'; stampConfirmed promotes an approved one atomically.
+  const insertStmt = env.DB.prepare(
+    `INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, bringing, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'waiting', ?)`,
+  ).bind(signupId, wardId, post.id, role.id, vol.id, bringing, now.toISOString());
+  const isDup = (e: unknown) => /UNIQUE/i.test((e as Error).message);
+
+  // Approved: counts at once. The insert and the promotion run in one batch (one D1
+  // transaction), so a failure can't leave the row waiting for good. The confirmation always
+  // goes (never capped).
+  if (vol.approval === 'approved') {
+    let over: boolean | null;
+    try {
+      over = await stampConfirmed(env, wardId, signupId, role.id, role.needed, now, insertStmt);
+    } catch (e) {
+      if (isDup(e)) return none('already_signed'); // a double click raced us; that request emails
+      throw e;
+    }
+    if (over === null) return none('closed');
+    return counted(signupId, over);
+  }
+
   const insert = async (): Promise<boolean> => {
     try {
-      await env.DB.prepare(
-        `INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, bringing, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-        .bind(signupId, wardId, post.id, role.id, vol.id, bringing, 'waiting', now.toISOString())
-        .run();
+      await insertStmt.run();
       return true;
     } catch (e) {
-      // The partial unique index: a double click raced us to it (that request sends the email).
-      if (/UNIQUE/i.test((e as Error).message)) return false;
+      if (isDup(e)) return false;
       throw e;
     }
   };
-
-  // Approved: counts at once, and the confirmation always goes (never capped).
-  if (vol.approval === 'approved') {
-    if (!(await insert())) return none('already_signed');
-    const over = await stampConfirmed(env, wardId, signupId, role.id, role.needed, now);
-    if (over === null) return none('closed'); // ended between insert and confirm
-    const messages = [await confirmationMessage(env, vol, post, date, role, signupId, bringing, over, now)];
-    messages.push(...(await filledMessages(env, wardId, post.id, now)));
-    return { result: over ? 'confirmed_over' : 'confirmed', messages };
-  }
 
   // Address not confirmed yet: waiting + a confirm link (the first is always sent).
   if (vol.approval === 'none') {

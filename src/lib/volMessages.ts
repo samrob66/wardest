@@ -13,6 +13,7 @@ export interface OutgoingMessage {
   discordText?: string; // set only for volunteer confirmations/reminders (spec §6.9)
   volunteerId?: string; // lets deliver() find a connected Discord account
   wardId?: string; // the volunteer's ward (every lookup is ward-scoped)
+  ref?: string; // what it's about (e.g. the sign-up id), for failure logs
 }
 
 export type Outcome<T> = { result: T; messages: OutgoingMessage[] };
@@ -53,6 +54,12 @@ function devLog(m: OutgoingMessage): void {
   );
 }
 
+// One log tag for a failed message: ward, what it's about, and kind (round 3: a lost
+// confirmation must be traceable to its sign-up).
+function tag(m: OutgoingMessage): string {
+  return `ward=${m.wardId ?? '-'} ref=${m.ref ?? '-'} kind=${m.kind}`;
+}
+
 async function sendEmail(env: Env, m: OutgoingMessage): Promise<void> {
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -60,9 +67,9 @@ async function sendEmail(env: Env, m: OutgoingMessage): Promise<void> {
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
       body: JSON.stringify({ from: FROM, to: [m.to], subject: m.subject, html: m.html }),
     });
-    if (!res.ok) console.error(`[deliver] Resend ${res.status} for kind=${m.kind}`);
+    if (!res.ok) console.error(`[deliver] Resend ${res.status} ${tag(m)}`);
   } catch (e) {
-    console.error(`[deliver] Resend error for kind=${m.kind}: ${(e as Error).message}`);
+    console.error(`[deliver] Resend error ${tag(m)}: ${(e as Error).message}`);
   }
 }
 
@@ -89,7 +96,7 @@ export async function deliver(env: Env, msgs: OutgoingMessage[]): Promise<void> 
       else await sendEmail(env, m);
       if (m.discordText && m.volunteerId && m.wardId) await sendDiscord(env, m);
     } catch (e) {
-      console.error(`[deliver] ${(e as Error).message}`);
+      console.error(`[deliver] ${tag(m)}: ${(e as Error).message}`);
     }
   }
 }

@@ -42,6 +42,15 @@ describe('deliver', () => {
     err.mockRestore();
   });
 
+  it('a failed send is logged with ward, ref and kind', async () => {
+    mockFetch(() => jsonResponse({ error: 'boom' }, 500));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await deliver(env, [msg({ wardId: 'w_9', ref: 'vs_9' })]);
+    const lines = err.mock.calls.map((c) => c.join(' '));
+    err.mockRestore();
+    expect(lines.some((l) => l.includes('ward=w_9') && l.includes('ref=vs_9') && l.includes('kind=vol_confirmed'))).toBe(true);
+  });
+
   it('a network error does not throw', async () => {
     mockFetch(() => {
       throw new Error('offline');
