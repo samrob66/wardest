@@ -564,3 +564,115 @@ export async function revokeApproval(
     .run();
   return { result: undefined, messages };
 }
+
+// ---------------------------------------------------------------- cancel / withdraw / remove
+
+type EndResult<T extends string> = Outcome<T | 'already' | 'not_found'>;
+
+async function volunteerName(env: Env, wardId: string, volunteerId: string): Promise<string> {
+  return (await getVolunteer(env, wardId, volunteerId))?.name ?? 'A volunteer';
+}
+
+// Is the sign-up's date over (in the ward's zone)? Emailed cancel/withdraw links stop working then.
+export async function signupDateOver(env: Env, s: SignupRow, now: Date): Promise<boolean> {
+  const r = await env.DB.prepare(
+    `SELECT d.date AS date, w.timezone AS tz FROM vol_roles r
+       JOIN vol_dates d ON d.id = r.date_id AND d.ward_id = r.ward_id
+       JOIN wards w ON w.id = r.ward_id
+      WHERE r.id = ? AND r.ward_id = ?`,
+  )
+    .bind(s.role_id, s.ward_id)
+    .first<{ date: string; tz: string }>();
+  return !r || isDateOver(r.date, r.tz, now);
+}
+
+// The volunteer cancels. Before the post's cutoff the approvers get a plain email; after it,
+// an urgent "you're now short" one (or "still full" when it had been over-filled). Cancelling a
+// waiting sign-up tells no one (it never counted).
+export async function cancelSignup(env: Env, wardId: string, signupId: string, now: Date): Promise<EndResult<'cancelled'>> {
+  const s = await getSignup(env, wardId, signupId);
+  if (!s) return { result: 'not_found', messages: [] };
+  if (s.status !== 'waiting' && s.status !== 'confirmed') return { result: 'already', messages: [] };
+  const claim = await env.DB.prepare(
+    `UPDATE vol_signups SET status = 'cancelled', ended_at = ? WHERE id = ? AND ward_id = ? AND status = ?`,
+  )
+    .bind(now.toISOString(), s.id, wardId, s.status)
+    .run();
+  if (!claim.meta.changes) return { result: 'already', messages: [] };
+  if (s.status === 'waiting') return { result: 'cancelled', messages: [] };
+  await resetFullIfShort(env, wardId, s.post_id);
+  const name = await volunteerName(env, wardId, s.volunteer_id);
+  return { result: 'cancelled', messages: await cancelledMessages(env, wardId, s.post_id, s.role_id, name, now) };
+}
+
+// An over-the-limit volunteer withdraws their offer. If the role is still full, nobody is
+// emailed (spec §6.3 step 6); otherwise it's like a cancel.
+export async function withdrawOffer(env: Env, wardId: string, signupId: string, now: Date): Promise<EndResult<'withdrawn'>> {
+  const s = await getSignup(env, wardId, signupId);
+  if (!s) return { result: 'not_found', messages: [] };
+  if (s.status === 'withdrawn') return { result: 'already', messages: [] };
+  if (s.status !== 'confirmed' || !s.over_limit) return { result: 'not_found', messages: [] };
+  const claim = await env.DB.prepare(
+    `UPDATE vol_signups SET status = 'withdrawn', ended_at = ? WHERE id = ? AND ward_id = ? AND status = 'confirmed'`,
+  )
+    .bind(now.toISOString(), s.id, wardId)
+    .run();
+  if (!claim.meta.changes) return { result: 'already', messages: [] };
+  const post = await getPost(env, wardId, s.post_id);
+  const f = post ? findRole(post, s.role_id) : null;
+  if (!f || f.role.confirmed >= f.role.needed) return { result: 'withdrawn', messages: [] };
+  await resetFullIfShort(env, wardId, s.post_id);
+  const name = await volunteerName(env, wardId, s.volunteer_id);
+  return { result: 'withdrawn', messages: await cancelledMessages(env, wardId, s.post_id, s.role_id, name, now) };
+}
+
+// A leader takes someone off a role (the route checks canEditPost). The volunteer is told
+// (when their address is confirmed); the approvers are not.
+export async function removeSignup(
+  env: Env,
+  wardId: string,
+  signupId: string,
+  byUserId: string,
+  now: Date,
+): Promise<EndResult<'removed'>> {
+  void byUserId;
+  const s = await getSignup(env, wardId, signupId);
+  if (!s) return { result: 'not_found', messages: [] };
+  if (s.status !== 'waiting' && s.status !== 'confirmed') return { result: 'already', messages: [] };
+  const claim = await env.DB.prepare(
+    `UPDATE vol_signups SET status = 'removed', ended_at = ? WHERE id = ? AND ward_id = ? AND status = ?`,
+  )
+    .bind(now.toISOString(), s.id, wardId, s.status)
+    .run();
+  if (!claim.meta.changes) return { result: 'already', messages: [] };
+  await resetFullIfShort(env, wardId, s.post_id);
+  const v = await getVolunteer(env, wardId, s.volunteer_id);
+  const post = await getPost(env, wardId, s.post_id);
+  const f = post ? findRole(post, s.role_id) : null;
+  if (!v || !post || !f || !v.email_verified_at || isDateOver(f.date.date, post.ward.timezone, now)) {
+    return { result: 'removed', messages: [] };
+  }
+  return {
+    result: 'removed',
+    messages: [
+      E.signupRemoved({
+        to: v.email, name: v.name, post: emailPost(post, env.APP_URL), when: whenText(f.date, f.role),
+        roleName: f.role.name, reason: 'removed',
+      }),
+    ],
+  };
+}
+
+// For the cancel/withdraw landing pages: what the link is about (no private details).
+export async function signupSummary(
+  env: Env,
+  wardId: string,
+  signupId: string,
+): Promise<{ signup: SignupRow; title: string; orgName: string; when: string; roleName: string; prefix: string } | null> {
+  const s = await getSignup(env, wardId, signupId);
+  if (!s) return null;
+  const post = await getPost(env, wardId, s.post_id);
+  const f = post ? findRole(post, s.role_id) : null;
+  if (!post || !f) return null;
+  return { signup: s, title: post.title, orgName: post.org_name, when: whenText(f.date, f.role), roleName: f.role.name, prefix: post.ward.prefix };
+}

@@ -13,8 +13,10 @@ import {
 } from './lib/volAccess';
 import { hitLimit } from './lib/volRate';
 import {
-  approveVolunteer, declineVolunteer, revokeApproval, submitSignup, undoDecline, verifyAddress,
+  approveVolunteer, cancelSignup, declineVolunteer, getSignup, removeSignup, revokeApproval, signupDateOver,
+  signupSummary, submitSignup, undoDecline, verifyAddress, withdrawOffer,
 } from './lib/volSignup';
+import { readLinkToken } from './lib/volSession';
 import { verifyTurnstile } from './lib/turnstile';
 import { addEditor, listEditors, removeEditor } from './lib/volEditors';
 import { deliver, type OutgoingMessage } from './lib/volMessages';
@@ -450,6 +452,106 @@ volRoutes.post('/vol/verify/:token', async (c) => {
         : 'Thanks — your address is confirmed. A leader will confirm you shortly, and we’ll email you when they do.',
     }),
   );
+});
+
+// ---------------------------------------------------------------- cancel / withdraw (emailed links)
+
+// Resolves an emailed cancel/withdraw link: valid token of the right type, the sign-up exists
+// in the token's ward, and its date isn't over. Anything else -> null (404).
+async function linkedSignup(c: Context<AppEnv>, typ: 'vcan' | 'vwd') {
+  const now = new Date();
+  const t = await readLinkToken(c.env, typ, c.req.param('token') ?? '', now);
+  if (!t) return null;
+  const sum = await signupSummary(c.env, t.wardId, t.id);
+  if (!sum || (await signupDateOver(c.env, sum.signup, now))) return null;
+  return { wardId: t.wardId, ...sum };
+}
+
+function linkNotFound(c: Context<AppEnv>): Response {
+  noindex(c);
+  return c.html(notFoundPage('sign-up link'), 404);
+}
+
+volRoutes.get('/vol/cancel/:token', async (c) => {
+  const s = await linkedSignup(c, 'vcan');
+  if (!s) return linkNotFound(c);
+  noindex(c);
+  if (s.signup.status !== 'waiting' && s.signup.status !== 'confirmed') {
+    return c.html(renderPublicNote({ title: 'Already cancelled', prefix: s.prefix, message: 'This sign-up is no longer active. Nothing more to do.' }));
+  }
+  return c.html(
+    renderConfirmAction({
+      title: 'Cancel your sign-up?',
+      prefix: s.prefix,
+      intro: `${s.orgName}: ${s.title} — ${s.roleName}, ${s.when}. If you can't come, cancelling lets the organizers know.`,
+      action: `/vol/cancel/${encodeURIComponent(c.req.param('token'))}`,
+      button: 'Cancel my sign-up',
+      danger: true,
+    }),
+  );
+});
+
+volRoutes.post('/vol/cancel/:token', async (c) => {
+  const s = await linkedSignup(c, 'vcan');
+  if (!s) return linkNotFound(c);
+  const out = await cancelSignup(c.env, s.wardId, s.signup.id, new Date());
+  await sendLater(c, out.messages);
+  noindex(c);
+  return c.html(
+    renderPublicNote({
+      title: 'Cancelled',
+      prefix: s.prefix,
+      ok: true,
+      message: out.result === 'cancelled' ? 'Your sign-up is cancelled. Thank you for letting them know.' : 'This sign-up was already cancelled.',
+    }),
+  );
+});
+
+volRoutes.get('/vol/withdraw/:token', async (c) => {
+  const s = await linkedSignup(c, 'vwd');
+  if (!s) return linkNotFound(c);
+  noindex(c);
+  if (s.signup.status !== 'confirmed' || !s.signup.over_limit) {
+    return c.html(renderPublicNote({ title: 'Nothing to withdraw', prefix: s.prefix, message: 'This offer is no longer active. Nothing more to do.' }));
+  }
+  return c.html(
+    renderConfirmAction({
+      title: 'Withdraw your offer?',
+      prefix: s.prefix,
+      intro: `${s.orgName}: ${s.title} — ${s.roleName}, ${s.when}. This role was already full when your sign-up counted. You're welcome to come anyway, or you can withdraw.`,
+      action: `/vol/withdraw/${encodeURIComponent(c.req.param('token'))}`,
+      button: 'Withdraw my offer',
+    }),
+  );
+});
+
+volRoutes.post('/vol/withdraw/:token', async (c) => {
+  const s = await linkedSignup(c, 'vwd');
+  if (!s) return linkNotFound(c);
+  const out = await withdrawOffer(c.env, s.wardId, s.signup.id, new Date());
+  await sendLater(c, out.messages);
+  noindex(c);
+  return c.html(
+    renderPublicNote({
+      title: 'Withdrawn',
+      prefix: s.prefix,
+      ok: out.result === 'withdrawn',
+      message: out.result === 'withdrawn' ? 'Your offer is withdrawn. Thank you for offering!' : 'This offer is no longer active.',
+    }),
+  );
+});
+
+// A leader takes a volunteer off a role.
+volRoutes.post('/w/:wardId/vol/signup/:signupId/remove', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  const s = await getSignup(c.env, lc.ward.id, c.req.param('signupId'));
+  if (!s) return c.html(notFoundPage('sign-up'), 404);
+  const post = await getPost(c.env, lc.ward.id, s.post_id);
+  if (!post) return c.html(notFoundPage('post'), 404);
+  if (!(await canEditPost(c.env, lc.user.id, post))) return c.text('Forbidden', 403);
+  await sendLater(c, (await removeSignup(c.env, lc.ward.id, s.id, lc.user.id, new Date())).messages);
+  return c.redirect(`${managePath(lc.ward.id, post.id)}?ok=1`, 302);
 });
 
 // ---------------------------------------------------------------- approvals
