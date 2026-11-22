@@ -32,6 +32,7 @@ export function renderSpacePortal(o: {
   portalUrl: string;
   notice?: string;
   error?: string;
+  volunteerHtml?: string; // volunteer posts + "who can manage" (built in volRoutes.ts, already escaped)
 }): string {
   const { user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, shares, shareTargets, portalUrl, notice, error } = o;
   const base = `/w/${esc(ward.id)}/space/${esc(space.id)}`;
@@ -141,6 +142,7 @@ export function renderSpacePortal(o: {
       <h2>Deliverables</h2>
       ${cardsHtml}
       ${tasksSection}
+      ${o.volunteerHtml ?? ''}
       ${sharingHtml}`,
   });
 }

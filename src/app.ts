@@ -9,7 +9,7 @@ import { renderPortalPrint, isPrintSize, type PrintSize } from './views/portalpr
 import { notFoundPage } from './views/notfound';
 import { loadUser, requireAuth, isOperator } from './lib/auth';
 import { authRoutes } from './auth-routes';
-import { volRoutes } from './volRoutes';
+import { volRoutes, spaceVolunteerSection } from './volRoutes';
 import { getUserWards } from './lib/users';
 import {
   PREFIX_RE,
@@ -295,10 +295,12 @@ appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
   }
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
   const error = c.req.query('err') || undefined;
+  const volunteerHtml = await spaceVolunteerSection(c.env, ward, space, user.id);
   return c.html(
     renderSpacePortal({
       user, ward, space, canManage, canParticipate, blocks, cards, tasks, members,
       shares, shareTargets, portalUrl: portalUrl(c.env.APP_URL, ward, space), notice, error,
+      volunteerHtml,
     }),
   );
 });

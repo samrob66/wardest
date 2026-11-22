@@ -2,6 +2,7 @@
 // OutgoingMessage[] and the route (or the cron) hands them to deliver(), the only place that
 // talks to Resend (and, best-effort, Discord). Email always goes; Discord is extra.
 import type { Env } from '../types';
+import { listEditorUserIds } from './volEditors';
 
 export interface OutgoingMessage {
   kind: string; // e.g. 'vol_verify', 'vol_confirmed', 'approver_waiting'
@@ -86,10 +87,17 @@ export async function approverEmails(env: Env, wardId: string, postId: string): 
     .bind(postId, wardId)
     .first<{ creator: string | null; space_id: string }>();
   if (!post) return [];
+  const ids = new Set(await listEditorUserIds(env, wardId, post.space_id));
+  if (post.creator) ids.add(post.creator);
+  if (!ids.size) return [];
+  // Only people who are still members of this ward get organizer email.
+  const list = [...ids];
   const rows = await env.DB.prepare(
-    `SELECT LOWER(u.email) AS email FROM users u WHERE u.id = ?`,
+    `SELECT LOWER(u.email) AS email FROM users u
+       JOIN ward_memberships wm ON wm.user_id = u.id AND wm.ward_id = ?
+      WHERE u.id IN (${list.map(() => '?').join(',')})`,
   )
-    .bind(post.creator ?? '')
+    .bind(wardId, ...list)
     .all<{ email: string }>();
   return [...new Set((rows.results ?? []).map((r) => r.email))];
 }
