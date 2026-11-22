@@ -356,3 +356,23 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    planner, tithing declaration sign-up, missionary dinner calendar, new & returning members) —
    catalog candidates once Sam confirms they're current.
 8. **Phase 4** — second ward onboarded end-to-end; operator dashboard; print polish.
+9. ✅ **BUILT 2026-11-21, local-verified — Volunteer sign-ups** (spec
+   `docs/superpowers/specs/2026-11-21-volunteer-signups-design.md`, plan
+   `docs/superpowers/plans/2026-11-21-volunteer-signups.md`). Organization presidents post needs
+   (dates × helper roles); ward members sign up from an unguessable public link `/v/<id>` with any
+   email (first-timers confirm their address, then a leader approves them once for the ward);
+   the Ward Council and Bishopric space pages list every post, org pages their own; volunteers
+   get confirmations and day-before reminders by email and, if connected, Discord DM; an hourly
+   cron sends reminders and 48h approval nudges and lapses stale waiting sign-ups. Schema:
+   `wards.timezone` + the `vol_*` / `volunteers` tables (edited in place; nothing deployed).
+   Tests: `npm test` (Vitest in the Workers runtime). Owner steps before it can go live:
+   - **Turnstile:** create a widget for `app.wardest.com`; put its site key in `wrangler.toml`
+     `[vars] TURNSTILE_SITE_KEY` (today: Cloudflare's always-pass test key) and
+     `wrangler secret put TURNSTILE_SECRET_KEY`.
+   - **Discord:** register one Wardest Discord application (bot + OAuth2, redirect
+     `https://app.wardest.com/vol/discord/callback`, plus the localhost one for testing);
+     `wrangler secret put` `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`; each
+     ward's Discord admin adds the bot to the ward's server. Live DM not yet proven (no token).
+   - **Resend:** check the plan's daily send limit before a second ward goes live (reminders and
+     confirmations count against it).
+   - Cron: the `[triggers]` hourly cron deploys with the Worker; nothing else to set up.
