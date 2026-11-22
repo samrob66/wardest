@@ -1,6 +1,7 @@
 import type { Env } from './types';
 import { appSite } from './app';
 import { landing } from './landing';
+import { runVolunteerCron } from './lib/volCron';
 
 // One Worker, two surfaces, routed by Host header (works in prod and via
 // `curl -H "Host: wardest.com"` in local dev). localhost defaults to the app surface so the
@@ -15,5 +16,10 @@ export default {
     }
     // app.wardest.com + localhost (dev default)
     return appSite.fetch(req, env, ctx);
+  },
+
+  // Hourly (wrangler.toml [triggers]): volunteer reminders, 48h approval nudges, lapsing.
+  scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(runVolunteerCron(env, new Date(controller.scheduledTime)));
   },
 } satisfies ExportedHandler<Env>;
