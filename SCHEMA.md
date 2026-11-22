@@ -169,6 +169,48 @@ so that concern doesn't apply.)*
 - Pasted links (`deliverables.url`, `short_url`, `spaces.share_url`): http(s) only, normalized
   on write and guarded on render (`src/lib/urls.ts`).
 
+## Volunteer sign-ups
+
+Spec: `docs/superpowers/specs/2026-11-21-volunteer-signups-design.md`. Organization presidents
+post needs; ward members sign up from an unguessable public link with any email. All tables
+carry `ward_id`; every query filters on it. `wards.timezone` (IANA, default `America/Denver`)
+drives cutoffs, "the day before", "within 14 days" and "is over". Dates (`YYYY-MM-DD`) and
+times (`HH:MM`) are ward-local wall time.
+
+| Table | Holds |
+|---|---|
+| `vol_posts` | A post for one org space: title, public note, private details, cancel cutoff (hours before the role's start, 0–336, default 24), random `public_id` for `/v/<public_id>`, `full_notified_at` |
+| `vol_dates` | One or more dates per post (optional start time); `approval_nudged_at` for the 48h nudge |
+| `vol_roles` | Helper roles per date: name, number needed (1–500), optional times, note, "what are you bringing?" prompt |
+| `volunteers` | Email-only people, unique per `(ward_id, email)`; `approval`; `discord_user_id` once connected |
+| `vol_signups` | A volunteer on a role: `status`, `over_limit`, `bringing`, `confirmed_at`, `ended_at`, `reminded_at`. Partial unique index: one `waiting`/`confirmed` row per `(role_id, volunteer_id)` |
+| `vol_editors` | "Who can manage volunteer posts" for an org space, beyond its owners |
+| `vol_tokens` | Single-use email-confirmation tokens (SHA-256 hash only; 72h) |
+| `vol_rate_events` | Rate-limit events for the public forms; pruned by the hourly cron |
+
+`volunteers.approval`: `none` (address not verified yet) · `pending` (verified, waiting for a
+leader) · `approved` (once, for the whole ward) · `declined` (can't sign up again; Bishopric can
+undo). An email that belongs to a Wardest member of the ward is approved automatically.
+
+`vol_signups.status`: `waiting` (never counts or holds a spot) · `confirmed` · `cancelled` (by the
+volunteer) · `withdrawn` (an over-the-limit offer withdrawn) · `removed` (by a leader, or the
+volunteer's approval was revoked) · `declined` · `lapsed` (still waiting when the date was over).
+A role is full when its `confirmed` count ≥ `needed`; over-filling only happens through a late
+approval or a race, and those sign-ups get `over_limit = 1`.
+
+Who may see and do what (`src/lib/volAccess.ts`, fail closed; `space_shares` grant nothing here):
+
+| Who | How Wardest knows | Can |
+|---|---|---|
+| Post creator | `vol_posts.created_by_user_id` | Edit their post, approve first-time volunteers on it |
+| Organization's volunteer editors | owners of the `org` space, plus `vol_editors` rows | Create, edit and delete that organization's posts; approve first-time volunteers on them |
+| Organization's other leaders | member (not owner) of the `org` space | See that organization's posts, with names and private details, read-only |
+| Ward council | member of the `ward_council` space | See every post and every sign-up, read-only |
+| Bishopric | member of the `bishopric` space | Create for any organization, edit, delete and approve anything; undo declines, revoke approvals |
+| Ward superadmin | `ward_memberships.role='superadmin'` | Same as Bishopric (break-glass) |
+| Volunteer | email, verified by link; `wardest_vol` cookie | Sign up, see and cancel their own sign-ups; private details and other volunteers' names only while approved and the post isn't over |
+| Anyone with the link | nothing | The public page: counts and what's being brought, never names, emails or private details |
+
 ## Not modeled yet (deferred, by design)
 
 - **Callings default template** as a reference table — `calling_title` is free text, with the
