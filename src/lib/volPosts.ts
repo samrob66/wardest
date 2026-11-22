@@ -605,3 +605,15 @@ export async function listPostSignups(env: Env, wardId: string, postId: string):
     .all<PostSignupRow>();
   return res.results ?? [];
 }
+
+// What confirmed volunteers are bringing, per role, with no names (public: spec item 8).
+export async function listPublicBringing(env: Env, wardId: string, postId: string): Promise<Array<{ role_id: string; bringing: string }>> {
+  const res = await env.DB.prepare(
+    `SELECT role_id, bringing FROM vol_signups
+      WHERE ward_id = ? AND post_id = ? AND status = 'confirmed' AND bringing IS NOT NULL AND bringing <> ''
+      ORDER BY confirmed_at, id`,
+  )
+    .bind(wardId, postId)
+    .all<{ role_id: string; bringing: string }>();
+  return res.results ?? [];
+}

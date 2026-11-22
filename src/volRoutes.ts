@@ -13,7 +13,7 @@ import { addEditor, listEditors, removeEditor } from './lib/volEditors';
 import { deliver, type OutgoingMessage } from './lib/volMessages';
 import {
   VolInputError, addDate, addRole, copyDate, copyPost, createPost, deleteDate, deletePost, deleteRole, getPost,
-  listPostSignups, resetFullIfShort, updateDate, updatePost, updateRole,
+  getPostByPublicId, listPostSignups, listPublicBringing, resetFullIfShort, updateDate, updatePost, updateRole,
   type PostFull, type PostInput, type RoleInput,
 } from './lib/volPosts';
 import { isValidDate, isValidTime } from './lib/wardTime';
@@ -22,6 +22,7 @@ import { notFoundPage } from './views/notfound';
 import {
   renderEditorsCard, renderPostDeleteConfirm, renderPostManage, renderPostNew, type NewPostValues,
 } from './views/volLeader';
+import { renderPublicPost, type SignupFormValues } from './views/volPublic';
 
 export const volRoutes = new Hono<AppEnv>();
 
@@ -329,6 +330,38 @@ volRoutes.post('/w/:wardId/vol/:postId/copy', requireAuth(), async (c) => {
     if (e instanceof VolInputError) return backWith(c, pc, e.message);
     throw e;
   }
+});
+
+// ---------------------------------------------------------------- public post page
+
+function noindex(c: Context<AppEnv>): void {
+  c.header('X-Robots-Tag', 'noindex');
+}
+
+async function renderPublic(
+  c: Context<AppEnv>,
+  post: PostFull,
+  extra: { error?: string; values?: SignupFormValues } = {},
+  status: 200 | 400 | 429 = 200,
+): Promise<Response> {
+  const bringing = await listPublicBringing(c.env, post.ward_id, post.id);
+  noindex(c);
+  return c.html(
+    renderPublicPost({
+      post, bringing, now: new Date(), siteKey: c.env.TURNSTILE_SITE_KEY ?? '',
+      publicUrl: `${c.env.APP_URL}/v/${post.public_id}`, ...extra,
+    }),
+    status,
+  );
+}
+
+volRoutes.get('/v/:publicId', async (c) => {
+  const post = await getPostByPublicId(c.env, c.req.param('publicId'));
+  if (!post) {
+    noindex(c);
+    return c.html(notFoundPage('volunteer post'), 404);
+  }
+  return renderPublic(c, post);
 });
 
 // ---------------------------------------------------------------- dev only

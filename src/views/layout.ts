@@ -2,8 +2,9 @@ import { esc } from '../lib/html';
 
 // Shared shell for authenticated / app pages.
 // `head`: extra trusted markup for <head> (built by our own views, e.g. Open Graph tags).
-export function layout(o: { title: string; body: string; userEmail?: string | null; head?: string }): string {
-  const nav = o.userEmail
+// `nav`: replaces the right side of the top bar (public volunteer pages show no sign-in link).
+export function layout(o: { title: string; body: string; userEmail?: string | null; head?: string; nav?: string }): string {
+  const nav = o.nav !== undefined ? o.nav : o.userEmail
     ? `<span class="who">${esc(o.userEmail)}</span> · <a href="/auth/logout">Sign out</a>`
     : `<a href="/auth/login">Sign in</a>`;
   return `<!doctype html>

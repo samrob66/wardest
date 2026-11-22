@@ -7,6 +7,10 @@ compatibility_date = "2026-06-01"
 [vars]
 APP_URL = "https://app.wardest.com"
 OPERATOR_EMAILS = ""  # owner task: set to operator Google email(s), comma-separated
+# Cloudflare Turnstile site key for the public volunteer forms. This is Cloudflare's published
+# always-pass TEST key; the owner replaces it with the app.wardest.com widget's key at deploy.
+# (The secret, TURNSTILE_SECRET_KEY, goes in .dev.vars / `wrangler secret put`.)
+TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
 
 # --- D1 (structured data; source of truth) ---
 # Local dev keys storage by database_name and ignores database_id. Owner replaces the
