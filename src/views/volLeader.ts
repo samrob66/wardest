@@ -3,7 +3,7 @@
 import type { SessionUser } from '../types';
 import { esc, mdLite } from '../lib/html';
 import type { EditorRow } from '../lib/volEditors';
-import type { PostFull, PostSignupRow, DateFull, RoleFull } from '../lib/volPosts';
+import type { PostFull, PostSignupRow, DateFull, RoleFull, PostSummary } from '../lib/volPosts';
 import { whenText } from '../lib/volPosts';
 import { formatWhen } from '../lib/wardTime';
 import { layout } from './layout';
@@ -335,4 +335,70 @@ export function renderWardVolunteers(o: {
       ${section('Approved', approved, (v) => act(v.id, 'revoke', 'Revoke approval', 'btn sm ghost danger'), 'None yet.')}
       ${section('Declined', declined, (v) => act(v.id, 'undo-decline', 'Undo decline'), 'None.')}`,
   });
+}
+
+// ---------------------------------------------------------------- space-page section (spec §6.7)
+
+function postRow(wardId: string, p: PostSummary, o: { showOrg: boolean; copy: boolean }): string {
+  const when = p.first_date
+    ? formatWhen(p.first_date, null) + (p.last_date && p.last_date !== p.first_date ? ` – ${formatWhen(p.last_date, null)}` : '')
+    : 'No dates yet';
+  const copy = o.copy
+    ? `<form method="post" action="/w/${esc(wardId)}/vol/${esc(p.id)}/copy" class="inline" style="margin-top:.4rem">
+         <div><label>Copy as new post starting</label><input type="date" name="new_first_date" required></div>
+         <button class="btn sm ghost" type="submit">Copy</button></form>`
+    : '';
+  return `<div class="card${p.short_soon ? ' short' : ''}">
+    <div class="row"><a href="/w/${esc(wardId)}/vol/${esc(p.id)}"><strong>${esc(p.title)}</strong></a>
+      <span class="muted">${o.showOrg ? `${esc(p.org_name)} · ` : ''}${esc(when)}</span></div>
+    ${fillBar(p.confirmed, p.needed, p.waiting)}
+    ${p.short_soon ? ' <span class="tag warn">short and soon</span>' : ''}
+    ${copy}
+  </div>`;
+}
+
+export function renderVolunteerSection(o: {
+  wardId: string;
+  open: PostSummary[];
+  past: PostSummary[];
+  newPostSpaceId: string | null; // set when the viewer may create posts for this org
+  canCopy: (spaceId: string) => boolean;
+  showVolunteersLink: boolean;
+  wardWide: boolean; // ward council / bishopric pages group by organization
+}): string {
+  const actions = [
+    o.newPostSpaceId ? `<a class="btn sm" href="/w/${esc(o.wardId)}/vol/new?space=${esc(o.newPostSpaceId)}">New volunteer post</a>` : '',
+    o.showVolunteersLink ? `<a class="btn sm ghost" href="/w/${esc(o.wardId)}/volunteers">Volunteers &amp; approvals</a>` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const shortSoon = o.open.filter((p) => p.short_soon);
+  const rest = o.open.filter((p) => !p.short_soon);
+  let restHtml: string;
+  if (!rest.length) restHtml = shortSoon.length ? '' : '<p class="muted">No open volunteer posts.</p>';
+  else if (o.wardWide) {
+    const orgs = [...new Set(rest.map((p) => p.org_name))].sort();
+    restHtml = orgs
+      .map((org) => `<h3>${esc(org)}</h3>${rest.filter((p) => p.org_name === org).map((p) => postRow(o.wardId, p, { showOrg: false, copy: false })).join('')}`)
+      .join('');
+  } else {
+    restHtml = rest.map((p) => postRow(o.wardId, p, { showOrg: false, copy: false })).join('');
+  }
+  const past = o.past.length
+    ? `<details id="vol-past"><summary>Past (${o.past.length})</summary>${o.past
+        .map((p) => postRow(o.wardId, p, { showOrg: o.wardWide, copy: o.canCopy(p.space_id) }))
+        .join('')}</details>`
+    : '<div id="vol-past"></div>';
+  return `${VOL_CSS}<section id="volunteer-posts">
+    <h2>Volunteer posts</h2>
+    ${actions ? `<p>${actions}</p>` : ''}
+    ${
+      shortSoon.length
+        ? `<h3>Short and soon</h3><p class="muted" style="margin-top:0">Still need help within the next 14 days.</p>
+           ${shortSoon.map((p) => postRow(o.wardId, p, { showOrg: o.wardWide, copy: false })).join('')}`
+        : ''
+    }
+    <div id="vol-open">${restHtml}</div>
+    ${past}
+  </section>`;
 }

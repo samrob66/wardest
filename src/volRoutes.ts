@@ -29,13 +29,13 @@ import { deliver, type OutgoingMessage } from './lib/volMessages';
 import {
   VolInputError, addDate, addRole, copyDate, copyPost, createPost, deleteDate, deletePost, deleteRole, getPost,
   getPostByPublicId, listPostSignups, listPublicBringing, listWardPosts, resetFullIfShort, updateDate, updatePost, updateRole,
-  type PostFull, type PostInput, type RoleInput,
+  type PostFull, type PostInput, type PostSummary, type RoleInput,
 } from './lib/volPosts';
 import { isValidDate, isValidTime } from './lib/wardTime';
 import { getWardById, getWardSpaces, listWardMembers, wardRole, type WardRow, type SpaceFull } from './lib/wards';
 import { notFoundPage } from './views/notfound';
 import {
-  renderEditorsCard, renderPostDeleteConfirm, renderPostManage, renderPostNew, renderWardVolunteers,
+  renderEditorsCard, renderPostDeleteConfirm, renderPostManage, renderPostNew, renderVolunteerSection, renderWardVolunteers,
   type NewPostValues, type WardVolunteerRow,
 } from './views/volLeader';
 import {
@@ -55,6 +55,34 @@ export async function spaceVolunteerSection(
   userId: string,
 ): Promise<string> {
   let html = '';
+  const now = new Date();
+  if (space.kind === 'org' || space.kind === 'ward_council' || space.kind === 'bishopric') {
+    const wardWide = space.kind !== 'org';
+    const scope = wardWide ? {} : { spaceId: space.id };
+    // Every row still passes the post-level check (fail closed; e.g. a shared org page).
+    const visible = async (list: PostSummary[]) => {
+      const out: PostSummary[] = [];
+      for (const p of list) {
+        if (await canViewPost(env, userId, { id: p.id, ward_id: ward.id, space_id: p.space_id, created_by_user_id: null })) out.push(p);
+      }
+      return out;
+    };
+    const open = await visible(await listWardPosts(env, ward.id, { ...scope, past: false, now }));
+    const past = await visible(await listWardPosts(env, ward.id, { ...scope, past: true, now }));
+    const manages = new Map<string, boolean>();
+    for (const sid of new Set([...past.map((p) => p.space_id), ...(wardWide ? [] : [space.id])])) {
+      manages.set(sid, await canManageOrg(env, ward.id, sid, userId));
+    }
+    html += renderVolunteerSection({
+      wardId: ward.id,
+      open,
+      past,
+      newPostSpaceId: !wardWide && manages.get(space.id) ? space.id : null,
+      canCopy: (sid) => manages.get(sid) === true,
+      showVolunteersLink: await canSeeWardVolunteers(env, ward.id, userId),
+      wardWide,
+    });
+  }
   if (space.kind === 'org') {
     const editors = await listEditors(env, ward.id, space.id);
     const canManage = await canManageEditorList(env, ward.id, space.id, userId);
