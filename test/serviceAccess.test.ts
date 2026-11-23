@@ -213,3 +213,32 @@ describe('posts in ward-council and bishopric spaces', () => {
     expect((await approverEmails(env, c.wardId, post)).sort()).toEqual([c.emails.counselor, c.emails.plainMember].sort());
   });
 });
+
+describe('archiving a category only stops new posts', () => {
+  it('a no-delegate archived category: owner and vol editor still edit and approve existing posts; nobody creates', async () => {
+    const c = await makeServiceCast();
+    const meal = c.cat.meal!.id;
+    await addEditor(env, c.wardId, c.spaces['relief-society']!, c.rsSecretary, c.rsPres);
+    const post = await insertPost(c.wardId, { spaceId: c.spaces['relief-society']!, categoryId: meal, createdBy: c.bishop });
+    const { newId } = await import('../src/lib/ids');
+    const dateId = newId('vd');
+    const roleId = newId('vr');
+    const volId = newId('vv');
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO vol_dates (id, ward_id, post_id, date) VALUES (?, ?, ?, '2026-12-06')`).bind(dateId, c.wardId, post),
+      env.DB.prepare(`INSERT INTO vol_roles (id, ward_id, post_id, date_id, name, needed) VALUES (?, ?, ?, ?, 'Cooks', 2)`).bind(roleId, c.wardId, post, dateId),
+      env.DB.prepare(`INSERT INTO volunteers (id, ward_id, email, name, approval, email_verified_at) VALUES (?, ?, 'arch@example.test', 'A', 'pending', datetime('now'))`).bind(volId, c.wardId),
+      env.DB.prepare(`INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, status) VALUES (?, ?, ?, ?, ?, 'waiting')`).bind(newId('vs'), c.wardId, post, roleId, volId),
+    ]);
+    await env.DB.prepare(`UPDATE service_categories SET archived = 1 WHERE id = ?`).bind(meal).run();
+    const ref = { id: post, ward_id: c.wardId, space_id: '', created_by_user_id: null };
+    const { canApproveVolunteer } = await import('../src/lib/volAccess');
+    for (const uid of [c.rsPres, c.rsSecretary]) {
+      expect(await canEditPost(env, uid, ref), uid).toBe(true);
+      expect(await canApproveVolunteer(env, c.wardId, volId, uid), uid).toBe(true);
+      expect(await canCreateInCategory(env, c.wardId, meal, uid), uid).toBe(false);
+    }
+    expect(await canCreateInCategory(env, c.wardId, meal, c.bishop)).toBe(false);
+    expect(await canEditPost(env, c.wcMember, ref)).toBe(false);
+  });
+});

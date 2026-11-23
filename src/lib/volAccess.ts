@@ -7,7 +7,8 @@
 // A post belongs to one space (org, ward_council or bishopric) and one service category.
 //   Bishopric (bishopric space member) or superadmin -> create/edit/delete/approve anything
 //   Post creator                                      -> edit their post, approve on it
-//   Whoever may create in the post's category         -> edit it (serviceAccess.canCreateInCategory:
+//   Whoever may create in the post's category         -> edit it, even once the category is archived
+//                                                       (serviceAccess.mayManagePostsInCategory:
 //                                                        its delegates; or, with no delegates, its
 //                                                        managers + the owning orgs' vol_editors;
 //                                                        ward council members when flagged)
@@ -20,7 +21,7 @@
 //   A post with no category yet (an upgraded DB before its backfill): the old org rule, org
 //   owners + vol_editors edit.
 import type { Env } from '../types';
-import { canCreateInCategory, isBishopric, isCategoryDelegate, isCategoryManager } from './serviceAccess';
+import { isBishopric, isCategoryDelegate, isCategoryManager, mayManagePostsInCategory } from './serviceAccess';
 
 export { isBishopric };
 
@@ -117,7 +118,8 @@ export async function canEditPost(env: Env, userId: string, post: PostRef): Prom
   if (p.created_by_user_id && p.created_by_user_id === userId) return true;
   if (await isBishopric(env, p.ward_id, userId)) return true;
   if (!p.category_id) return p.kind === 'org' && canManageOrg(env, p.ward_id, p.space_id, userId);
-  if (await canCreateInCategory(env, p.ward_id, p.category_id, userId)) return true;
+  // Archive-agnostic: archiving a category stops new posts, not the management of these.
+  if (await mayManagePostsInCategory(env, p.ward_id, p.category_id, userId)) return true;
   return isCategoryDelegate(env, p.ward_id, p.category_id, userId);
 }
 

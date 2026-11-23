@@ -11,7 +11,9 @@
 //   May create (opportunity  its delegates; or, while it has NO delegates, its managers and the
 //   categories only, never   vol_editors of any owning org space; plus any member of the ward's
 //   archived)                ward_council space when council_may_create; plus bishopric and
-//                            superadmins. Nobody creates in a request category.
+//                            superadmins. Nobody creates in a request category. The same people
+//                            keep managing EXISTING posts after the category is archived
+//                            (mayManagePostsInCategory): archiving only stops new posts.
 //   Sees / manages a request managers and delegates of its category (confidential: as above).
 //   Messages                 a category's delegates; if none, its owning spaces' owners. New
 //                            requests with no delegates: owning spaces' owners, else superadmins.
@@ -125,11 +127,21 @@ export async function isCategoryDelegate(env: Env, wardId: string, categoryId: s
   return r != null;
 }
 
+// May create NEW posts in the category: an opportunity category that isn't archived, and the
+// person may manage its posts (below).
 export async function canCreateInCategory(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
+  const cat = await category(env, wardId, categoryId);
+  if (!cat || cat.archived) return false;
+  return mayManagePostsInCategory(env, wardId, categoryId, userId);
+}
+
+// The create rule without the archived check: who may edit (and approve on) EXISTING posts in
+// the category. Archiving a category only stops new posts; its posts stay manageable.
+export async function mayManagePostsInCategory(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
   const role = await wardRoleOf(env, wardId, userId);
   if (!role) return false;
   const cat = await category(env, wardId, categoryId);
-  if (!cat || cat.kind !== 'opportunity' || cat.archived) return false;
+  if (!cat || cat.kind !== 'opportunity') return false;
   if (await isBishopric(env, wardId, userId)) return true;
   if (await isCategoryDelegate(env, wardId, categoryId, userId)) return true;
   if (cat.council_may_create && (await inWardSpaceOfKind(env, wardId, 'ward_council', userId))) return true;
