@@ -5,6 +5,9 @@ import type { SessionUser } from '../types';
 import { esc } from '../lib/html';
 import { AUDIENCES, AUDIENCE_LABELS, ICONS, iconSvg, parseAudiences, type CategoryFull, type CategoryRow } from '../lib/serviceCategories';
 import { layout } from './layout';
+import { fillBar, VOL_CSS } from './volCommon';
+import { serverName, type PostFull, type PostSignupRow } from '../lib/volPosts';
+import { formatWhen } from '../lib/wardTime';
 
 export const SERVICE_CSS = `<style>
   .cat{display:flex;align-items:center;gap:.75rem}
@@ -223,5 +226,61 @@ export function renderCategoryPage(o: {
       ${delegates}
       ${warnings}
       ${discord}`,
+  });
+}
+
+// ---------------------------------------------------------------- My service opportunities
+
+export interface MineItem {
+  post: PostFull;
+  signups: PostSignupRow[];
+  past: boolean;
+  warnings: Array<{ date_id: string; n: number; last: string }>;
+}
+
+function mineCard(wardId: string, it: MineItem): string {
+  const p = it.post;
+  const manage = `/w/${esc(wardId)}/vol/${esc(p.id)}`;
+  const waitingApproval = it.signups.filter((s) => s.status === 'waiting' && s.approval === 'pending').length;
+  const dates = p.dates
+    .map((d) => {
+      const warn = it.warnings.find((w) => w.date_id === d.id);
+      const roles = d.roles
+        .map((r) => {
+          const people = it.signups.filter((s) => s.role_id === r.id);
+          return `<div class="role"><div class="row"><strong>${esc(r.name)}</strong></div>
+            ${fillBar(r.confirmed, r.needed, r.waiting)}
+            ${people.length ? `<p class="muted" style="margin:.2rem 0">${people
+              .map((s) => `${esc(serverName(s.name, s.child_name))}${s.status === 'waiting' ? ' (waiting)' : ''}`)
+              .join(', ')}</p>` : ''}</div>`;
+        })
+        .join('');
+      return `<div style="margin-top:.6rem"><strong>${esc(formatWhen(d.date, d.start_time))}</strong>
+        ${warn ? ` <span class="tag warn">fill warning sent ${esc(warn.last.slice(0, 10))}</span>` : ''}
+        ${roles || '<p class="muted">No roles yet.</p>'}</div>`;
+    })
+    .join('');
+  return `<div class="card">
+    <div class="row"><a href="${manage}"><strong>${esc(p.title)}</strong></a>
+      <span class="muted">${esc(p.category_name ?? p.org_name)}</span></div>
+    ${waitingApproval ? `<p><a class="tag warn" href="${manage}">${waitingApproval} waiting for approval</a></p>` : ''}
+    ${dates || '<p class="muted">No dates yet.</p>'}
+    <p style="margin-bottom:0"><a class="btn sm ghost" href="${manage}">Manage</a></p>
+  </div>`;
+}
+
+export function renderServiceMine(o: { user: SessionUser; wardId: string; wardName: string; items: MineItem[] }): string {
+  const w = esc(o.wardId);
+  const upcoming = o.items.filter((i) => !i.past);
+  const past = o.items.filter((i) => i.past);
+  return layout({
+    title: 'My service opportunities',
+    userEmail: o.user.email,
+    head: VOL_CSS + SERVICE_CSS,
+    body: `<h1>My service opportunities</h1>
+      <p class="muted">${esc(o.wardName)} · <a href="/w/${w}/service">Service</a> · <a href="/w/${w}">ward home</a></p>
+      ${o.items.length ? '' : '<div class="card"><p>Nothing yet. Opportunities you create, and every one in a category you coordinate, show here.</p></div>'}
+      ${upcoming.map((i) => mineCard(o.wardId, i)).join('')}
+      ${past.length ? `<details id="mine-past"><summary>Past (${past.length})</summary>${past.map((i) => mineCard(o.wardId, i)).join('')}</details>` : ''}`,
   });
 }

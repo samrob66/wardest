@@ -723,3 +723,19 @@ export async function listPublicBringing(env: Env, wardId: string, postId: strin
     .all<{ role_id: string; bringing: string }>();
   return res.results ?? [];
 }
+
+// Posts in a category this person coordinates (still a ward member) or that they created,
+// for "My service opportunities". The route re-checks each with canViewPost.
+export async function listUserPostIds(env: Env, wardId: string, userId: string): Promise<string[]> {
+  const res = await env.DB.prepare(
+    `SELECT p.id FROM vol_posts p
+      WHERE p.ward_id = ? AND (
+        p.created_by_user_id = ?
+        OR p.category_id IN (SELECT d.category_id FROM service_delegates d
+                               JOIN ward_memberships wm ON wm.user_id = d.user_id AND wm.ward_id = d.ward_id
+                              WHERE d.ward_id = ? AND d.user_id = ?))`,
+  )
+    .bind(wardId, userId, wardId, userId)
+    .all<{ id: string }>();
+  return (res.results ?? []).map((r) => r.id);
+}

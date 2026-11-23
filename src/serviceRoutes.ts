@@ -30,8 +30,8 @@ import { hitLimit } from './lib/volRate';
 import { sha256Hex } from './lib/volSession';
 import { renderHelpForm, renderHelpNote, renderHelpPage, renderHelpVerify, type HelpFormValues } from './views/help';
 import { renderInbox, renderRequestPage } from './views/requests';
-import { canEditPost } from './lib/volAccess';
-import { getPost, type PostFull } from './lib/volPosts';
+import { canEditPost, canViewPost } from './lib/volAccess';
+import { getPost, isPostOver, listPostSignups, listUserPostIds, type PostFull } from './lib/volPosts';
 import {
   InviteInputError, KICK_LIMIT, createInviteBatch, getBatch, previewInvites, pumpInvitations, readUnsub, sendTestInvite,
   suppressByHash,
@@ -41,7 +41,7 @@ import {
   ServiceInputError, addDelegate, createCategory, delegateByEmail, eligibleOwnerSpace, getWarnPref, removeDelegate,
   setCategoryArchived, setWarnPref, setWebhook, updateCategory,
 } from './lib/serviceAdmin';
-import { renderCategoryPage, renderServiceHub } from './views/service';
+import { renderCategoryPage, renderServiceHub, renderServiceMine, type MineItem } from './views/service';
 import { listServePosts } from './lib/serve';
 import { renderServePage } from './views/serve';
 
@@ -454,6 +454,39 @@ serviceRoutes.post('/w/:wardId/requests/:requestId', requireAuth(), async (c) =>
     throw e;
   }
   return back(c, path);
+});
+
+
+// ---------------------------------------------------------------- My service opportunities
+
+// Every post in a category this person coordinates, plus every post they created (spec §3:
+// coordinators "see all opportunities they have created and their statuses"). Each post is
+// re-checked with canViewPost; its manage link enforces canEditPost as always.
+serviceRoutes.get('/w/:wardId/service/mine', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  const now = new Date();
+  const items: MineItem[] = [];
+  for (const id of await listUserPostIds(c.env, lc.ward.id, lc.user.id)) {
+    const post = await getPost(c.env, lc.ward.id, id);
+    if (!post || !(await canViewPost(c.env, lc.user.id, post))) continue;
+    const signups = await listPostSignups(c.env, lc.ward.id, post.id);
+    const warned = await c.env.DB.prepare(
+      `SELECT w.date_id, COUNT(*) AS n, MAX(w.sent_at) AS last FROM vol_warn_sent w JOIN vol_dates d ON d.id = w.date_id AND d.ward_id = w.ward_id
+        WHERE w.ward_id = ? AND d.post_id = ? GROUP BY w.date_id`,
+    )
+      .bind(lc.ward.id, post.id)
+      .all<{ date_id: string; n: number; last: string }>();
+    items.push({ post, signups, past: isPostOver(post, now), warnings: warned.results ?? [] });
+  }
+  items.sort((a, b) =>
+    a.past !== b.past
+      ? Number(a.past) - Number(b.past)
+      : a.past
+        ? (b.post.dates.at(-1)?.date ?? '').localeCompare(a.post.dates.at(-1)?.date ?? '')
+        : (a.post.dates[0]?.date ?? '9999').localeCompare(b.post.dates[0]?.date ?? '9999'),
+  );
+  return c.html(renderServiceMine({ user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, items }));
 });
 
 // ---------------------------------------------------------------- leaders: invite people by email
