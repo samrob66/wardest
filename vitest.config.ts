@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { cloudflareTest } from '@cloudflare/vitest-plugin';
 
 // Tests run inside the Workers runtime (Miniflare) against a local D1. The schema is applied
@@ -26,5 +26,7 @@ export default defineConfig({
   ],
   test: {
     setupFiles: ['./test/setup.ts'],
+    // Build worktrees live under .claude/worktrees; never pick up their copies of the tests.
+    exclude: [...configDefaults.exclude, '.claude/**'],
   },
 });
