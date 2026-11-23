@@ -1,6 +1,8 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 import { cloudflareTest } from '@cloudflare/vitest-plugin';
 
+export const EQUIV_TESTS = 'test/accessEquivalence*.test.ts';
+
 // Tests run inside the Workers runtime (Miniflare) against a local D1. The schema is applied
 // once per isolate by test/setup.ts; every outbound fetch (Turnstile, Discord) is intercepted
 // there and the EMAIL binding is swapped for a recording fake, so nothing reaches the network.
@@ -30,6 +32,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./test/setup.ts'],
     // Build worktrees live under .claude/worktrees; never pick up their copies of the tests.
-    exclude: [...configDefaults.exclude, '.claude/**'],
+    // The access equivalence harness runs on its own: `npm run test:equiv` (vitest.equiv.config.ts).
+    exclude: [...configDefaults.exclude, '.claude/**', EQUIV_TESTS],
   },
 });

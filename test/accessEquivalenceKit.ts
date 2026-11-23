@@ -10,6 +10,7 @@
 import { expect } from 'vitest';
 import { env, makeWard, makeLeader, uniqueEmail } from './helpers';
 import { addDelegate, insertPost, insertRequest } from './serviceCast';
+import { futureDate } from './volFixtures';
 import { newId } from '../src/lib/ids';
 import { listCategories } from '../src/lib/serviceCategories';
 import * as curS from '../src/lib/serviceAccess';
@@ -71,7 +72,7 @@ async function waitingVolunteer(wardId: string, postId: string): Promise<string>
   const roleId = newId('vr');
   const volId = newId('vv');
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO vol_dates (id, ward_id, post_id, date) VALUES (?, ?, ?, '2026-12-06')`).bind(dateId, wardId, postId),
+    env.DB.prepare(`INSERT INTO vol_dates (id, ward_id, post_id, date) VALUES (?, ?, ?, ?)`).bind(dateId, wardId, postId, futureDate()),
     env.DB.prepare(`INSERT INTO vol_roles (id, ward_id, post_id, date_id, name, needed) VALUES (?, ?, ?, ?, 'Helpers', 2)`).bind(roleId, wardId, postId, dateId),
     env.DB.prepare(
       `INSERT INTO volunteers (id, ward_id, email, name, approval, email_verified_at) VALUES (?, ?, ?, 'V', 'pending', datetime('now'))`,
@@ -125,6 +126,9 @@ export async function makeEquivCast(): Promise<Cast> {
   const confOpp = await addCategory(w1, { slug: 'conf-opp', kind: 'opportunity', confidential: 1, owners: [sp['relief-society']!] });
   const orphan = await addCategory(w1, { slug: 'orphan', kind: 'opportunity', council: 1, owners: [] });
   const archReq = await addCategory(w1, { slug: 'arch-req', kind: 'request', archived: 1, owners: [sp['elders-quorum']!] });
+  // A council category with a LIVE delegate: council members still create (that rule comes
+  // before "it has delegates, so its managers and vol editors don't").
+  const councilDel = await addCategory(w1, { slug: 'council-del', kind: 'opportunity', council: 1, owners: [sp['relief-society']!] });
   // A ward-1 category row linked to a ward-2 space (must count for nothing).
   await env.DB.prepare(`INSERT INTO service_category_spaces (id, ward_id, category_id, space_id) VALUES (?, ?, ?, ?)`)
     .bind(newId('scs'), w1, c1.move, w2eq)
@@ -133,6 +137,7 @@ export async function makeEquivCast(): Promise<Cast> {
   // Delegates: live, stale (former member), and a row stamped with the other ward.
   await addDelegate(w1, c1.meal!, users.mealDelegate);
   await addDelegate(w1, c1['req-christmas']!, users.christmasDelegate);
+  await addDelegate(w1, councilDel, users.mealDelegate);
   for (const cid of [c1.meal!, c1.activity!, c1['req-moving']!, orphan]) await addDelegate(w1, cid, users.former);
   await addDelegate(w2, c1.move!, users.crossRow);
   await addDelegate(w2, c2.meal!, users.outsider);
@@ -159,6 +164,7 @@ export async function makeEquivCast(): Promise<Cast> {
   cats['conf-opp'] = confOpp;
   cats.orphan = orphan;
   cats['arch-req'] = archReq;
+  cats['council-del'] = councilDel;
   cats['w2:meal'] = c2.meal!;
   cats['w2:req-christmas'] = c2['req-christmas']!;
   cats.bogus = newId('scat');
@@ -187,6 +193,9 @@ export async function makeEquivCast(): Promise<Cast> {
     conf: await p(sp['relief-society']!, confOpp, null),
     orphan: await p(sp['ward-council']!, orphan, null),
     mismatch: await p(sp['relief-society']!, c1.move!, null),
+    councilDel: await p(sp['relief-society']!, councilDel, null),
+    // A ward-1 post whose category is a ward-2 category: never a valid post (deny everywhere).
+    w2Category: await p(sp['relief-society']!, c2.meal!, users.rsMember!),
     primary: await p(sp.primary!, c1['sub-primary']!, null),
     sundaySchool: await p(sp['sunday-school']!, c1['sub-sunday-school']!, null),
     public: await p(sp.public!, c1['helping-hand']!, null),
@@ -312,7 +321,9 @@ export async function snapPostTable(c: Cast, uid: string): Promise<Table> {
   const t: Table = {};
   const byWard = new Map<string, Map<string, StoredPost>>();
   for (const w of [c.w1, c.w2]) {
-    byWard.set(w, await loadPosts(env, w, Object.values(c.posts).filter((r) => r.ward_id === w).map((r) => r.id)));
+    // 120 unknown ids first, so the real ones land in loadPosts' second chunk (90 per statement).
+    const padding = Array.from({ length: 120 }, () => newId('vp'));
+    byWard.set(w, await loadPosts(env, w, [...padding, ...Object.values(c.posts).filter((r) => r.ward_id === w).map((r) => r.id)]));
   }
   for (const [k, ref] of Object.entries(c.posts)) {
     const p = byWard.get(ref.ward_id)?.get(ref.id);

@@ -11,7 +11,8 @@
     "db:seed:local": "wrangler d1 execute wardforward-db --local --file=./db/seed-m44.sql",
     "db:seed:solutions:local": "wrangler d1 execute wardforward-db --local --file=./db/seed-solutions.sql",
     "db:reset:local": "npm run db:init:local && npm run db:seed:local",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:equiv": "vitest run --config vitest.equiv.config.ts"
   },
   "dependencies": {
     "hono": "^4.9.0",

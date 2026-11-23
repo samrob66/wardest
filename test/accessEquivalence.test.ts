@@ -2,7 +2,7 @@
 // rules (see test/accessEquivalenceKit.ts; parts 1 and 2 are accessEquivalencePosts and
 // accessEquivalenceCategories).
 import { describe, it, expect, beforeAll } from 'vitest';
-import { env } from './helpers';
+import { env, makeLeader, makeWard, uniqueEmail } from './helpers';
 import * as curS from '../src/lib/serviceAccess';
 import * as curV from '../src/lib/volAccess';
 import * as refS from './reference/serviceAccessRef';
@@ -63,6 +63,15 @@ describe('access equivalence: the cast exercises every rule', () => {
     expect(await v.canApproveVolunteer(env, c.w1, c.vols.archived!, u.eqPres!)).toBe(true);
     expect(await v.canApproveVolunteer(env, c.w1, c.vols.legacy!, u.eqPres!)).toBe(true);
     expect(await s.requestNotifyEmails(env, c.w1, c.cats['req-moving']!)).toHaveLength(1); // stale delegate -> EQ owner
+    // council-del has a live delegate: the council rule still lets the RS president (a ward
+    // council member) create; the RS vol editor (not on the council) is shut out by the delegate.
+    expect(await s.canCreateInCategory(env, c.w1, c.cats['council-del']!, u.rsPres!)).toBe(true);
+    expect(await s.canCreateInCategory(env, c.w1, c.cats['council-del']!, u.rsEditor!)).toBe(false);
+    expect(await s.canCreateInCategory(env, c.w1, c.cats['council-del']!, u.mealDelegate!)).toBe(true);
+    // A ward-1 post filed under a ward-2 category is no post at all, even for a superadmin.
+    expect(await v.canViewPost(env, u.superadmin!, c.posts.w2Category!)).toBe(false);
+    expect(await v.canEditPost(env, u.rsMember!, c.posts.w2Category!)).toBe(false); // its creator
+    expect(await v.canViewPost(env, u.superadmin!, c.posts.councilDel!)).toBe(true);
   }, SLOW);
 
   it("a snapshot for someone else, or another ward, is never used for a decision", async () => {
@@ -78,5 +87,47 @@ describe('access equivalence: the cast exercises every rule', () => {
     const p = (await loadPosts(env, c.w1, [c.posts.org!.id])).get(c.posts.org!.id)!;
     expect(canViewStored(outsiders, p)).toBe(false);
     expect(canEditStored(outsiders, p)).toBe(false);
+  }, SLOW);
+});
+
+// listCategories puts back a missing default (ensureServiceCategories), so a list can hold a
+// category newer than the caller's snapshot; serviceAccess.coveringCategories must then decide
+// it on a fresh snapshot, as the old per-check queries did. A fresh ward, its sub-primary default
+// deleted before each snapshot is taken.
+describe('access equivalence: a default re-inserted after the snapshot was taken', () => {
+  it('categoriesUserMayCreateIn and hasServiceRole agree with the reference', async () => {
+    const w = await makeWard(env);
+    const users: Record<string, string> = {
+      primaryPres: await makeLeader(env, w.wardId, { email: uniqueEmail('primaryPres'), spaces: [['primary', 'owner']] }),
+      bishop: await makeLeader(env, w.wardId, { email: uniqueEmail('bishop'), spaces: [['bishopric', 'owner']] }),
+      plain: await makeLeader(env, w.wardId, { email: uniqueEmail('plain') }),
+    };
+    const drop = async () => {
+      await env.DB.prepare(`DELETE FROM service_categories WHERE ward_id = ? AND slug = 'sub-primary'`).bind(w.wardId).run();
+      const left = await env.DB.prepare(`SELECT 1 AS ok FROM service_categories WHERE ward_id = ? AND slug = 'sub-primary'`)
+        .bind(w.wardId)
+        .first();
+      expect(left).toBeNull();
+    };
+    for (const [key, uid] of Object.entries(users)) {
+      await drop();
+      const snap = await loadAccess(env, w.wardId, uid);
+      const cur = (await curS.categoriesUserMayCreateIn(env, w.wardId, uid, snap)).map((x) => x.slug);
+      await drop();
+      const ref = (await refS.categoriesUserMayCreateIn(env, w.wardId, uid)).map((x) => x.slug);
+      expect(cur, key).toEqual(ref);
+
+      await drop();
+      const snap2 = await loadAccess(env, w.wardId, uid);
+      const curRole = await curS.hasServiceRole(env, w.wardId, uid, snap2);
+      await drop();
+      expect(curRole, key).toBe(await refS.hasServiceRole(env, w.wardId, uid));
+    }
+    // The case matters: the Primary president's only role is the re-inserted category.
+    await drop();
+    const snap = await loadAccess(env, w.wardId, users.primaryPres!);
+    expect((await curS.categoriesUserMayCreateIn(env, w.wardId, users.primaryPres!, snap)).map((x) => x.slug)).toEqual(['sub-primary']);
+    await drop();
+    expect(await curS.hasServiceRole(env, w.wardId, users.primaryPres!, await loadAccess(env, w.wardId, users.primaryPres!))).toBe(true);
   }, SLOW);
 });

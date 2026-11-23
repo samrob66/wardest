@@ -457,7 +457,8 @@ serviceRoutes.post('/w/:wardId/requests/:requestId', requireAuth(), async (c) =>
 
 // Every post in a category this person coordinates, plus every post they created (spec §3:
 // coordinators "see all opportunities they have created and their statuses"). Each post is
-// re-checked with canViewPost; its manage link enforces canEditPost as always.
+// re-checked with canViewStored on the request's snapshot; its manage link enforces canEditPost
+// as always.
 serviceRoutes.get('/w/:wardId/service/mine', requireAuth(), async (c) => {
   const lc = await leaderCtx(c);
   if (lc instanceof Response) return lc;

@@ -142,12 +142,18 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
   and setup settles after every test; a test that runs on the real clock uses `futureDate()` or
   passes `now`, never a fixed calendar date. Permission checks decide from one per-request
   snapshot (`loadAccess`, `src/lib/serviceAccess.ts`; 2026-11-23), so a leader page runs ~10–30
-  D1 statements however many categories or posts the ward has; `test/accessQueryCount.test.ts`
-  fails if a page's count grows again, so a new loop over categories or posts passes one snapshot
-  to every check. `test/accessEquivalence*.test.ts` hold the snapshot to the old per-query rules
-  (frozen in `test/reference/`, never edited); they are the suite's slowest files. Aim for new
-  tests to take under ~0.5 s with their file run alone; several existing ones take more. The
-  2,000-invitation volume test has its own measured timeout.
+  D1 statements however many categories or posts the ward has (My service opportunities alone
+  grows by ~7 statements per post, by design: it reads each post in full);
+  `test/accessQueryCount.test.ts` fails if a page's count grows again, so a new loop over
+  categories or posts passes one snapshot to every check. Aim for new tests to take under ~0.5 s
+  with their file run alone; several existing ones take more. The 2,000-invitation volume test
+  has its own measured timeout.
+- `npm run test:equiv` — the access equivalence harness (`test/accessEquivalence*.test.ts`, left
+  out of `npm test`; ~20 s): the snapshot must decide exactly as the old per-query rules, frozen
+  in `test/reference/`. Run it whenever `serviceAccess.ts` or `volAccess.ts` change in a
+  refactor. A DELIBERATE permission-rule change retires the harness instead: delete
+  `test/reference/*`, the `test/accessEquivalence*` files, `vitest.equiv.config.ts` and
+  `test:equiv` in that same commit; never edit the reference.
 - Cron locally: `npx wrangler dev --test-scheduled`, then
   `curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"` (hourly: reminders, nudges, lapses,
   fill warnings, request purges) or `cron=*+*+*+*+*` (every minute: the invitation pump).
