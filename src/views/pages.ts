@@ -6,6 +6,8 @@ import type { OperatorBatch } from '../lib/invitations';
 import { esc } from '../lib/html';
 import { safeHref, displayUrl } from '../lib/urls';
 import { layout } from './layout';
+import { startHereCard } from './startHere';
+import type { StartHere } from '../lib/startHere';
 import { COMMON_TIMEZONES } from '../lib/wardTime';
 
 export function renderSignedOut(): string {
@@ -169,6 +171,7 @@ export function renderWardPage(o: {
   error?: string;
   showService?: boolean; // manages, coordinates or may create in a service category
   serviceSettings?: { serve_short_url: string | null; help_short_url: string | null; serve_section_on: number; help_section_on: number };
+  startHere?: StartHere; // the Executive Secretary's setup steps (card at the top)
 }): string {
   const { user, ward, role, joins, spaces, invites, members, portals, publicPortal, appUrl, notice, error } = o;
   const isSuper = role === 'superadmin';
@@ -298,6 +301,7 @@ export function renderWardPage(o: {
       <p class="muted">Your role: <span class="badge ${isSuper ? 'super' : ''}">${esc(role)}</span></p>
       ${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
       ${error ? `<div class="err">${esc(error)}</div>` : ''}
+      ${o.startHere ? startHereCard(ward.id, o.startHere) : ''}
       <div class="card">
         <p>Public portal: <a href="/p/${esc(ward.prefix)}">/p/${esc(ward.prefix)}</a></p>
         ${

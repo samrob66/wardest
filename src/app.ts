@@ -72,6 +72,8 @@ import {
   type ImplStatus,
 } from './lib/implementations';
 import { canViewImplementation, canEditImplementation, canViewSpaceContent } from './lib/visibility';
+import { loadStartHere } from './lib/startHere';
+import { renderStartHere } from './views/startHere';
 import {
   listBlocks,
   getBlock,
@@ -279,8 +281,19 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
       user, ward, role, joins, spaces, invites, members, portals, publicPortal,
       appUrl: c.env.APP_URL, notice, error, showService: await hasServiceRole(c.env, ward.id, user.id),
       serviceSettings: serviceSettings ?? undefined,
+      startHere: await loadStartHere(c.env, ward.id, user.id),
     }),
   );
+});
+
+// The Executive Secretary's Start here page (spec 2026-11-23-execsec-start-here-design.md §4).
+// Every ward member sees it; status is changed on each solution's own page.
+appSite.get('/w/:wardId/start', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.html(notFoundPage(c.req.param('wardId')), 404);
+  if (!(await wardRole(c.env, ward.id, user.id))) return c.text('Forbidden', 403);
+  return c.html(renderStartHere(user, ward, await loadStartHere(c.env, ward.id, user.id)));
 });
 
 appSite.post('/w/:wardId/members/:userId/role', requireAuth(), async (c) => {

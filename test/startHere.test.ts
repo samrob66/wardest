@@ -3,8 +3,9 @@ import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import schemaSql from '../db/schema.sql?raw';
 import upgradeSql from '../db/upgrade-2026-11-23-start-here.sql?raw';
-import { asUser, ensureUser, env, schemaStatements, uniqueEmail } from './helpers';
+import { asUser, countQueries, ensureUser, env, makeLeader, makeWard, schemaStatements, uniqueEmail } from './helpers';
 import { parseSetupStep } from '../src/lib/solutions';
+import { loadStartHere } from '../src/lib/startHere';
 import { newId } from '../src/lib/ids';
 
 const form = (d: Record<string, string>) => new URLSearchParams(d).toString();
@@ -125,5 +126,209 @@ describe('db/upgrade-2026-11-23-start-here.sql', () => {
         .sort();
     expect(await cols(probe)).toEqual(await cols('solutions'));
     await env.DB.prepare(`DROP TABLE ${probe}`).run();
+  });
+});
+
+// ---------------------------------------------------------------- Task A2: loader, page, card
+
+// Solutions are global and this file's tests share one D1, so each test that needs an exact set
+// of steps first takes every existing solution out of the track.
+async function clearSteps(): Promise<void> {
+  await env.DB.prepare(`UPDATE solutions SET setup_step = NULL`).run();
+}
+
+async function insertImpl(o: {
+  wardId: string; solutionId: string; status: string; owner: string | null; visibility?: 'ward' | 'restricted';
+}): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO implementations (id, ward_id, space_id, solution_id, visibility, status, owner_user_id)
+     VALUES (?, ?, NULL, ?, ?, ?, ?)`,
+  )
+    .bind(newId('impl'), o.wardId, o.solutionId, o.visibility ?? 'ward', o.status, o.owner)
+    .run();
+}
+
+async function getPage(uid: string, path: string) {
+  const res = await SELF.fetch(`http://localhost${path}`, { redirect: 'manual', headers: { cookie: await asUser(uid) } });
+  return { status: res.status, html: await res.text() };
+}
+
+async function wardWithMember() {
+  const w = await makeWard(env);
+  const memberId = await makeLeader(env, w.wardId, { email: uniqueEmail('member'), name: 'Plain Member' });
+  return { ...w, memberId };
+}
+
+describe('loadStartHere', () => {
+  it('lists published step solutions by step, then position, then title; drafts and stepless are left out', async () => {
+    await clearSteps();
+    const { wardId, founderId } = await makeWard(env);
+    const charlie = await insertSolution({ title: 'Charlie', step: 1, position: 2 });
+    const delta = await insertSolution({ title: 'Delta', step: 1, position: 1 });
+    const bravo = await insertSolution({ title: 'Bravo', step: 1, position: 2 });
+    const echo = await insertSolution({ title: 'Echo', step: 3 });
+    await insertSolution({ title: 'Draft step', step: 2, status: 'draft' });
+    await insertSolution({ title: 'Submitted step', step: 2, status: 'submitted' });
+    await insertSolution({ title: 'Rejected step', step: 2, status: 'rejected' });
+    await insertSolution({ title: 'No step' });
+    const sh = await loadStartHere(env, wardId, founderId);
+    expect(sh.rows.map((r) => r.solutionId)).toEqual([delta, bravo, charlie, echo]);
+    expect(sh.rows.map((r) => r.step)).toEqual([1, 1, 1, 3]);
+    expect(sh.total).toBe(4);
+    expect(sh.rows[0]!.summary).toBe('About Delta');
+  });
+
+  it('maps statuses, counts Done, picks Next, names owners', async () => {
+    await clearSteps();
+    const { wardId, founderId, memberId } = await wardWithMember();
+    const x = await insertSolution({ title: 'Step X', step: 1 });
+    const y = await insertSolution({ title: 'Step Y', step: 2 });
+    await insertSolution({ title: 'Step Z', step: 3 });
+    await insertImpl({ wardId, solutionId: x, status: 'implemented', owner: founderId });
+    await insertImpl({ wardId, solutionId: y, status: 'in_progress', owner: null });
+    const sh = await loadStartHere(env, wardId, memberId);
+    expect(sh.rows.map((r) => r.status)).toEqual(['implemented', 'in_progress', 'not_started']);
+    expect(sh.rows.map((r) => r.ownerName)).toEqual(['Founder', null, null]);
+    expect(sh.rows.map((r) => r.isNext)).toEqual([false, true, false]);
+    expect(sh.done).toBe(1);
+    expect(sh.total).toBe(3);
+    expect(sh.next?.solutionId).toBe(y);
+
+    const page = await getPage(memberId, `/w/${wardId}/start`);
+    expect(page.status).toBe(200);
+    expect(page.html).toContain('<h1>Start here</h1>');
+    expect(page.html).toContain('Order is advice, not a lock: open any step.');
+    expect(page.html).toContain('Step 1');
+    expect(page.html).toContain(`href="/w/${wardId}/s/${x}"`);
+    expect(page.html).toContain('About Step X');
+    expect(page.html).toContain('>Done<');
+    expect(page.html).toContain('>In progress<');
+    expect(page.html).toContain('>Not started<');
+    expect(page.html).toContain('Owner: Founder');
+    expect(page.html).toMatch(/class="[^"]*\bnext\b[^"]*"[^]*?Step Y/);
+    expect(page.html).toContain('>Next<');
+    expect(page.html).toContain('WardForward is an independent tool');
+
+    const home = await getPage(memberId, `/w/${wardId}`);
+    expect(home.html).toContain('Start here: 1 of 3 done · Next: Step Y');
+    expect(home.html).toContain(`href="/w/${wardId}/start"`);
+  });
+
+  it('a restricted entry the viewer cannot see: no status, no owner, not Done, not Next', async () => {
+    await clearSteps();
+    const { wardId, founderId, memberId } = await wardWithMember();
+    const x = await insertSolution({ title: 'Secret step', step: 1 });
+    const y = await insertSolution({ title: 'Open step', step: 2 });
+    await insertImpl({ wardId, solutionId: x, status: 'implemented', owner: founderId, visibility: 'restricted' });
+
+    const asMember = await loadStartHere(env, wardId, memberId);
+    expect(asMember.rows[0]).toMatchObject({ solutionId: x, status: null, ownerName: null, isNext: false });
+    expect(asMember.done).toBe(0);
+    expect(asMember.next?.solutionId).toBe(y);
+    const page = await getPage(memberId, `/w/${wardId}/start`);
+    expect(page.html).toContain('Private');
+    expect(page.html).not.toContain('Owner: Founder');
+    const home = await getPage(memberId, `/w/${wardId}`);
+    expect(home.html).toContain('Start here: 0 of 2 done · Next: Open step');
+
+    // A restricted, not-done entry the viewer can't see is never Next either.
+    await env.DB.prepare(`UPDATE implementations SET status = 'in_progress' WHERE solution_id = ?`).bind(x).run();
+    expect((await loadStartHere(env, wardId, memberId)).next?.solutionId).toBe(y);
+
+    // The superadmin (break-glass) sees it.
+    await env.DB.prepare(`UPDATE implementations SET status = 'implemented' WHERE solution_id = ?`).bind(x).run();
+    const asSuper = await loadStartHere(env, wardId, founderId);
+    expect(asSuper.rows[0]).toMatchObject({ status: 'implemented', ownerName: 'Founder' });
+    expect(asSuper.done).toBe(1);
+  });
+
+  it('a restricted entry its owner can see (not a superadmin)', async () => {
+    await clearSteps();
+    const { wardId, memberId } = await wardWithMember();
+    const x = await insertSolution({ title: 'Mine', step: 1 });
+    await insertImpl({ wardId, solutionId: x, status: 'in_progress', owner: memberId, visibility: 'restricted' });
+    const sh = await loadStartHere(env, wardId, memberId);
+    expect(sh.rows[0]).toMatchObject({ status: 'in_progress', ownerName: 'Plain Member', isNext: true });
+  });
+
+  it("only this ward's implementations count", async () => {
+    await clearSteps();
+    const a = await wardWithMember();
+    const b = await makeWard(env);
+    const x = await insertSolution({ title: 'Shared step', step: 1 });
+    await insertImpl({ wardId: b.wardId, solutionId: x, status: 'implemented', owner: b.founderId });
+    const sh = await loadStartHere(env, a.wardId, a.memberId);
+    expect(sh.rows[0]!.status).toBe('not_started');
+    expect(sh.done).toBe(0);
+  });
+});
+
+describe('Start here home card, catalog link and route', () => {
+  it('all done: the card is the small "Start here ✓" link', async () => {
+    await clearSteps();
+    const { wardId, founderId, memberId } = await wardWithMember();
+    for (const [i, t] of ['One', 'Two'].entries()) {
+      const id = await insertSolution({ title: t, step: i + 1 });
+      await insertImpl({ wardId, solutionId: id, status: 'implemented', owner: founderId });
+    }
+    const home = await getPage(memberId, `/w/${wardId}`);
+    expect(home.html).toContain('Start here ✓');
+    expect(home.html).not.toContain('of 2 done');
+    expect(home.html).toContain(`href="/w/${wardId}/start"`);
+  });
+
+  it('no step solutions: no card', async () => {
+    await clearSteps();
+    const { wardId, memberId } = await wardWithMember();
+    const home = await getPage(memberId, `/w/${wardId}`);
+    expect(home.status).toBe(200);
+    expect(home.html).not.toContain('Start here');
+    expect(home.html).not.toContain(`/w/${wardId}/start`);
+  });
+
+  it('the catalog links to Start here', async () => {
+    const { wardId, memberId } = await wardWithMember();
+    const cat = await getPage(memberId, `/w/${wardId}/catalog`);
+    expect(cat.html).toContain(`href="/w/${wardId}/start"`);
+    expect(cat.html).toContain("Start here: the Executive Secretary's setup steps");
+  });
+
+  it('403 for a non-member, 404 for an unknown ward', async () => {
+    const { wardId } = await makeWard(env);
+    const outsider = await ensureUser(env, uniqueEmail('outsider'), 'Outsider');
+    expect((await getPage(outsider, `/w/${wardId}/start`)).status).toBe(403);
+    expect((await getPage(outsider, `/w/no-such-ward/start`)).status).toBe(404);
+  });
+
+  it('statements on the ward home and Start here pages do not grow with the number of steps', async () => {
+    await clearSteps();
+    const { wardId, founderId, memberId } = await wardWithMember();
+    const addSteps = async (from: number, n: number) => {
+      for (let i = from; i < from + n; i++) {
+        const id = await insertSolution({ title: `Counted ${i}`, step: i });
+        await insertImpl({ wardId, solutionId: id, status: 'in_progress', owner: founderId });
+      }
+    };
+    const count = async (path: string) => {
+      const cookie = await asUser(memberId);
+      return countQueries(async () => {
+        await (await SELF.fetch(`http://localhost${path}`, { headers: { cookie } })).text();
+      });
+    };
+    await addSteps(1, 2);
+    const before = [await count(`/w/${wardId}`), await count(`/w/${wardId}/start`)];
+    await addSteps(3, 10);
+    expect([await count(`/w/${wardId}`), await count(`/w/${wardId}/start`)]).toEqual(before);
+  });
+
+  it('escapes titles and summaries', async () => {
+    await clearSteps();
+    const { wardId, memberId } = await wardWithMember();
+    await insertSolution({ title: '<b>Bold</b> & co', step: 1 });
+    const page = await getPage(memberId, `/w/${wardId}/start`);
+    expect(page.html).toContain('&lt;b&gt;Bold&lt;/b&gt; &amp; co');
+    expect(page.html).not.toContain('<b>Bold</b>');
+    const home = await getPage(memberId, `/w/${wardId}`);
+    expect(home.html).toContain('Next: &lt;b&gt;Bold&lt;/b&gt; &amp; co');
   });
 });

@@ -19,7 +19,9 @@
 //
 // After (one AccessSnapshot per request; loadAccess is one batch of 5 statements), the same
 // whatever the number of categories or posts: service hub 12 (both); Relief Society page 28;
-// Ward Council page 23 (both); Bishopric page 25; Public page 9; ward page 24 (all three);
+// Ward Council page 23 (both); Bishopric page 25; Public page 9; ward page 24 (all three), 26
+// since the Start here card (2026-11-23: one batch of 2, plus canViewImplementation only for a
+// step's 'restricted' entry);
 // category picker 11 (both); My service opportunities 17 + 7 per post; requests inbox 12 (both).
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';

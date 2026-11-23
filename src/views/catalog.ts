@@ -166,6 +166,7 @@ export function renderCatalog(
     userEmail: user.email,
     body: `<h1>Solutions catalog</h1>
       <p class="muted">${esc(ward.name)} · <a href="/w/${esc(ward.id)}">ward home</a></p>
+      <p><a href="/w/${esc(ward.id)}/start">Start here: the Executive Secretary's setup steps</a></p>
       <p><a class="btn ghost" href="/w/${esc(ward.id)}/suggest">Suggest a solution</a></p>
       ${sections || '<p class="muted">No published solutions yet.</p>'}`,
   });
