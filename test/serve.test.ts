@@ -125,3 +125,49 @@ describe('public serve page /serve/:prefix', () => {
     expect(await listServePosts(env, empty.wardId, new Date())).toEqual([]);
   });
 });
+
+describe('listServePosts loads only posts that can still show', () => {
+  it('a long-past post is never loaded; a dateless post is skipped in SQL too', async () => {
+    const c = await makeServiceCast();
+    const today = wardToday('America/Denver', new Date());
+    const mk = async (title: string, date: string | null) => {
+      const id = await createPost(env, c.wardId, c.spaces['relief-society']!, c.rsPres, {
+        title, public_note: null, private_details: null, cancel_cutoff_hours: 24, categoryId: await catId(c.wardId, 'meal'),
+      });
+      if (date) {
+        const d = await addDate(env, c.wardId, id, date, '10:00');
+        await addRole(env, c.wardId, d, { name: 'Cooks', needed: 2, start_time: null, end_time: null, note: null, bring_prompt: null });
+      }
+      return id;
+    };
+    const old = await mk('Ancient meal', addDays(today, -400));
+    const none = await mk('No dates yet', null);
+    const live = await mk('Live meal', futureDate(4));
+    // Record every post id the page loads with getPost (SELECT * FROM vol_posts WHERE id = ?).
+    const loaded: unknown[] = [];
+    const db = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === 'prepare') {
+          return (sql: string) => {
+            const st = target.prepare(sql);
+            if (!sql.startsWith('SELECT * FROM vol_posts WHERE id = ?')) return st;
+            return new Proxy(st, {
+              get(t, p) {
+                if (p === 'bind') return (...args: unknown[]) => (loaded.push(args[0]), t.bind(...args));
+                const v = Reflect.get(t, p, t);
+                return typeof v === 'function' ? v.bind(t) : v;
+              },
+            });
+          };
+        }
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const sections = await listServePosts({ ...env, DB: db } as typeof env, c.wardId, new Date());
+    expect(sections.flatMap((s) => s.entries.map((e) => e.title))).toEqual(['Live meal']);
+    expect(loaded).toContain(live);
+    expect(loaded).not.toContain(old);
+    expect(loaded).not.toContain(none);
+  });
+});

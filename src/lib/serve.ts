@@ -4,6 +4,7 @@
 import type { Env } from '../types';
 import { getPost, isDateOver, roleStartTime, whenText } from './volPosts';
 import { AUDIENCES, AUDIENCE_LABELS, parseAudiences, type Audience } from './serviceCategories';
+import { addDays, wardToday } from './wardTime';
 
 export interface ServeEntry {
   publicId: string;
@@ -25,8 +26,17 @@ export interface ServeSection {
 }
 
 export async function listServePosts(env: Env, wardId: string, now: Date): Promise<ServeSection[]> {
-  const rows = await env.DB.prepare(`SELECT id FROM vol_posts WHERE ward_id = ? ORDER BY created_at, id`)
-    .bind(wardId)
+  // Only posts with a date from yesterday on (ward-local) can still have an upcoming date; the
+  // ward's older posts are never loaded. The exact "is over" test runs below, per date.
+  const ward = await env.DB.prepare(`SELECT timezone FROM wards WHERE id = ?`).bind(wardId).first<{ timezone: string }>();
+  if (!ward) return [];
+  const since = addDays(wardToday(ward.timezone, now), -1);
+  const rows = await env.DB.prepare(
+    `SELECT p.id FROM vol_posts p
+      WHERE p.ward_id = ? AND EXISTS (SELECT 1 FROM vol_dates d WHERE d.post_id = p.id AND d.ward_id = p.ward_id AND d.date >= ?)
+      ORDER BY p.created_at, p.id`,
+  )
+    .bind(wardId, since)
     .all<{ id: string }>();
   const byAudience = new Map<Audience, ServeEntry[]>(AUDIENCES.map((a) => [a, []]));
   for (const r of rows.results ?? []) {
