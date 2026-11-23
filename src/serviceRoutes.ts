@@ -1,6 +1,7 @@
 // Service routes, mounted at '/' from app.ts:
 //   /w/:wardId/service/*   leader pages for service categories (Google session; every handler
 //                          checks serviceAccess first, 403 otherwise)
+//   /serve/:prefix         the public Service Opportunities page (no auth, noindex, counts only)
 // GET never changes data.
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -17,6 +18,8 @@ import {
   setCategoryArchived, setWarnPref, setWebhook, updateCategory,
 } from './lib/serviceAdmin';
 import { renderCategoryPage, renderServiceHub } from './views/service';
+import { listServePosts } from './lib/serve';
+import { renderServePage } from './views/serve';
 
 export const serviceRoutes = new Hono<AppEnv>();
 
@@ -202,5 +205,49 @@ serviceRoutes.post('/w/:wardId/service/category/:categoryId/discord', requireAut
     await setWebhook(c.env, cc.ward.id, cc.cat.id, str(b.webhook_url));
   }),
 );
+
+// ---------------------------------------------------------------- public pages
+
+export function noindex(c: Context<AppEnv>): void {
+  c.header('X-Robots-Tag', 'noindex');
+}
+
+export interface PublicWard {
+  id: string;
+  name: string;
+  prefix: string;
+  serve_short_url: string | null;
+  help_short_url: string | null;
+}
+
+// An active ward by its public prefix (a suspended ward is not found, like its portal).
+export async function publicWard(c: Context<AppEnv>): Promise<PublicWard | null> {
+  const prefix = (c.req.param('prefix') ?? '').toLowerCase();
+  if (!prefix || prefix.length > 40) return null;
+  return c.env.DB.prepare(
+    `SELECT id, name, prefix, serve_short_url, help_short_url FROM wards WHERE prefix = ? AND status = 'active'`,
+  )
+    .bind(prefix)
+    .first<PublicWard>();
+}
+
+serviceRoutes.get('/serve/:prefix', async (c) => {
+  noindex(c);
+  const ward = await publicWard(c);
+  if (!ward) return c.html(notFoundPage('ward'), 404);
+  // The big button is for signed-in leaders who may create in some category; anonymous
+  // visitors never see it.
+  const user = c.get('user');
+  const createHref = user && (await categoriesUserMayCreateIn(c.env, ward.id, user.id)).length ? `/w/${ward.id}/vol/new` : null;
+  return c.html(
+    renderServePage({
+      wardName: ward.name,
+      prefix: ward.prefix,
+      sections: await listServePosts(c.env, ward.id, new Date()),
+      shareUrl: ward.serve_short_url ?? `${c.env.APP_URL}/serve/${ward.prefix}`,
+      createHref,
+    }),
+  );
+});
 
 export default serviceRoutes;
