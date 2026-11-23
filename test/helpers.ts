@@ -63,6 +63,7 @@ function defaultResponse(f: SentFetch): Response {
     return jsonResponse({ success: !!b && b.response !== 'fail' });
   }
   if (u.hostname === 'discord.com') {
+    if (/^\/api\/webhooks\//.test(u.pathname)) return new Response(null, { status: 204 });
     if (u.pathname.endsWith('/users/@me/channels')) return jsonResponse({ id: 'dm_channel_1' });
     if (/\/channels\/[^/]+\/messages$/.test(u.pathname)) return jsonResponse({ id: 'msg_1' });
     if (u.pathname.endsWith('/oauth2/token')) return jsonResponse({ access_token: 'tok', token_type: 'Bearer' });

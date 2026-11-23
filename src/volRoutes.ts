@@ -16,6 +16,8 @@ import {
 } from './lib/volAccess';
 import { canCreateInCategory, categoriesUserMayCreateIn } from './lib/serviceAccess';
 import { categorySpaceIds, getCategory, parseAudiences, type CategoryFull, type CategoryRow } from './lib/serviceCategories';
+import { getWebhook } from './lib/serviceAdmin';
+import { postDiscordWebhook } from './lib/discord';
 import { hitLimit } from './lib/volRate';
 import {
   accessUrl, approveVolunteer, cancelSignup, declineVolunteer, getSignup, getVolunteer, getVolunteerByEmail,
@@ -33,7 +35,7 @@ import { verifyTurnstile } from './lib/turnstile';
 import { addEditor, listEditors, removeEditor } from './lib/volEditors';
 import { deliver, type OutgoingMessage } from './lib/volMessages';
 import {
-  VolInputError, addDate, addRole, copyDate, copyPost, createPost, deleteDate, deletePost, deleteRole, getPost,
+  VolInputError, addDate, addRole, copyDate, copyPost, createPost, deleteDate, deletePost, deleteRole, getPost, isDateOver, whenText,
   getPostByPublicId, listPostSignups, listPublicBringing, listWardPosts, resetFullIfShort, updateDate, updatePost, updateRole,
   type PostFull, type PostInput, type PostSummary, type RoleInput,
 } from './lib/volPosts';
@@ -268,6 +270,33 @@ async function renderNew(
   return c.html(renderPostNew({ user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, category: cat, spaces, values, error }), error ? 400 : 200);
 }
 
+// ---------------------------------------------------------------- Discord channel announcements
+
+// Best effort (spec §9): title, organization, upcoming dates and the public link (Discord unfurls
+// it with the Open Graph tags). The webhook is a secret: a failure is logged by category only.
+async function announceInDiscord(env: Env, post: PostFull): Promise<'sent' | 'error' | 'none'> {
+  if (!post.category_id) return 'none';
+  const url = await getWebhook(env, post.ward_id, post.category_id);
+  if (!url) return 'none';
+  const now = new Date();
+  const dates = post.dates
+    .filter((d) => !isDateOver(d.date, post.ward.timezone, now))
+    .map((d) => whenText(d, { start_time: null, end_time: null }))
+    .join(', ');
+  const link = `${env.APP_URL}/v/${post.public_id}`;
+  const head = `**${post.title}** — ${post.org_name}${dates ? `\n${dates}` : ''}`;
+  const content = `${head.slice(0, 2000 - link.length - 2)}\n${link}`;
+  const r = await postDiscordWebhook(url, content);
+  if (r !== 'sent') console.log(`[discord] webhook error for category=${post.category_id}`);
+  return r;
+}
+
+function discordNotice(q: string | undefined): string | undefined {
+  if (q === 'sent') return 'Announced in Discord.';
+  if (q === 'failed') return 'Saved. Discord didn’t take the announcement; you can try again with Announce in Discord.';
+  return undefined;
+}
+
 // ---------------------------------------------------------------- leader: posts
 
 // "Create Service Opportunity" (spec §5): pick a category you may create in, then the builder.
@@ -296,7 +325,7 @@ volRoutes.get('/w/:wardId/vol/new', requireAuth(), async (c) => {
   const date = c.req.query('date') ?? '';
   return renderNew(c, lc, cat, {
     category_id: cat.id, space_id: spaces[0]?.id ?? '', audiences: parseAudiences(cat.default_audiences),
-    first_date: isValidDate(date) ? date : '',
+    first_date: isValidDate(date) ? date : '', announce: true,
   });
 });
 
@@ -315,7 +344,7 @@ volRoutes.post('/w/:wardId/vol', requireAuth(), async (c) => {
     category_id: categoryId, space_id: spaceId, audiences,
     title: str(b.title), public_note: str(b.public_note), private_details: str(b.private_details),
     cancel_cutoff_hours: str(b.cancel_cutoff_hours), first_date: str(b.first_date), start_time: str(b.start_time),
-    role_name: str(b.role_name), role_needed: str(b.role_needed),
+    role_name: str(b.role_name), role_needed: str(b.role_needed), announce: str(b.announce) === '1',
   };
   let postId: string | null = null;
   try {
@@ -336,7 +365,21 @@ volRoutes.post('/w/:wardId/vol', requireAuth(), async (c) => {
     if (postId) await deletePost(c.env, lc.ward.id, postId);
     return renderNew(c, lc, cat, values, e.message);
   }
+  // "Announce in Discord" (checked by default when the category has a webhook). A Discord
+  // failure never blocks the post: it shows as a soft notice.
+  if (values.announce && cat.has_webhook) {
+    const post = await getPost(c.env, lc.ward.id, postId!);
+    const r = post ? await announceInDiscord(c.env, post) : 'none';
+    if (r !== 'none') return c.redirect(`${managePath(lc.ward.id, postId!)}?discord=${r === 'sent' ? 'sent' : 'failed'}`, 302);
+  }
   return c.redirect(managePath(lc.ward.id, postId!), 302);
+});
+
+volRoutes.post('/w/:wardId/vol/:postId/announce', requireAuth(), async (c) => {
+  const pc = await postCtx(c, 'edit');
+  if (pc instanceof Response) return pc;
+  const r = await announceInDiscord(c.env, pc.post);
+  return c.redirect(`${managePath(pc.ward.id, pc.post.id)}?discord=${r === 'sent' ? 'sent' : 'failed'}`, 302);
 });
 
 volRoutes.get('/w/:wardId/vol/:postId', requireAuth(), async (c) => {
@@ -344,10 +387,11 @@ volRoutes.get('/w/:wardId/vol/:postId', requireAuth(), async (c) => {
   if (pc instanceof Response) return pc;
   const canEdit = await canEditPost(c.env, pc.user.id, pc.post);
   const signups = await listPostSignups(c.env, pc.ward.id, pc.post.id);
+  const canAnnounce = canEdit && !!pc.post.category_id && !!(await getWebhook(c.env, pc.ward.id, pc.post.category_id));
   return c.html(
     renderPostManage({
-      user: pc.user, post: pc.post, signups, canEdit, publicUrl: `${c.env.APP_URL}/v/${pc.post.public_id}`,
-      notice: c.req.query('ok') ? 'Saved.' : undefined, error: c.req.query('err') || undefined,
+      user: pc.user, post: pc.post, signups, canEdit, canAnnounce, publicUrl: `${c.env.APP_URL}/v/${pc.post.public_id}`,
+      notice: discordNotice(c.req.query('discord')) ?? (c.req.query('ok') ? 'Saved.' : undefined), error: c.req.query('err') || undefined,
     }),
   );
 });

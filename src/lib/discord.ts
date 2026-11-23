@@ -88,3 +88,24 @@ export async function exchangeDiscordCode(env: Env, code: string): Promise<strin
     return null;
   }
 }
+
+// ---------------------------------------------------------------- channel webhooks (spec §9)
+// A category's pasted Discord channel webhook. A secret: never logged (callers log the
+// category id only). allowed_mentions.parse = [] so a title can't ping @everyone. 5 s timeout.
+
+const WEBHOOK_URL = /^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/;
+
+export async function postDiscordWebhook(url: string, content: string): Promise<'sent' | 'error'> {
+  if (!WEBHOOK_URL.test(url)) return 'error';
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: content.slice(0, 2000), allowed_mentions: { parse: [] } }),
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok ? 'sent' : 'error';
+  } catch {
+    return 'error';
+  }
+}

@@ -66,6 +66,7 @@ export interface NewPostValues {
   start_time?: string;
   role_name?: string;
   role_needed?: string;
+  announce?: boolean;
 }
 
 // Step 1 of "Create Service Opportunity": pick a category (only those you may create in).
@@ -140,6 +141,12 @@ export function renderPostNew(o: {
         <label>Cancel cutoff (hours before it starts)</label>
         <input type="number" name="cancel_cutoff_hours" min="0" max="336" value="${esc(v.cancel_cutoff_hours ?? '24')}">
         <p class="muted" style="margin:.3rem 0">After this, cancelling still works but you get an urgent email.</p>
+        ${
+          o.category.has_webhook
+            ? `<label style="display:flex;gap:.4rem;align-items:center;color:#2c3a4a;margin-top:1rem">
+                 <input type="checkbox" style="width:auto" name="announce" value="1"${v.announce !== false ? ' checked' : ''}> Announce in Discord</label>`
+            : ''
+        }
         <button class="btn" type="submit">Create post</button>
       </form>`,
   });
@@ -222,6 +229,7 @@ export function renderPostManage(o: {
   post: PostFull;
   signups: PostSignupRow[];
   canEdit: boolean;
+  canAnnounce?: boolean; // the post's category has a Discord channel webhook
   publicUrl: string;
   notice?: string;
   error?: string;
@@ -301,7 +309,11 @@ export function renderPostManage(o: {
         <input readonly value="${esc(o.publicUrl)}" onclick="this.select()">
         <p class="muted" style="margin:.4rem 0 0">Anyone with the link sees counts and what's being brought, never names or private details.
           <a href="${esc(o.publicUrl)}" target="_blank" rel="noopener">Open public page</a></p>
-        ${canEdit ? `<p style="margin:.6rem 0 0"><a class="btn sm" href="${base}/invite">Invite people by email</a></p>` : ''}
+        ${canEdit ? `<p style="margin:.6rem 0 0"><a class="btn sm" href="${base}/invite">Invite people by email</a>${
+          o.canAnnounce
+            ? ` <form method="post" action="${base}/announce" style="display:inline"><button class="btn sm ghost" type="submit">Announce in Discord</button></form>`
+            : ''
+        }</p>` : ''}
         ${fillBar(totalConfirmed, totalNeeded, totalWaiting)}
         <p class="muted">Cancel cutoff: ${post.cancel_cutoff_hours} hour${post.cancel_cutoff_hours === 1 ? '' : 's'} before it starts
           (after that, cancelling still works but you get an urgent email).</p>
