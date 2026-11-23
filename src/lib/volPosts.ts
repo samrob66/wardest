@@ -260,6 +260,8 @@ export async function createPost(env: Env, wardId: string, spaceId: string, byUs
     const cat = categoryId ? await getCategoryRow(env, wardId, categoryId) : null;
     defaults = cat?.default_audiences || defaults;
   }
+  // vol_posts.category_id is nullable only for the upgrade backfill; a new post always has one.
+  req(!!categoryId, 'Pick one of this ward’s service categories.');
   const audiences = checkAudiences(input.audiences !== undefined ? input.audiences : defaults);
   const id = newId('vp');
   await env.DB.prepare(

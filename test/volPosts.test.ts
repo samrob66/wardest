@@ -233,3 +233,23 @@ describe('volPosts', () => {
     await expect(createPost(env, s.wardId, s.spaces['primary']!, s.pres, postInput())).rejects.toThrow(VolInputError);
   });
 });
+
+describe('createPost never stores a post without a category', () => {
+  it('throws VolInputError when no category can be resolved', async () => {
+    const s = await setup();
+    // A space that owns no opportunity category falls back to helping-hand; hide that lookup.
+    const db = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === 'prepare') return (sql: string) => target.prepare(sql.replace("slug = 'helping-hand'", "slug = 'no-such-category'"));
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const before = await env.DB.prepare(`SELECT COUNT(*) AS n FROM vol_posts WHERE ward_id = ?`).bind(s.wardId).first<{ n: number }>();
+    await expect(createPost({ ...env, DB: db } as typeof env, s.wardId, s.spaces['young-men']!, s.pres, postInput())).rejects.toThrow(VolInputError);
+    const after = await env.DB.prepare(`SELECT COUNT(*) AS n FROM vol_posts WHERE ward_id = ?`).bind(s.wardId).first<{ n: number }>();
+    expect(after!.n).toBe(before!.n);
+    const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM vol_posts WHERE category_id IS NULL AND ward_id = ?`).bind(s.wardId).first<{ n: number }>();
+    expect(n!.n).toBe(0);
+  });
+});
