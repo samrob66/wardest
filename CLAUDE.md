@@ -137,7 +137,12 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm test` — Vitest inside the Workers runtime (`@cloudflare/vitest-plugin`); applies
   `db/schema.sql` to a test D1, intercepts every outbound fetch and fakes the `EMAIL` binding. Run `npm test && npm run
-  typecheck` before committing.
+  typecheck` before committing. Rules that keep it green on a busy machine (2026-11-22 flake fix):
+  work a route hands to `waitUntil` is awaited with `settle()` (`test/helpers.ts`), never polled,
+  and setup settles after every test; a test that runs on the real clock uses `futureDate()` or
+  passes `now`, never a fixed calendar date; one leader page view per test where a page runs
+  ~150+ D1 queries (service hub, space pages); no test should take more than ~0.5 s alone (the
+  2,000-invitation volume test has its own measured timeout).
 - Cron locally: `npx wrangler dev --test-scheduled`, then
   `curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"` (hourly: reminders, nudges, lapses,
   fill warnings, request purges) or `cron=*+*+*+*+*` (every minute: the invitation pump).
