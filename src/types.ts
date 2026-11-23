@@ -1,11 +1,15 @@
 export interface Env {
   DB: D1Database;
   FILES: R2Bucket;
+  // Cloudflare Email Service (send_email binding). Absent -> mail is printed, not sent.
+  EMAIL?: SendEmail;
+  // Local only: "log" prints every email (with its links) to the console instead of sending.
+  EMAIL_DELIVERY?: string;
   // Secrets (.dev.vars locally; `wrangler secret put` in prod)
   SESSION_SECRET: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
-  RESEND_API_KEY: string;
+  RESEND_API_KEY: string; // removed in the next commit, with its two call sites
   // Non-secret config ([vars] in wrangler.toml)
   OPERATOR_EMAILS: string; // comma-separated
   APP_URL: string; // e.g. https://app.wardest.com (or http://localhost:8787 in dev)

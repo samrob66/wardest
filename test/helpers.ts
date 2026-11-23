@@ -42,6 +42,8 @@ export function sentFetches(): SentFetch[] {
 export function resetFetches(): void {
   sent.length = 0;
   override = null;
+  sentMail.length = 0;
+  emailOverride = null;
 }
 
 // Answer outbound requests differently for the rest of this test (cleared by resetFetches).
@@ -99,6 +101,50 @@ export function installFetchInterceptor(): void {
     const o = override ? await override(f) : undefined;
     return o ?? defaultResponse(f);
   }) as typeof fetch;
+}
+
+// ---------------------------------------------------------------- outbound email
+
+// Exactly the object src/lib/mail.ts passed to EMAIL.send (one recipient, so `to` is a string).
+export interface SentEmail {
+  to: string;
+  from: { email: string; name: string };
+  subject: string;
+  html: string;
+  text?: string;
+  headers?: Record<string, string>;
+  replyTo?: string;
+}
+
+type EmailResponder = (e: SentEmail) => void | Promise<void>;
+
+const sentMail: SentEmail[] = [];
+let emailOverride: EmailResponder | null = null;
+
+export function sentEmails(): SentEmail[] {
+  return sentMail.slice();
+}
+
+// Run `fn` on every send for the rest of this test (cleared by resetFetches). Throw from it to
+// simulate a binding error, e.g. Object.assign(new Error('x'), { code: 'E_RATE_LIMIT_EXCEEDED' }).
+// A send that throws is still recorded (it was attempted).
+export function mockEmail(fn: EmailResponder): void {
+  emailOverride = fn;
+}
+
+const fakeEmail = {
+  async send(message: unknown) {
+    const e = message as SentEmail;
+    sentMail.push(e);
+    if (emailOverride) await emailOverride(e);
+    return { messageId: `msg_${sentMail.length}` };
+  },
+} as SendEmail;
+
+// Swaps the EMAIL binding (the local Email Service simulator) for the recording fake, on the
+// env the tests and the worker under SELF both read.
+export function installEmailFake(): void {
+  (testEnv as unknown as { EMAIL: SendEmail }).EMAIL = fakeEmail;
 }
 
 // ---------------------------------------------------------------- fixtures

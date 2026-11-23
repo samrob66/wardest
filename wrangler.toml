@@ -2,7 +2,7 @@ name = "wardest"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 
-# Non-secret config. Secrets (SESSION_SECRET, GOOGLE_CLIENT_ID/SECRET, RESEND_API_KEY) are set
+# Non-secret config. Secrets (SESSION_SECRET, GOOGLE_CLIENT_ID/SECRET, ...) are set
 # via `wrangler secret put` (prod) or `.dev.vars` (local). `.dev.vars` overrides these in dev.
 [vars]
 APP_URL = "https://app.wardest.com"
@@ -15,6 +15,15 @@ TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
 # --- Cron: hourly volunteer reminders, 48h approval nudges, lapsing (src/lib/volCron.ts) ---
 [triggers]
 crons = ["0 * * * *"]
+
+# --- Email: Cloudflare Email Service (src/lib/mail.ts is the only sender) ---
+# Needs the Workers Paid plan and the sending domain onboarded (owner task:
+# `wrangler email sending enable send.wardforward.com`). Under `wrangler dev` this binding is
+# simulated (printed + saved to local files, never sent); EMAIL_DELIVERY=log in .dev.vars
+# prints our own [dev email] block instead.
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["no-reply@send.wardforward.com", "invite@send.wardforward.com"]
 
 # --- D1 (structured data; source of truth) ---
 # Local dev keys storage by database_name and ignores database_id. Owner replaces the
