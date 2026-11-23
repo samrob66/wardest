@@ -14,8 +14,8 @@ import { newId, randomToken } from './ids';
 import { approverEmails, type Outcome, type OutgoingMessage } from './volMessages';
 import * as E from './volEmails';
 import {
-  clearOverLimit, emailPost, getPost, isDateOver, isPostOver, listWardPosts, postIsFull, resetFullIfShort, roleStartTime, whenText,
-  VolInputError, type PostFull, type DateFull, type RoleFull,
+  clearOverLimit, emailPost, getPost, isDateOver, isPostOver, listWardPosts, postIsFull, resetFullIfShort, roleLabel, roleStartTime,
+  serverName, takesChildren, whenText, VolInputError, type PostFull, type DateFull, type RoleFull,
 } from './volPosts';
 import { hitLimit } from './volRate';
 import { makeLinkToken, sha256Hex } from './volSession';
@@ -51,6 +51,7 @@ export interface SignupRow {
   post_id: string;
   role_id: string;
   volunteer_id: string;
+  child_name: string; // '' = the volunteer themself
   bringing: string | null;
   status: string;
   over_limit: number;
@@ -68,6 +69,23 @@ export function normalizeEmail(raw: string): string | null {
   const e = (raw ?? '').trim().toLowerCase();
   if (e.length > 200 || !EMAIL_RE.test(e)) return null;
   return e;
+}
+
+// A child's first name as stored: trimmed, inner spaces collapsed, 1–40 characters. Null when
+// it doesn't fit. Case is kept as typed; comparisons ignore it (and so does the unique index).
+export function normalizeChildName(raw: string | null | undefined): string | null {
+  const s = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  return s.length >= 1 && s.length <= 40 ? s : null;
+}
+
+// Who a sign-up is for (service spec §5): '' (the person signing up) unless the post is for
+// youth or children and they chose "My child" (child != null), then the child's first name.
+// A child name sent for any other post is ignored. Throws VolInputError for a bad name.
+export function childFor(post: { audiences: string }, child: string | null | undefined): string {
+  if (!takesChildren(post) || child == null) return '';
+  const n = normalizeChildName(child);
+  if (!n) throw new VolInputError("Please enter your child's first name (40 characters at most).");
+  return n;
 }
 
 // ---------------------------------------------------------------- lookups
@@ -228,15 +246,17 @@ async function confirmationMessage(
   bringing: string | null,
   over: boolean,
   now: Date,
+  child = '',
 ): Promise<OutgoingMessage> {
   return E.signupConfirmed({
     to: v.email,
     volunteerId: v.id,
     wardId: post.ward_id,
     name: v.name,
+    childName: child || undefined,
     post: emailPost(post, env.APP_URL),
     when: whenText(date, role),
-    roleName: role.name,
+    roleName: roleLabel(role.name, child),
     bringing,
     privateDetails: post.private_details,
     cancelUrl: await cancelUrl(env, post.ward_id, signupId, now),
@@ -282,6 +302,8 @@ export interface SignupInput {
   email: string;
   bringing: string | null;
   now: Date;
+  // "Who is serving?" My child: the child's first name (only for youth/children posts).
+  child?: string | null;
 }
 
 export type PrecheckResult = 'ok' | 'closed' | 'role_full' | 'rate_limited';
@@ -297,6 +319,7 @@ export async function precheckSignup(env: Env, o: SignupInput): Promise<Precheck
   if (!normalizeEmail(o.email)) throw new VolInputError('Please enter a valid email address.');
   const name = (o.name ?? '').trim();
   if (name.length < 1 || name.length > 80) throw new VolInputError('Please enter your name (80 characters at most).');
+  childFor(post, o.child);
   // A full role turns everyone away (the button was closed; this is a stale page).
   if (found.role.confirmed >= found.role.needed) return 'role_full';
   // Per post, counting every submission whatever the address.
@@ -369,6 +392,12 @@ export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<
   const email = normalizeEmail(o.email);
   const name = (o.name ?? '').trim();
   if (!email || name.length < 1 || name.length > 80) return none('closed');
+  let child: string;
+  try {
+    child = childFor(post, o.child);
+  } catch {
+    return none('closed');
+  }
   const bringingRaw = (o.bringing ?? '').trim().slice(0, 200);
   const bringing = role.bring_prompt && bringingRaw ? bringingRaw : null;
 
@@ -434,7 +463,7 @@ export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<
     }
   }
   const vol = v;
-  const out = await afterVolunteer(env, o, post, date, role, vol, bringing, autoMessages.length > 0);
+  const out = await afterVolunteer(env, o, post, date, role, vol, bringing, autoMessages.length > 0, child);
   return { result: out.result, messages: [...autoMessages, ...out.messages] };
 }
 
@@ -447,6 +476,7 @@ async function afterVolunteer(
   vol: VolunteerRow,
   bringing: string | null,
   justApproved: boolean,
+  child: string,
 ): Promise<Outcome<SubmitResult>> {
   const none = (result: SubmitResult): Outcome<SubmitResult> => ({ result, messages: [] });
   const { wardId, now } = o;
@@ -463,7 +493,7 @@ async function afterVolunteer(
   // a failure building the leaders' email must never cost the volunteer theirs (it's the spec
   // §6.3 step 2 safeguard). Each failure logs one line naming the ward, sign-up and kind.
   const counted = async (signupId: string, over: boolean): Promise<Outcome<SubmitResult>> => {
-    const messages = await confirmationOrLog(env, [env, vol, post, date, role, signupId, bringing, over, now]);
+    const messages = await confirmationOrLog(env, [env, vol, post, date, role, signupId, bringing, over, now, child]);
     messages.push(...(await filledOrLog(env, wardId, post.id, now, signupId)));
     return { result: over ? 'confirmed_over' : 'confirmed', messages };
   };
@@ -476,11 +506,12 @@ async function afterVolunteer(
     };
   }
 
-  // Already on this role.
+  // Already on this role (for this person: themself, or this child; names compare without case).
   const active = await env.DB.prepare(
-    `SELECT id, status FROM vol_signups WHERE ward_id = ? AND role_id = ? AND volunteer_id = ? AND status IN ('waiting','confirmed')`,
+    `SELECT id, status FROM vol_signups
+      WHERE ward_id = ? AND role_id = ? AND volunteer_id = ? AND LOWER(TRIM(child_name)) = LOWER(?) AND status IN ('waiting','confirmed')`,
   )
-    .bind(wardId, role.id, vol.id)
+    .bind(wardId, role.id, vol.id, child)
     .first<{ id: string; status: string }>();
   if (active) {
     // An approved volunteer with a sign-up still waiting here (e.g. left behind by a failure):
@@ -492,7 +523,7 @@ async function afterVolunteer(
     // Just approved as a ward member: the approval email already lists this sign-up.
     if (justApproved) return none('already_signed');
     const already = (verifyUrl: string | null, mySignupsUrl: string | null) =>
-      E.alreadySignedUp({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name, verifyUrl, mySignupsUrl });
+      E.alreadySignedUp({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: roleLabel(role.name, child), verifyUrl, mySignupsUrl });
     if (vol.approval === 'none') {
       // Unconfirmed: the email carries a working confirm link, so they're never stranded.
       const url = await confirmLink();
@@ -506,9 +537,9 @@ async function afterVolunteer(
 
   const signupId = newId('vs');
   const insertStmt = env.DB.prepare(
-    `INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, bringing, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'waiting', ?)`,
-  ).bind(signupId, wardId, post.id, role.id, vol.id, bringing, now.toISOString());
+    `INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, child_name, bringing, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting', ?)`,
+  ).bind(signupId, wardId, post.id, role.id, vol.id, child, bringing, now.toISOString());
   const isDup = (e: unknown) => /UNIQUE/i.test((e as Error).message);
 
   // Approved: counts at once. The insert and the promotion run in one batch (one D1
@@ -542,7 +573,7 @@ async function afterVolunteer(
     const url = await confirmLink();
     return {
       result: 'waiting_verify',
-      messages: url ? [E.verifyEmail({ to: vol.email, name: vol.name, post: ep, verifyUrl: url })] : [],
+      messages: url ? [E.verifyEmail({ to: vol.email, name: vol.name, childName: child || undefined, post: ep, verifyUrl: url })] : [],
     };
   }
 
@@ -551,7 +582,7 @@ async function afterVolunteer(
   return {
     result: 'waiting_approval',
     messages: [
-      E.signupWaiting({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: role.name }),
+      E.signupWaiting({ to: vol.email, name: vol.name, post: ep, when: whenText(date, role), roleName: roleLabel(role.name, child) }),
       ...(await approverWaitingFor(env, vol, [post.id])),
     ],
   };
@@ -662,7 +693,7 @@ export async function approveVolunteer(
     items.push({
       post: emailPost(s.post, env.APP_URL),
       when: whenText(s.date, s.role),
-      roleName: s.role.name,
+      roleName: roleLabel(s.role.name, s.signup.child_name),
       privateDetails: s.post.private_details,
       cancelUrl: await cancelUrl(env, wardId, s.signup.id, now),
       overLimit: over,
@@ -780,7 +811,7 @@ export async function revokeApproval(
       .run();
     await resetFullIfShort(env, wardId, s.post.id);
     await clearOverLimit(env, wardId, s.role.id);
-    messages.push(...(await cancelledMessages(env, wardId, s.post.id, s.role.id, v.name, now)));
+    messages.push(...(await cancelledMessages(env, wardId, s.post.id, s.role.id, serverName(v.name, s.signup.child_name), now)));
   }
   await env.DB.prepare(
     `UPDATE vol_signups SET status = 'declined', ended_at = ? WHERE ward_id = ? AND volunteer_id = ? AND status = 'waiting'`,
@@ -827,7 +858,7 @@ export async function cancelSignup(env: Env, wardId: string, signupId: string, n
   if (s.status === 'waiting') return { result: 'cancelled', messages: [] };
   await resetFullIfShort(env, wardId, s.post_id);
   await clearOverLimit(env, wardId, s.role_id);
-  const name = await volunteerName(env, wardId, s.volunteer_id);
+  const name = serverName(await volunteerName(env, wardId, s.volunteer_id), s.child_name);
   return { result: 'cancelled', messages: await cancelledMessages(env, wardId, s.post_id, s.role_id, name, now) };
 }
 
@@ -849,7 +880,7 @@ export async function withdrawOffer(env: Env, wardId: string, signupId: string, 
   if (!f || f.role.confirmed >= f.role.needed) return { result: 'withdrawn', messages: [] };
   await resetFullIfShort(env, wardId, s.post_id);
   await clearOverLimit(env, wardId, s.role_id);
-  const name = await volunteerName(env, wardId, s.volunteer_id);
+  const name = serverName(await volunteerName(env, wardId, s.volunteer_id), s.child_name);
   return { result: 'withdrawn', messages: await cancelledMessages(env, wardId, s.post_id, s.role_id, name, now) };
 }
 
@@ -885,7 +916,7 @@ export async function removeSignup(
     messages: [
       E.signupRemoved({
         to: v.email, name: v.name, post: emailPost(post, env.APP_URL), when: whenText(f.date, f.role),
-        roleName: f.role.name, reason: 'removed',
+        roleName: roleLabel(f.role.name, s.child_name), reason: 'removed',
       }),
     ],
   };
@@ -902,7 +933,7 @@ export async function signupSummary(
   const post = await getPost(env, wardId, s.post_id);
   const f = post ? findRole(post, s.role_id) : null;
   if (!post || !f) return null;
-  return { signup: s, title: post.title, orgName: post.org_name, when: whenText(f.date, f.role), roleName: f.role.name, prefix: post.ward.prefix };
+  return { signup: s, title: post.title, orgName: post.org_name, when: whenText(f.date, f.role), roleName: roleLabel(f.role.name, s.child_name), prefix: post.ward.prefix };
 }
 
 // ---------------------------------------------------------------- My sign-ups
@@ -955,7 +986,8 @@ export async function listMySignups(
     let otherNames: string[] = [];
     if (reveal) {
       const names = await env.DB.prepare(
-        `SELECT DISTINCT v.name AS name FROM vol_signups x JOIN volunteers v ON v.id = x.volunteer_id AND v.ward_id = x.ward_id
+        `SELECT DISTINCT CASE WHEN x.child_name <> '' THEN x.child_name || ' (signed up by ' || v.name || ')' ELSE v.name END AS name
+           FROM vol_signups x JOIN volunteers v ON v.id = x.volunteer_id AND v.ward_id = x.ward_id
           WHERE x.ward_id = ? AND x.post_id = ? AND x.status = 'confirmed' AND x.volunteer_id <> ?
           ORDER BY v.name`,
       )
@@ -973,7 +1005,7 @@ export async function listMySignups(
       publicId: post.public_id,
       when: whenText(f.date, f.role),
       date: f.date.date,
-      roleName: f.role.name,
+      roleName: roleLabel(f.role.name, s.child_name),
       upcoming,
       privateDetails: reveal ? post.private_details : null,
       otherNames,

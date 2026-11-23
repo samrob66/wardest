@@ -4,7 +4,9 @@ import type { SessionUser } from '../types';
 import { esc, mdLite } from '../lib/html';
 import type { EditorRow } from '../lib/volEditors';
 import type { PostFull, PostSignupRow, DateFull, RoleFull, PostSummary } from '../lib/volPosts';
-import { whenText } from '../lib/volPosts';
+import { serverName, whenText } from '../lib/volPosts';
+import { AUDIENCE_LABELS, parseAudiences, type CategoryFull, type CategoryRow } from '../lib/serviceCategories';
+import { audienceChecks, categoryChip, SERVICE_CSS } from './service';
 import { formatWhen } from '../lib/wardTime';
 import { layout } from './layout';
 import { fillBar, VOL_CSS } from './volCommon';
@@ -53,6 +55,8 @@ export function renderEditorsCard(o: {
 // ---------------------------------------------------------------- new post
 
 export interface NewPostValues {
+  category_id?: string;
+  audiences?: string[];
   space_id?: string;
   title?: string;
   public_note?: string;
@@ -64,27 +68,61 @@ export interface NewPostValues {
   role_needed?: string;
 }
 
+// Step 1 of "Create Service Opportunity": pick a category (only those you may create in).
+export function renderCategoryPicker(o: {
+  user: SessionUser;
+  wardId: string;
+  wardName: string;
+  categories: CategoryRow[];
+}): string {
+  const w = esc(o.wardId);
+  return layout({
+    title: 'Create Service Opportunity',
+    userEmail: o.user.email,
+    head: VOL_CSS + SERVICE_CSS,
+    body: `<h1>Create Service Opportunity</h1>
+      <p class="muted">${esc(o.wardName)} · <a href="/w/${w}">ward home</a></p>
+      <p>What kind of help is needed?</p>
+      ${o.categories
+        .map(
+          (cat) => `<a class="card" href="/w/${w}/vol/new?category=${esc(cat.id)}" style="display:block;text-decoration:none;color:inherit">
+            ${categoryChip(cat)}</a>`,
+        )
+        .join('')}`,
+  });
+}
+
+// Step 2: the post builder, prefilled from the category.
 export function renderPostNew(o: {
   user: SessionUser;
   wardId: string;
   wardName: string;
-  orgs: Array<{ id: string; name: string }>;
+  category: CategoryFull;
+  spaces: Array<{ id: string; name: string }>; // the category's owning spaces (yours first)
   values: NewPostValues;
   error?: string;
 }): string {
   const v = o.values;
+  const space =
+    o.spaces.length > 1
+      ? `<label>Organization</label><select name="space_id">${o.spaces
+          .map((s) => `<option value="${esc(s.id)}"${s.id === v.space_id ? ' selected' : ''}>${esc(s.name)}</option>`)
+          .join('')}</select>`
+      : `<input type="hidden" name="space_id" value="${esc(o.spaces[0]?.id ?? '')}">
+         <p class="muted" style="margin:.2rem 0">For ${esc(o.spaces[0]?.name ?? '')}</p>`;
   return layout({
-    title: 'New volunteer post',
+    title: 'Create Service Opportunity',
     userEmail: o.user.email,
-    head: VOL_CSS,
-    body: `<h1>New volunteer post</h1>
-      <p class="muted">${esc(o.wardName)} · <a href="/w/${esc(o.wardId)}">ward home</a></p>
+    head: VOL_CSS + SERVICE_CSS,
+    body: `<h1>Create Service Opportunity</h1>
+      <p class="muted">${esc(o.wardName)} · <a href="/w/${esc(o.wardId)}/vol/new">pick another kind</a> · <a href="/w/${esc(o.wardId)}">ward home</a></p>
+      <p>${categoryChip(o.category)}</p>
       ${o.error ? `<div class="err">${esc(o.error)}</div>` : ''}
       <form method="post" action="/w/${esc(o.wardId)}/vol" class="card">
-        <label>Organization</label>
-        <select name="space_id">${o.orgs
-          .map((s) => `<option value="${esc(s.id)}"${s.id === v.space_id ? ' selected' : ''}>${esc(s.name)}</option>`)
-          .join('')}</select>
+        <input type="hidden" name="category_id" value="${esc(o.category.id)}">
+        ${space}
+        <label>Who it’s for (pick at least one)</label>
+        ${audienceChecks(v.audiences ?? [])}
         <label>Title</label>
         <input name="title" required maxlength="120" value="${esc(v.title ?? '')}" placeholder="e.g. Help the Jensens move in">
         <label>Public note (anyone with the link sees this)</label>
@@ -105,6 +143,10 @@ export function renderPostNew(o: {
         <button class="btn" type="submit">Create post</button>
       </form>`,
   });
+}
+
+function audiencesLine(post: { audiences: string }): string {
+  return parseAudiences(post.audiences).map((a) => AUDIENCE_LABELS[a]).join(', ');
 }
 
 // ---------------------------------------------------------------- manage page
@@ -155,7 +197,7 @@ function renderRole(
             ? ` <form method="post" action="/w/${esc(wardId)}/vol/signup/${esc(s.id)}/remove" style="display:inline"><button class="btn sm ghost" type="submit">Remove</button></form>`
             : '';
           // Emails only for those who approve/manage (they check the directory); viewers see names.
-          return `<li><strong>${esc(s.name)}</strong>${canEdit ? ` <span class="muted">${esc(s.email)}</span>` : ''}
+          return `<li><strong>${esc(serverName(s.name, s.child_name))}</strong>${canEdit ? ` <span class="muted">${esc(s.email)}</span>` : ''}
             ${s.bringing ? ` · bringing ${esc(s.bringing)}` : ''} ${statusTag(s)}${approve}${remove}</li>`;
         })
         .join('')}</ul>`
@@ -199,6 +241,9 @@ export function renderPostManage(o: {
           <label>Private details</label><textarea name="private_details" rows="3" maxlength="4000">${esc(post.private_details ?? '')}</textarea>
           <label>Cancel cutoff (hours before it starts)</label>
           <input type="number" name="cancel_cutoff_hours" min="0" max="336" value="${post.cancel_cutoff_hours}">
+          <input type="hidden" name="audiences_form" value="1">
+          <label>Who it’s for (at least one)</label>
+          ${audienceChecks(parseAudiences(post.audiences))}
           <button class="btn sm" type="submit" style="margin-top:.6rem">Save</button>
         </form></details>`
     : '';
@@ -246,7 +291,8 @@ export function renderPostManage(o: {
     userEmail: o.user.email,
     head: VOL_CSS,
     body: `<h1>${esc(post.title)}</h1>
-      <p class="muted">${esc(post.org_name)} · <a href="/w/${esc(wardId)}/space/${esc(post.space_id)}">organization page</a>
+      <p class="muted">${post.category_name ? `${esc(post.category_name)} · ` : ''}${esc(post.org_name)} · for ${esc(audiencesLine(post))}
+        · <a href="/w/${esc(wardId)}/space/${esc(post.space_id)}">organization page</a>
         · <a href="/w/${esc(wardId)}">ward home</a></p>
       ${o.notice ? `<div class="ok">${esc(o.notice)}</div>` : ''}
       ${o.error ? `<div class="err">${esc(o.error)}</div>` : ''}
@@ -362,13 +408,13 @@ export function renderVolunteerSection(o: {
   wardId: string;
   open: PostSummary[];
   past: PostSummary[];
-  newPostSpaceId: string | null; // set when the viewer may create posts for this org
-  canCopy: (spaceId: string) => boolean;
+  newPostHref: string | null; // set when the viewer may create a service opportunity here
+  canCopy: (p: PostSummary) => boolean;
   showVolunteersLink: boolean;
   wardWide: boolean; // ward council / bishopric pages group by organization
 }): string {
   const actions = [
-    o.newPostSpaceId ? `<a class="btn sm" href="/w/${esc(o.wardId)}/vol/new?space=${esc(o.newPostSpaceId)}">New volunteer post</a>` : '',
+    o.newPostHref ? `<a class="btn sm" href="${esc(o.newPostHref)}">Create Service Opportunity</a>` : '',
     o.showVolunteersLink ? `<a class="btn sm ghost" href="/w/${esc(o.wardId)}/volunteers">Volunteers &amp; approvals</a>` : '',
   ]
     .filter(Boolean)
@@ -387,7 +433,7 @@ export function renderVolunteerSection(o: {
   }
   const past = o.past.length
     ? `<details id="vol-past"><summary>Past (${o.past.length})</summary>${o.past
-        .map((p) => postRow(o.wardId, p, { showOrg: o.wardWide, copy: o.canCopy(p.space_id) }))
+        .map((p) => postRow(o.wardId, p, { showOrg: o.wardWide, copy: o.canCopy(p) }))
         .join('')}</details>`
     : '<div id="vol-past"></div>';
   return `${VOL_CSS}<section id="volunteer-posts">

@@ -3,7 +3,7 @@
 // details (spec §2 anti-goals, §6.2). Everything is noindex (layout meta + X-Robots-Tag).
 import { esc, mdLite } from '../lib/html';
 import type { PostFull } from '../lib/volPosts';
-import { isDateOver, isPostOver, whenText } from '../lib/volPosts';
+import { isDateOver, isPostOver, takesChildren, whenText } from '../lib/volPosts';
 import { formatWhen } from '../lib/wardTime';
 import { layout } from './layout';
 import { fillBar, fillText, VOL_CSS } from './volCommon';
@@ -39,6 +39,21 @@ export interface SignupFormValues {
   name?: string;
   email?: string;
   bringing?: string;
+  who?: 'me' | 'child';
+  child_name?: string;
+}
+
+// Youth/children posts: "Who is serving?" Me / My child (+ first name). No child email is asked.
+function whoIsServing(v: SignupFormValues, keep: boolean): string {
+  const child = keep && v.who === 'child';
+  return `<label>Who is serving?</label>
+    <div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin:.2rem 0">
+      <label style="display:flex;gap:.35rem;align-items:center;margin:0"><input type="radio" name="who" value="me" style="width:auto"${child ? '' : ' checked'}> Me</label>
+      <label style="display:flex;gap:.35rem;align-items:center;margin:0"><input type="radio" name="who" value="child" style="width:auto"${child ? ' checked' : ''}> My child</label>
+    </div>
+    <label>Your child's first name (if signing up your child)</label>
+    <input name="child_name" maxlength="40" value="${child ? esc(v.child_name ?? '') : ''}">
+    <p class="muted" style="margin:.2rem 0">A parent signs up for their child; we only email you.</p>`;
 }
 
 export function renderPublicPost(o: {
@@ -56,6 +71,7 @@ export function renderPublicPost(o: {
   const t = totals(post);
   const action = `/v/${esc(post.public_id)}/signup`;
   const v = o.values ?? {};
+  const kids = takesChildren(post);
 
   const dates = post.dates
     .map((d) => {
@@ -72,6 +88,7 @@ export function renderPublicPost(o: {
             control = `<details${keep ? ' open' : ''}><summary class="btn sm" style="display:inline-block;color:#fff">Sign up</summary>
               <form method="post" action="${action}" class="card" style="margin-top:.5rem">
                 <input type="hidden" name="role_id" value="${esc(r.id)}">
+                ${kids ? whoIsServing(v, keep) : ''}
                 <label>Your name</label><input name="name" required maxlength="80" autocomplete="name" value="${keep ? esc(v.name ?? '') : ''}">
                 <label>Your email</label><input type="email" name="email" required maxlength="200" autocomplete="email" value="${keep ? esc(v.email ?? '') : ''}">
                 ${

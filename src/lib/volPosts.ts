@@ -8,6 +8,7 @@ import { roleChanged, signupRemoved, type EmailPost } from './volEmails';
 import {
   addDays, dateOverAt, diffDays, formatTime, formatWhen, isValidDate, isValidTime, wardToday,
 } from './wardTime';
+import { categorySpaceIds, defaultCategoryForSpace, ensureServiceCategories, getCategoryRow, parseAudiences } from './serviceCategories';
 
 export class VolInputError extends Error {}
 
@@ -16,6 +17,11 @@ export interface PostInput {
   public_note: string | null;
   private_details: string | null;
   cancel_cutoff_hours: number;
+  // Service spec §5. createPost: the category (its owning spaces must include the post's space;
+  // when absent, the space's default category, see defaultCategoryForSpace) and who it's for
+  // (when absent, the category's default audiences). updatePost: audiences change only when given.
+  categoryId?: string | null;
+  audiences?: string | string[];
 }
 
 export interface RoleInput {
@@ -32,6 +38,8 @@ export interface PostRow {
   ward_id: string;
   space_id: string;
   public_id: string;
+  category_id: string | null;
+  audiences: string;
   title: string;
   public_note: string | null;
   private_details: string | null;
@@ -84,6 +92,8 @@ export interface WardInfo {
 
 export interface PostFull extends PostRow {
   org_name: string;
+  category_name: string | null;
+  category_icon: string | null;
   ward: WardInfo;
   dates: DateFull[];
 }
@@ -94,6 +104,9 @@ export interface PostSummary {
   title: string;
   org_name: string;
   space_id: string;
+  category_id: string | null;
+  audiences: string;
+  created_by_user_id: string | null;
   first_date: string | null;
   last_date: string | null;
   confirmed: number;
@@ -129,6 +142,16 @@ export function isPostOver(post: { dates: Array<{ date: string }>; ward: { timez
   return post.dates.every((d) => isDateOver(d.date, post.ward.timezone, now));
 }
 
+// A role as it reads in a message to a parent who signed up a child: "Helpers (for Ana)".
+export function roleLabel(roleName: string, childName: string | null | undefined): string {
+  return childName ? `${roleName} (for ${childName})` : roleName;
+}
+
+// Who is serving, as leaders see it: "Ana (signed up by Jane Doe)".
+export function serverName(name: string, childName: string | null | undefined): string {
+  return childName ? `${childName} (signed up by ${name})` : name;
+}
+
 export function emailPost(post: { org_name: string; title: string; public_id: string }, appUrl: string): EmailPost {
   return { orgName: post.org_name, title: post.title, publicUrl: `${appUrl}/v/${post.public_id}` };
 }
@@ -142,6 +165,19 @@ function req(cond: boolean, msg: string): void {
 function cleanText(v: string | null | undefined): string | null {
   const s = (v ?? '').trim();
   return s ? s : null;
+}
+
+// Who a post is for, as stored: canonical, non-empty (spec §5).
+function checkAudiences(raw: string | string[]): string {
+  const list = parseAudiences(raw);
+  req(list.length > 0, 'Pick at least one: brothers, sisters, youth or children.');
+  return list.join(',');
+}
+
+// Posts with youth or children audiences let a parent sign up a child (spec §5).
+export function takesChildren(post: { audiences: string }): boolean {
+  const a = parseAudiences(post.audiences ?? '');
+  return a.includes('youth') || a.includes('children');
 }
 
 function checkPost(i: PostInput): PostInput {
@@ -181,9 +217,10 @@ function checkRole(i: RoleInput): RoleInput {
   return { name, needed: i.needed, start_time, end_time, note, bring_prompt };
 }
 
-async function requireOrgSpace(env: Env, wardId: string, spaceId: string): Promise<void> {
+// A post's space: an org, the Ward Council or the Bishopric (service spec §3), not archived.
+async function requirePostSpace(env: Env, wardId: string, spaceId: string): Promise<void> {
   const sp = await env.DB.prepare(
-    `SELECT 1 AS ok FROM spaces WHERE id = ? AND ward_id = ? AND kind = 'org' AND archived = 0`,
+    `SELECT 1 AS ok FROM spaces WHERE id = ? AND ward_id = ? AND kind IN ('org','ward_council','bishopric') AND archived = 0`,
   )
     .bind(spaceId, wardId)
     .first();
@@ -204,27 +241,46 @@ async function roleRow(env: Env, wardId: string, roleId: string): Promise<RoleRo
 
 // ---------------------------------------------------------------- posts
 
+// The route checks the right to create (serviceAccess.canCreateInCategory) first; this checks
+// the data: the space may hold posts and owns the category, and the category is an opportunity
+// category of this ward.
 export async function createPost(env: Env, wardId: string, spaceId: string, byUserId: string, input: PostInput): Promise<string> {
   const p = checkPost(input);
-  await requireOrgSpace(env, wardId, spaceId);
+  await requirePostSpace(env, wardId, spaceId);
+  let categoryId = input.categoryId ?? null;
+  let defaults = 'brothers,sisters';
+  if (categoryId) {
+    const cat = await getCategoryRow(env, wardId, categoryId);
+    req(cat != null && cat.kind === 'opportunity', 'Pick one of this ward’s service categories.');
+    req((await categorySpaceIds(env, wardId, categoryId)).includes(spaceId), 'That organization doesn’t own this category.');
+    defaults = cat!.default_audiences || defaults;
+  } else {
+    await ensureServiceCategories(env, wardId);
+    categoryId = await defaultCategoryForSpace(env, wardId, spaceId);
+    const cat = categoryId ? await getCategoryRow(env, wardId, categoryId) : null;
+    defaults = cat?.default_audiences || defaults;
+  }
+  const audiences = checkAudiences(input.audiences !== undefined ? input.audiences : defaults);
   const id = newId('vp');
   await env.DB.prepare(
-    `INSERT INTO vol_posts (id, ward_id, space_id, public_id, title, public_note, private_details, cancel_cutoff_hours, created_by_user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO vol_posts (id, ward_id, space_id, category_id, audiences, public_id, title, public_note, private_details, cancel_cutoff_hours, created_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(id, wardId, spaceId, randomToken(12), p.title, p.public_note, p.private_details, p.cancel_cutoff_hours, byUserId)
+    .bind(id, wardId, spaceId, categoryId, audiences, randomToken(12), p.title, p.public_note, p.private_details, p.cancel_cutoff_hours, byUserId)
     .run();
   return id;
 }
 
 export async function updatePost(env: Env, wardId: string, postId: string, input: PostInput): Promise<void> {
   const p = checkPost(input);
-  req((await postRow(env, wardId, postId)) != null, 'That post no longer exists.');
+  const old = await postRow(env, wardId, postId);
+  req(old != null, 'That post no longer exists.');
+  const audiences = input.audiences !== undefined ? checkAudiences(input.audiences) : old!.audiences;
   await env.DB.prepare(
-    `UPDATE vol_posts SET title = ?, public_note = ?, private_details = ?, cancel_cutoff_hours = ?, updated_at = datetime('now')
+    `UPDATE vol_posts SET title = ?, public_note = ?, private_details = ?, cancel_cutoff_hours = ?, audiences = ?, updated_at = datetime('now')
       WHERE id = ? AND ward_id = ?`,
   )
-    .bind(p.title, p.public_note, p.private_details, p.cancel_cutoff_hours, postId, wardId)
+    .bind(p.title, p.public_note, p.private_details, p.cancel_cutoff_hours, audiences, postId, wardId)
     .run();
 }
 
@@ -248,6 +304,7 @@ interface AffectedSignup {
   role_id: string;
   email: string;
   name: string;
+  child_name: string;
   status: string;
   verified: string | null;
   date: string;
@@ -259,7 +316,7 @@ interface AffectedSignup {
 
 async function affectedSignups(env: Env, wardId: string, where: string, id: string): Promise<AffectedSignup[]> {
   const res = await env.DB.prepare(
-    `SELECT s.id AS signup_id, s.role_id AS role_id, v.email AS email, v.name AS name, s.status AS status,
+    `SELECT s.id AS signup_id, s.role_id AS role_id, v.email AS email, v.name AS name, s.child_name AS child_name, s.status AS status,
             v.email_verified_at AS verified, d.date AS date, d.start_time AS date_start,
             r.name AS role_name, r.start_time AS role_start, r.end_time AS role_end
        FROM vol_signups s
@@ -325,7 +382,7 @@ export async function updateDate(
     if (oldWhen === newWhen) continue;
     out.push(
       roleChanged({
-        to: s.email, name: s.name, post: head.post, roleName: s.role_name, oldWhen, newWhen,
+        to: s.email, name: s.name, post: head.post, roleName: roleLabel(s.role_name, s.child_name), oldWhen, newWhen,
         mySignupsUrl: `${env.APP_URL}/vol/${head.prefix}/me`,
       }),
     );
@@ -356,7 +413,7 @@ function removalMessages(env: Env, rows: AffectedSignup[], head: { post: EmailPo
       signupRemoved({
         to: s.email, name: s.name, post: head.post,
         when: whenText({ date: s.date, start_time: s.date_start }, { start_time: s.role_start, end_time: s.role_end }),
-        roleName: s.role_name, reason: 'deleted',
+        roleName: roleLabel(s.role_name, s.child_name), reason: 'deleted',
       }),
     );
   }
@@ -426,7 +483,7 @@ export async function updateRole(
     .filter((s) => s.status === 'confirmed')
     .map((s) =>
       roleChanged({
-        to: s.email, name: s.name, post: head.post, roleName: r.name, oldWhen, newWhen,
+        to: s.email, name: s.name, post: head.post, roleName: roleLabel(r.name, s.child_name), oldWhen, newWhen,
         mySignupsUrl: `${env.APP_URL}/vol/${head.prefix}/me`,
       }),
     );
@@ -461,6 +518,8 @@ export async function copyPost(env: Env, wardId: string, postId: string, newFirs
     public_note: src!.public_note,
     private_details: src!.private_details,
     cancel_cutoff_hours: src!.cancel_cutoff_hours,
+    categoryId: src!.category_id,
+    audiences: src!.audiences,
   });
   const first = src!.dates[0]?.date;
   const shift = first ? diffDays(first, newFirstDate) : 0;
@@ -475,12 +534,14 @@ export async function copyPost(env: Env, wardId: string, postId: string, newFirs
 
 async function loadFull(env: Env, p: PostRow): Promise<PostFull | null> {
   const head = await env.DB.prepare(
-    `SELECT s.name AS org_name, w.id AS wid, w.name AS wname, w.prefix AS prefix, w.timezone AS tz
+    `SELECT s.name AS org_name, w.id AS wid, w.name AS wname, w.prefix AS prefix, w.timezone AS tz,
+            c.name AS category_name, c.icon AS category_icon
        FROM spaces s JOIN wards w ON w.id = s.ward_id
+       LEFT JOIN service_categories c ON c.id = ? AND c.ward_id = w.id
       WHERE s.id = ? AND s.ward_id = ? AND w.id = ?`,
   )
-    .bind(p.space_id, p.ward_id, p.ward_id)
-    .first<{ org_name: string; wid: string; wname: string; prefix: string; tz: string }>();
+    .bind(p.category_id, p.space_id, p.ward_id, p.ward_id)
+    .first<{ org_name: string; wid: string; wname: string; prefix: string; tz: string; category_name: string | null; category_icon: string | null }>();
   if (!head) return null;
   const dates = await env.DB.prepare(`SELECT * FROM vol_dates WHERE post_id = ? AND ward_id = ? ORDER BY date, start_time, position`)
     .bind(p.id, p.ward_id)
@@ -504,6 +565,8 @@ async function loadFull(env: Env, p: PostRow): Promise<PostFull | null> {
   return {
     ...p,
     org_name: head.org_name,
+    category_name: head.category_name ?? null,
+    category_icon: head.category_icon ?? null,
     ward: { id: head.wid, name: head.wname, prefix: head.prefix, timezone: head.tz },
     dates: full,
   };
@@ -570,12 +633,12 @@ export async function listWardPosts(
   if (!ward) return [];
   const tz = ward.timezone;
   const posts = await env.DB.prepare(
-    `SELECT p.id, p.public_id, p.title, p.space_id, s.name AS org_name
+    `SELECT p.id, p.public_id, p.title, p.space_id, p.category_id, p.audiences, p.created_by_user_id, s.name AS org_name
        FROM vol_posts p JOIN spaces s ON s.id = p.space_id AND s.ward_id = p.ward_id
       WHERE p.ward_id = ? ${o.spaceId ? 'AND p.space_id = ?' : ''}`,
   )
     .bind(...(o.spaceId ? [wardId, o.spaceId] : [wardId]))
-    .all<{ id: string; public_id: string; title: string; space_id: string; org_name: string }>();
+    .all<{ id: string; public_id: string; title: string; space_id: string; category_id: string | null; audiences: string; created_by_user_id: string | null; org_name: string }>();
   const roles = await env.DB.prepare(
     `SELECT r.post_id AS post_id, r.needed AS needed, d.date AS date,
             (SELECT COUNT(*) FROM vol_signups s WHERE s.role_id = r.id AND s.ward_id = r.ward_id AND s.status = 'confirmed') AS confirmed,
@@ -602,6 +665,9 @@ export async function listWardPosts(
       title: p.title,
       org_name: p.org_name,
       space_id: p.space_id,
+      category_id: p.category_id,
+      audiences: p.audiences,
+      created_by_user_id: p.created_by_user_id,
       first_date: ds[0] ?? null,
       last_date: ds[ds.length - 1] ?? null,
       confirmed: rs.reduce((a, r) => a + r.confirmed, 0),
@@ -622,6 +688,7 @@ export interface PostSignupRow {
   id: string;
   role_id: string;
   volunteer_id: string;
+  child_name: string;
   status: string;
   over_limit: number;
   bringing: string | null;
@@ -634,7 +701,7 @@ export interface PostSignupRow {
 // Active (waiting or confirmed) sign-ups on a post, for leaders who may view it.
 export async function listPostSignups(env: Env, wardId: string, postId: string): Promise<PostSignupRow[]> {
   const res = await env.DB.prepare(
-    `SELECT s.id, s.role_id, s.volunteer_id, s.status, s.over_limit, s.bringing,
+    `SELECT s.id, s.role_id, s.volunteer_id, s.child_name, s.status, s.over_limit, s.bringing,
             v.name, v.email, v.approval, v.email_verified_at
        FROM vol_signups s JOIN volunteers v ON v.id = s.volunteer_id AND v.ward_id = s.ward_id
       WHERE s.ward_id = ? AND s.post_id = ? AND s.status IN ('waiting','confirmed')

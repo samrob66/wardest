@@ -6,6 +6,7 @@ import {
 } from '../src/lib/volPosts';
 import { newId } from '../src/lib/ids';
 import { addDays, wardToday } from '../src/lib/wardTime';
+import { listCategories } from '../src/lib/serviceCategories';
 
 const NOW = new Date('2026-11-21T18:00:00Z'); // 11:00 in Denver
 
@@ -218,7 +219,15 @@ describe('volPosts', () => {
     await expect(createPost(env, s.wardId, s.eq, s.pres, postInput({ title: '' }))).rejects.toThrow(VolInputError);
     await expect(createPost(env, s.wardId, s.eq, s.pres, postInput({ title: 'x'.repeat(121) }))).rejects.toThrow(VolInputError);
     await expect(createPost(env, s.wardId, s.eq, s.pres, postInput({ cancel_cutoff_hours: 337 }))).rejects.toThrow(VolInputError);
-    await expect(createPost(env, s.wardId, s.spaces['ward-council']!, s.pres, postInput())).rejects.toThrow(VolInputError);
+    // A space that doesn't own the chosen category, the public space, and no audience at all.
+    const cats = await listCategories(env, s.wardId, {});
+    const meal = cats.find((x) => x.slug === 'meal')!.id;
+    const req = cats.find((x) => x.slug === 'req-moving')!.id;
+    await expect(createPost(env, s.wardId, s.spaces['ward-council']!, s.pres, postInput({ categoryId: meal }))).rejects.toThrow(VolInputError);
+    await expect(createPost(env, s.wardId, s.spaces['public']!, s.pres, postInput())).rejects.toThrow(VolInputError);
+    await expect(createPost(env, s.wardId, s.eq, s.pres, postInput({ categoryId: req }))).rejects.toThrow(VolInputError);
+    await expect(createPost(env, s.wardId, s.eq, s.pres, postInput({ audiences: ['bogus'] }))).rejects.toThrow(VolInputError);
+    await expect(updatePost(env, s.wardId, postId, postInput({ audiences: [] }))).rejects.toThrow(VolInputError);
     await expect(updatePost(env, s.wardId, postId, postInput({ public_note: 'x'.repeat(4001) }))).rejects.toThrow(VolInputError);
     await env.DB.prepare(`UPDATE spaces SET archived = 1 WHERE id = ?`).bind(s.spaces['primary']).run();
     await expect(createPost(env, s.wardId, s.spaces['primary']!, s.pres, postInput())).rejects.toThrow(VolInputError);

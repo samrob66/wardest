@@ -5,6 +5,7 @@ import { addDate, addRole, createPost, getPost } from '../src/lib/volPosts';
 import type { OutgoingMessage } from '../src/lib/volMessages';
 import { addEditor } from '../src/lib/volEditors';
 import { addDays, wardToday } from '../src/lib/wardTime';
+import { getCategoryBySlug } from '../src/lib/serviceCategories';
 
 export const NOW = new Date('2026-11-21T18:00:00Z'); // Saturday 11:00 in Denver
 
@@ -29,7 +30,14 @@ export interface Fx {
   publicId: string;
 }
 
-export async function fixture(o: { date?: string; time?: string; cutoff?: number; timezone?: string } = {}): Promise<Fx> {
+// A ward's service category id by slug (every ward has the defaults).
+export async function catId(wardId: string, slug: string): Promise<string> {
+  const c = await getCategoryBySlug(env, wardId, slug);
+  if (!c) throw new Error(`no category ${slug}`);
+  return c.id;
+}
+
+export async function fixture(o: { date?: string; time?: string; cutoff?: number; timezone?: string; audiences?: string } = {}): Promise<Fx> {
   const w = await makeWard(env, { timezone: o.timezone });
   const eqPresEmail = uniqueEmail('eqpres');
   const eqPres = await makeLeader(env, w.wardId, { email: eqPresEmail, name: 'EQ Pres', spaces: [['elders-quorum', 'owner']] });
@@ -38,6 +46,7 @@ export async function fixture(o: { date?: string; time?: string; cutoff?: number
   await addEditor(env, w.wardId, w.spaces['elders-quorum']!, counselor, eqPres);
   const postId = await createPost(env, w.wardId, w.spaces['elders-quorum']!, eqPres, {
     title: 'Help the Jensens move in', public_note: 'Wear shoes', private_details: 'Door code 4242', cancel_cutoff_hours: o.cutoff ?? 24,
+    categoryId: await catId(w.wardId, 'move'), audiences: o.audiences,
   });
   const dateId = await addDate(env, w.wardId, postId, o.date ?? '2026-12-06', o.time ?? '09:00');
   const roleId = await addRole(env, w.wardId, dateId, { name: 'Truck driver', needed: 1, start_time: null, end_time: null, note: null, bring_prompt: null });

@@ -14,6 +14,8 @@ import { signToken, verifyToken } from './lib/session';
 import {
   canApproveVolunteer, canEditPost, canManageEditorList, canManageOrg, canSeeWardVolunteers, canViewPost,
 } from './lib/volAccess';
+import { canCreateInCategory, categoriesUserMayCreateIn } from './lib/serviceAccess';
+import { categorySpaceIds, getCategory, parseAudiences, type CategoryFull, type CategoryRow } from './lib/serviceCategories';
 import { hitLimit } from './lib/volRate';
 import {
   accessUrl, approveVolunteer, cancelSignup, declineVolunteer, getSignup, getVolunteer, getVolunteerByEmail,
@@ -39,8 +41,8 @@ import { isValidDate, isValidTime } from './lib/wardTime';
 import { getWardById, getWardSpaces, listWardMembers, wardRole, type WardRow, type SpaceFull } from './lib/wards';
 import { notFoundPage } from './views/notfound';
 import {
-  renderEditorsCard, renderPostDeleteConfirm, renderPostManage, renderPostNew, renderVolunteerSection, renderWardVolunteers,
-  type NewPostValues, type WardVolunteerRow,
+  renderCategoryPicker, renderEditorsCard, renderPostDeleteConfirm, renderPostManage, renderPostNew, renderVolunteerSection,
+  renderWardVolunteers, type NewPostValues, type WardVolunteerRow,
 } from './views/volLeader';
 import {
   renderConfirmAction, renderPublicNote, renderPublicPost, renderSignupResult, type SignupFormValues,
@@ -73,16 +75,31 @@ export async function spaceVolunteerSection(
     };
     const open = await visible(await listWardPosts(env, ward.id, { ...scope, past: false, now }));
     const past = await visible(await listWardPosts(env, ward.id, { ...scope, past: true, now }));
-    const manages = new Map<string, boolean>();
-    for (const sid of new Set([...past.map((p) => p.space_id), ...(wardWide ? [] : [space.id])])) {
-      manages.set(sid, await canManageOrg(env, ward.id, sid, userId));
+    // "Create Service Opportunity": any category this person may create in (on an org page,
+    // one this org owns). Copy: the right to create in the post's category.
+    const creatable = await categoriesUserMayCreateIn(env, ward.id, userId);
+    const creatableIds = new Set(creatable.map((x) => x.id));
+    let newPostHref: string | null = null;
+    if (wardWide) {
+      if (creatable.length) newPostHref = `/w/${ward.id}/vol/new`;
+    } else {
+      for (const cat of creatable) {
+        if ((await categorySpaceIds(env, ward.id, cat.id)).includes(space.id)) {
+          newPostHref = `/w/${ward.id}/vol/new?space=${space.id}`;
+          break;
+        }
+      }
+    }
+    const legacy = new Map<string, boolean>();
+    for (const p of past) {
+      if (!p.category_id && !legacy.has(p.space_id)) legacy.set(p.space_id, await canManageOrg(env, ward.id, p.space_id, userId));
     }
     html += renderVolunteerSection({
       wardId: ward.id,
       open,
       past,
-      newPostSpaceId: !wardWide && manages.get(space.id) ? space.id : null,
-      canCopy: (sid) => manages.get(sid) === true,
+      newPostHref,
+      canCopy: (p) => (p.category_id ? creatableIds.has(p.category_id) : legacy.get(p.space_id) === true),
       showVolunteersLink: await canSeeWardVolunteers(env, ward.id, userId),
       wardWide,
     });
@@ -155,6 +172,12 @@ function postInputFrom(b: Record<string, unknown>): PostInput {
   };
 }
 
+// Every value of a repeated form field (checkboxes).
+function allOf(b: Record<string, unknown>, name: string): string[] {
+  const v = b[name];
+  return (Array.isArray(v) ? v : v != null ? [v] : []).map((x) => str(x)).filter(Boolean);
+}
+
 function roleInputFrom(b: Record<string, unknown>): RoleInput {
   return {
     name: str(b.name),
@@ -207,7 +230,7 @@ async function editAction(
 ): Promise<Response> {
   const pc = await postCtx(c, 'edit');
   if (pc instanceof Response) return pc;
-  const body = (await c.req.parseBody()) as Record<string, unknown>;
+  const body = (await c.req.parseBody({ all: true })) as Record<string, unknown>;
   try {
     const out = await fn(pc, body);
     if (out instanceof Response) return out;
@@ -219,44 +242,89 @@ async function editAction(
   return backWith(c, pc);
 }
 
-async function manageableOrgs(env: Env, wardId: string, userId: string): Promise<Array<{ id: string; name: string }>> {
-  const out: Array<{ id: string; name: string }> = [];
-  for (const s of await getWardSpaces(env, wardId)) {
-    if (s.kind === 'org' && (await canManageOrg(env, wardId, s.id, userId))) out.push({ id: s.id, name: s.name });
+// The owning spaces of a category that can hold posts (org, ward council, bishopric; not
+// archived), the ones this person owns first.
+async function postSpacesOf(env: Env, wardId: string, cat: CategoryFull, userId: string): Promise<Array<{ id: string; name: string }>> {
+  const live = new Set((await getWardSpaces(env, wardId)).map((s) => s.id));
+  const spaces = cat.spaces.filter((s) => live.has(s.id) && ['org', 'ward_council', 'bishopric'].includes(s.kind));
+  const owned = new Set<string>();
+  for (const s of spaces) {
+    const r = await env.DB.prepare(`SELECT 1 AS ok FROM space_memberships WHERE space_id = ? AND user_id = ? AND ward_id = ? AND role = 'owner'`)
+      .bind(s.id, userId, wardId)
+      .first();
+    if (r) owned.add(s.id);
   }
-  return out;
+  return [...spaces.filter((s) => owned.has(s.id)), ...spaces.filter((s) => !owned.has(s.id))].map((s) => ({ id: s.id, name: s.name }));
+}
+
+async function renderNew(
+  c: Context<AppEnv>,
+  lc: LeaderCtx,
+  cat: CategoryFull,
+  values: NewPostValues,
+  error?: string,
+): Promise<Response> {
+  const spaces = await postSpacesOf(c.env, lc.ward.id, cat, lc.user.id);
+  return c.html(renderPostNew({ user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, category: cat, spaces, values, error }), error ? 400 : 200);
 }
 
 // ---------------------------------------------------------------- leader: posts
 
+// "Create Service Opportunity" (spec §5): pick a category you may create in, then the builder.
+// ?space= (from an org page) narrows the picker to that org's categories; ?category=&date=
+// (from "Turn into a service opportunity") opens the builder with the first date filled in.
 volRoutes.get('/w/:wardId/vol/new', requireAuth(), async (c) => {
   const lc = await leaderCtx(c);
   if (lc instanceof Response) return lc;
-  const orgs = await manageableOrgs(c.env, lc.ward.id, lc.user.id);
-  if (!orgs.length) return c.text('Forbidden', 403);
-  return c.html(
-    renderPostNew({ user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, orgs, values: { space_id: c.req.query('space') ?? '' } }),
-  );
+  const creatable = await categoriesUserMayCreateIn(c.env, lc.ward.id, lc.user.id);
+  if (!creatable.length) return c.text('Forbidden', 403);
+  const categoryId = c.req.query('category') ?? '';
+  if (!categoryId) {
+    const space = c.req.query('space') ?? '';
+    let list: CategoryRow[] = creatable;
+    if (space) {
+      const owned: CategoryRow[] = [];
+      for (const x of creatable) if ((await categorySpaceIds(c.env, lc.ward.id, x.id)).includes(space)) owned.push(x);
+      if (owned.length) list = owned;
+    }
+    return c.html(renderCategoryPicker({ user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, categories: list }));
+  }
+  if (!creatable.some((x) => x.id === categoryId)) return c.text('Forbidden', 403);
+  const cat = await getCategory(c.env, lc.ward.id, categoryId);
+  if (!cat) return c.text('Forbidden', 403);
+  const spaces = await postSpacesOf(c.env, lc.ward.id, cat, lc.user.id);
+  const date = c.req.query('date') ?? '';
+  return renderNew(c, lc, cat, {
+    category_id: cat.id, space_id: spaces[0]?.id ?? '', audiences: parseAudiences(cat.default_audiences),
+    first_date: isValidDate(date) ? date : '',
+  });
 });
 
 volRoutes.post('/w/:wardId/vol', requireAuth(), async (c) => {
   const lc = await leaderCtx(c);
   if (lc instanceof Response) return lc;
-  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  const b = (await c.req.parseBody({ all: true })) as Record<string, unknown>;
   const spaceId = str(b.space_id);
-  if (!(await canManageOrg(c.env, lc.ward.id, spaceId, lc.user.id))) return c.text('Forbidden', 403);
+  const categoryId = str(b.category_id);
+  // Server-side: the right to create in this category, and a space that owns it.
+  if (!(await canCreateInCategory(c.env, lc.ward.id, categoryId, lc.user.id))) return c.text('Forbidden', 403);
+  if (!(await categorySpaceIds(c.env, lc.ward.id, categoryId)).includes(spaceId)) return c.text('Forbidden', 403);
+  const cat = (await getCategory(c.env, lc.ward.id, categoryId))!;
+  const audiences = parseAudiences(allOf(b, 'audiences'));
   const values: NewPostValues = {
-    space_id: spaceId, title: str(b.title), public_note: str(b.public_note), private_details: str(b.private_details),
+    category_id: categoryId, space_id: spaceId, audiences,
+    title: str(b.title), public_note: str(b.public_note), private_details: str(b.private_details),
     cancel_cutoff_hours: str(b.cancel_cutoff_hours), first_date: str(b.first_date), start_time: str(b.start_time),
     role_name: str(b.role_name), role_needed: str(b.role_needed),
   };
   let postId: string | null = null;
   try {
     // Check the date and the optional first role before anything is written.
+    if (!audiences.length) throw new VolInputError('Pick at least one: brothers, sisters, youth or children.');
     if (!isValidDate(values.first_date ?? '')) throw new VolInputError('Pick a real date for the first date.');
     if (values.start_time && !isValidTime(values.start_time)) throw new VolInputError('Times must be HH:MM (24-hour).');
     const wantsRole = !!(values.role_name ?? '').trim();
-    postId = await createPost(c.env, lc.ward.id, spaceId, lc.user.id, postInputFrom(b));
+    postId = await createPost(c.env, lc.ward.id, spaceId, lc.user.id, { ...postInputFrom(b), categoryId, audiences });
     const dateId = await addDate(c.env, lc.ward.id, postId, values.first_date!, values.start_time || null);
     if (wantsRole) {
       await addRole(c.env, lc.ward.id, dateId, {
@@ -266,11 +334,7 @@ volRoutes.post('/w/:wardId/vol', requireAuth(), async (c) => {
   } catch (e) {
     if (!(e instanceof VolInputError)) throw e;
     if (postId) await deletePost(c.env, lc.ward.id, postId);
-    const orgs = await manageableOrgs(c.env, lc.ward.id, lc.user.id);
-    return c.html(
-      renderPostNew({ user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, orgs, values, error: e.message }),
-      400,
-    );
+    return renderNew(c, lc, cat, values, e.message);
   }
   return c.redirect(managePath(lc.ward.id, postId!), 302);
 });
@@ -290,7 +354,10 @@ volRoutes.get('/w/:wardId/vol/:postId', requireAuth(), async (c) => {
 
 volRoutes.post('/w/:wardId/vol/:postId', requireAuth(), (c) =>
   editAction(c, async (pc, b) => {
-    await updatePost(c.env, pc.ward.id, pc.post.id, postInputFrom(b));
+    // The edit form carries audiences_form=1 with its checkboxes; without it audiences stay.
+    const input = postInputFrom(b);
+    if (str(b.audiences_form) === '1') input.audiences = allOf(b, 'audiences');
+    await updatePost(c.env, pc.ward.id, pc.post.id, input);
     await resetFullIfShort(c.env, pc.ward.id, pc.post.id);
   }),
 );
@@ -370,8 +437,11 @@ volRoutes.post('/w/:wardId/vol/:postId/delete', requireAuth(), async (c) => {
 volRoutes.post('/w/:wardId/vol/:postId/copy', requireAuth(), async (c) => {
   const pc = await postCtx(c, 'view');
   if (pc instanceof Response) return pc;
-  // Copying makes a new post for the same organization: needs the right to create there.
-  if (!(await canManageOrg(c.env, pc.ward.id, pc.post.space_id, pc.user.id))) return c.text('Forbidden', 403);
+  // Copying makes a new post in the same category: needs the right to create there.
+  const mayCopy = pc.post.category_id
+    ? await canCreateInCategory(c.env, pc.ward.id, pc.post.category_id, pc.user.id)
+    : await canManageOrg(c.env, pc.ward.id, pc.post.space_id, pc.user.id);
+  if (!mayCopy) return c.text('Forbidden', 403);
   const b = (await c.req.parseBody()) as Record<string, unknown>;
   try {
     const id = await copyPost(c.env, pc.ward.id, pc.post.id, str(b.new_first_date), pc.user.id);
@@ -425,7 +495,10 @@ volRoutes.post('/v/:publicId/signup', async (c) => {
     return c.html(notFoundPage('volunteer post'), 404);
   }
   const b = (await c.req.parseBody()) as Record<string, unknown>;
-  const values: SignupFormValues = { role_id: str(b.role_id), name: str(b.name), email: str(b.email), bringing: str(b.bringing) };
+  const values: SignupFormValues = {
+    role_id: str(b.role_id), name: str(b.name), email: str(b.email), bringing: str(b.bringing),
+    who: str(b.who) === 'child' ? 'child' : 'me', child_name: str(b.child_name),
+  };
   const ip = clientIp(c);
   // 1. Bot check first (the form sends email to whatever address is typed in).
   if (!(await verifyTurnstile(c.env, str(b['cf-turnstile-response']), ip))) {
@@ -440,7 +513,7 @@ volRoutes.post('/v/:publicId/signup', async (c) => {
   //    page nor how long it takes says anything about an email (round 2).
   const input: SignupInput = {
     wardId: post.ward_id, postId: post.id, roleId: values.role_id ?? '', name: values.name ?? '', email: values.email ?? '',
-    bringing: values.bringing || null, now,
+    bringing: values.bringing || null, now, child: values.who === 'child' ? (values.child_name ?? '') : null,
   };
   let pre: PrecheckResult;
   try {

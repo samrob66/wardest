@@ -4,6 +4,7 @@ import { env, asUser } from './helpers';
 import { makeCast, type Cast } from './cast';
 import { addDate, addRole, createPost } from '../src/lib/volPosts';
 import { addDays, wardToday } from '../src/lib/wardTime';
+import { catId } from './volFixtures';
 
 async function page(uid: string, wardId: string, spaceId: string): Promise<string> {
   const res = await SELF.fetch(`http://localhost/w/${wardId}/space/${spaceId}`, { headers: { cookie: await asUser(uid) } });
@@ -23,7 +24,8 @@ describe('volunteer sections on space pages', () => {
     c = await makeCast();
     const today = wardToday('America/Denver', new Date());
     const mk = async (key: string, space: string, title: string, date: string) => {
-      const id = await createPost(env, c.wardId, c.spaces[space]!, c.eqPres, { title, public_note: null, private_details: null, cancel_cutoff_hours: 24 });
+      const categoryId = await catId(c.wardId, space === 'relief-society' ? 'meal' : 'move');
+      const id = await createPost(env, c.wardId, c.spaces[space]!, c.eqPres, { title, public_note: null, private_details: null, cancel_cutoff_hours: 24, categoryId });
       const d = await addDate(env, c.wardId, id, date, null);
       await addRole(env, c.wardId, d, { name: 'Helpers', needed: 3, start_time: null, end_time: null, note: null, bring_prompt: null });
       ids[key] = id;

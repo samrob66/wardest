@@ -73,14 +73,14 @@ function withdrawParagraph(withdrawUrl: string | null): string {
 
 // ---------------------------------------------------------------- volunteer emails
 
-export function verifyEmail(o: { to: string; name: string; post: EmailPost; verifyUrl: string }): OutgoingMessage {
+export function verifyEmail(o: { to: string; name: string; childName?: string; post: EmailPost; verifyUrl: string }): OutgoingMessage {
   return {
     kind: 'vol_verify',
     to: o.to,
     subject: `${o.post.orgName}: please confirm your email — ${o.post.title}`,
     html: wrap(
       `<p>Hi ${esc(o.name)},</p>
-       <p>Thanks for offering to help with <strong>${esc(o.post.title)}</strong> (${esc(o.post.orgName)}).
+       <p>Thanks for ${o.childName ? `signing up ${esc(o.childName)}` : 'offering'} to help with <strong>${esc(o.post.title)}</strong> (${esc(o.post.orgName)}).
        Please confirm this is your email address. After that, one of the ward's leaders will
        confirm you, and we'll email you the details.</p>
        ${button(o.verifyUrl, 'Confirm my email')}
@@ -94,6 +94,7 @@ export function signupConfirmed(o: {
   volunteerId: string;
   wardId: string;
   name: string;
+  childName?: string; // a parent signed up their child
   post: EmailPost;
   when: string;
   roleName: string;
@@ -114,7 +115,7 @@ export function signupConfirmed(o: {
     subject: `${o.post.orgName}: you're signed up — ${o.post.title}`,
     html: wrap(
       `<p>Hi ${esc(o.name)},</p>
-       <p>You're signed up. Thank you!</p>
+       <p>${o.childName ? `${esc(o.childName)} is signed up` : "You're signed up"}. Thank you!</p>
        <p><strong>${esc(o.post.title)}</strong> · ${esc(o.post.orgName)}<br>
        ${esc(o.when)} · ${esc(o.roleName)}${bring}</p>
        ${details(o.privateDetails)}
@@ -125,7 +126,7 @@ export function signupConfirmed(o: {
       CANCEL_FOOTER,
     ),
     discordText:
-      `You're signed up: ${o.post.title} (${o.post.orgName})\n${o.when} · ${o.roleName}` +
+      `${o.childName ? `${o.childName} is` : "You're"} signed up: ${o.post.title} (${o.post.orgName})\n${o.when} · ${o.roleName}` +
       (o.bringing ? `\nYou're bringing: ${o.bringing}` : '') +
       (o.privateDetails ? `\nDetails: ${o.privateDetails}` : '') +
       (o.overLimit ? `\nThis need is already met; you can withdraw from the link in your email.` : '') +

@@ -8,7 +8,7 @@
 import type { Env } from '../types';
 import { approverEmails, deliver, type OutgoingMessage } from './volMessages';
 import * as E from './volEmails';
-import { emailPost, getPost, roleStartTime, whenText } from './volPosts';
+import { emailPost, getPost, roleLabel, roleStartTime, whenText } from './volPosts';
 import { accessUrl, cancelUrl } from './volSignup';
 import { addDays, localToUtc, wardHour, wardToday } from './wardTime';
 
@@ -24,7 +24,7 @@ async function remindersFor(env: Env, ward: { id: string; timezone: string }, no
   if (wardHour(ward.timezone, now) < 9) return [];
   const tomorrow = addDays(wardToday(ward.timezone, now), 1);
   const rows = await env.DB.prepare(
-    `SELECT s.id AS signup_id, s.post_id, s.role_id, s.bringing, v.id AS vid, v.email, v.name, v.approval
+    `SELECT s.id AS signup_id, s.post_id, s.role_id, s.child_name, s.bringing, v.id AS vid, v.email, v.name, v.approval
        FROM vol_signups s
        JOIN vol_roles r ON r.id = s.role_id AND r.ward_id = s.ward_id
        JOIN vol_dates d ON d.id = r.date_id AND d.ward_id = s.ward_id
@@ -32,7 +32,7 @@ async function remindersFor(env: Env, ward: { id: string; timezone: string }, no
       WHERE s.ward_id = ? AND s.status = 'confirmed' AND s.reminded_at IS NULL AND d.date = ?`,
   )
     .bind(ward.id, tomorrow)
-    .all<{ signup_id: string; post_id: string; role_id: string; bringing: string | null; vid: string; email: string; name: string; approval: string }>();
+    .all<{ signup_id: string; post_id: string; role_id: string; child_name: string; bringing: string | null; vid: string; email: string; name: string; approval: string }>();
   const out: OutgoingMessage[] = [];
   for (const r of rows.results ?? []) {
     // Claim first so overlapping runs can't send twice.
@@ -49,7 +49,8 @@ async function remindersFor(env: Env, ward: { id: string; timezone: string }, no
     const role = d?.roles.find((y) => y.id === r.role_id);
     if (!post || !d || !role) continue;
     const names = await env.DB.prepare(
-      `SELECT DISTINCT v.name AS name FROM vol_signups x JOIN volunteers v ON v.id = x.volunteer_id AND v.ward_id = x.ward_id
+      `SELECT DISTINCT CASE WHEN x.child_name <> '' THEN x.child_name || ' (signed up by ' || v.name || ')' ELSE v.name END AS name
+           FROM vol_signups x JOIN volunteers v ON v.id = x.volunteer_id AND v.ward_id = x.ward_id
         WHERE x.ward_id = ? AND x.post_id = ? AND x.status = 'confirmed' AND x.volunteer_id <> ? ORDER BY v.name`,
     )
       .bind(ward.id, post.id, r.vid)
@@ -62,7 +63,7 @@ async function remindersFor(env: Env, ward: { id: string; timezone: string }, no
         name: r.name,
         post: emailPost(post, env.APP_URL),
         when: whenText(d, role),
-        roleName: role.name,
+        roleName: roleLabel(role.name, r.child_name),
         bringing: r.bringing,
         privateDetails: post.private_details,
         otherNames: (names.results ?? []).map((n) => n.name),

@@ -3,6 +3,7 @@ import { SELF } from 'cloudflare:test';
 import { env, asUser, makeWard } from './helpers';
 import { makeCast, type Cast } from './cast';
 import { addDate, addRole, createPost, getPost } from '../src/lib/volPosts';
+import { catId } from './volFixtures';
 
 function form(data: Record<string, string>): string {
   return new URLSearchParams(data).toString();
@@ -84,6 +85,7 @@ describe('leader post pages', () => {
 
   it('eqPres creates a post for EQ -> 302 to the manage page; for RS -> 403', async () => {
     const res = await post(c.eqPres, `/w/${c.wardId}/vol`, {
+      category_id: await catId(c.wardId, 'move'), audiences: 'brothers',
       space_id: c.spaces['elders-quorum']!, title: 'Move the Smiths', public_note: '', private_details: '',
       cancel_cutoff_hours: '24', first_date: '2026-12-12', start_time: '10:00', role_name: 'Movers', role_needed: '10',
     });
@@ -97,15 +99,65 @@ describe('leader post pages', () => {
     expect(created.dates.map((d) => [d.date, d.start_time, d.roles.map((r) => [r.name, r.needed])])).toEqual([
       ['2026-12-12', '10:00', [['Movers', 10]]],
     ]);
+    expect(created.category_id).toBe(await catId(c.wardId, 'move'));
+    expect(created.audiences).toBe('brothers');
     const rs = await post(c.eqPres, `/w/${c.wardId}/vol`, {
+      category_id: await catId(c.wardId, 'meal'), audiences: 'sisters',
       space_id: c.spaces['relief-society']!, title: 'Meals', cancel_cutoff_hours: '24', first_date: '2026-12-12',
     });
     expect(rs.status).toBe(403);
   });
 
+  it('posting to a category you may create in, but with a space that does not own it -> 403; no category -> 403', async () => {
+    const before = await env.DB.prepare(`SELECT COUNT(*) AS n FROM vol_posts WHERE ward_id = ?`).bind(c.wardId).first<{ n: number }>();
+    const wrongSpace = await post(c.eqPres, `/w/${c.wardId}/vol`, {
+      category_id: await catId(c.wardId, 'move'), audiences: 'brothers',
+      space_id: c.spaces['relief-society']!, title: 'Move', cancel_cutoff_hours: '24', first_date: '2026-12-12',
+    });
+    expect(wrongSpace.status).toBe(403);
+    const noCat = await post(c.eqPres, `/w/${c.wardId}/vol`, {
+      space_id: c.spaces['elders-quorum']!, title: 'Move', cancel_cutoff_hours: '24', first_date: '2026-12-12',
+    });
+    expect(noCat.status).toBe(403);
+    const noAudience = await post(c.eqPres, `/w/${c.wardId}/vol`, {
+      category_id: await catId(c.wardId, 'move'),
+      space_id: c.spaces['elders-quorum']!, title: 'Move', cancel_cutoff_hours: '24', first_date: '2026-12-12',
+    });
+    expect(noAudience.status).toBe(400);
+    const after = await env.DB.prepare(`SELECT COUNT(*) AS n FROM vol_posts WHERE ward_id = ?`).bind(c.wardId).first<{ n: number }>();
+    expect(after!.n).toBe(before!.n);
+  });
+
+  it('the builder for a two-owner category offers both owning spaces, defaulting to the one you own', async () => {
+    const html = await (await get(c.eqPres, `/w/${c.wardId}/vol/new?category=${await catId(c.wardId, 'clean-temple')}&date=2027-01-09`)).text();
+    expect(html).toContain(`value="${c.spaces['elders-quorum']}" selected`);
+    expect(html).toContain(`value="${c.spaces['relief-society']}"`);
+    expect(html).toContain('value="2027-01-09"');
+    // Default audiences come from the category, as checkboxes.
+    expect(html).toMatch(/name="audiences" value="brothers" checked/);
+    expect(html).toMatch(/name="audiences" value="sisters" checked/);
+    expect((await get(c.eqPres, `/w/${c.wardId}/vol/new?category=${await catId(c.wardId, 'meal')}`)).status).toBe(403);
+  });
+
+  it('editing a post can change its audiences (at least one)', async () => {
+    const pid = await createPost(env, c.wardId, c.spaces['elders-quorum']!, c.eqPres, {
+      title: 'Audience post', public_note: null, private_details: null, cancel_cutoff_hours: 24, categoryId: await catId(c.wardId, 'move'),
+    });
+    expect((await getPost(env, c.wardId, pid))!.audiences).toBe('brothers');
+    const ok = await post(c.eqPres, `/w/${c.wardId}/vol/${pid}`, {
+      title: 'Audience post', cancel_cutoff_hours: '24', audiences_form: '1', audiences: 'youth',
+    });
+    expect(ok.headers.get('location')).toContain('ok=1');
+    expect((await getPost(env, c.wardId, pid))!.audiences).toBe('youth');
+    const bad = await post(c.eqPres, `/w/${c.wardId}/vol/${pid}`, { title: 'Audience post', cancel_cutoff_hours: '24', audiences_form: '1' });
+    expect(bad.headers.get('location')).toContain('err=');
+    expect((await getPost(env, c.wardId, pid))!.audiences).toBe('youth');
+  });
+
   it('a bad form re-renders with an error and creates nothing', async () => {
     const before = await env.DB.prepare(`SELECT COUNT(*) AS n FROM vol_posts WHERE ward_id = ?`).bind(c.wardId).first<{ n: number }>();
     const res = await post(c.eqPres, `/w/${c.wardId}/vol`, {
+      category_id: await catId(c.wardId, 'move'), audiences: 'brothers',
       space_id: c.spaces['elders-quorum']!, title: 'Bad', cancel_cutoff_hours: '24', first_date: '2026-02-30',
     });
     expect(res.status).toBe(400);
@@ -114,10 +166,12 @@ describe('leader post pages', () => {
     expect(after!.n).toBe(before!.n);
   });
 
-  it('new-post form lists only orgs the user can manage', async () => {
+  it('the category picker lists only categories the user may create in', async () => {
     const html = await (await get(c.eqPres, `/w/${c.wardId}/vol/new`)).text();
-    expect(html).toContain(c.spaces['elders-quorum']!);
-    expect(html).not.toContain(c.spaces['relief-society']!);
+    expect(html).toContain(`?category=${await catId(c.wardId, 'move')}`);
+    expect(html).toContain(`?category=${await catId(c.wardId, 'clean-temple')}`);
+    expect(html).not.toContain(`?category=${await catId(c.wardId, 'meal')}`);
+    expect(html).not.toContain(`?category=${await catId(c.wardId, 'req-moving')}`);
     expect((await get(c.eqTeacher, `/w/${c.wardId}/vol/new`)).status).toBe(403);
   });
 
