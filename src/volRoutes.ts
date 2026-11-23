@@ -12,9 +12,10 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { randomToken } from './lib/ids';
 import { signToken, verifyToken } from './lib/session';
 import {
-  canApproveVolunteer, canEditPost, canManageEditorList, canManageOrg, canSeeWardVolunteers, canViewPost,
+  canApproveVolunteer, canEditPost, canManageEditorList, canManageEditorListIn, canManageOrg, canManageOrgIn, canSeeWardVolunteers,
+  canViewPost, canViewStored, loadPosts,
 } from './lib/volAccess';
-import { canCreateInCategory, categoriesUserMayCreateIn } from './lib/serviceAccess';
+import { canCreateInCategory, categoriesUserMayCreateIn, coveringCategories, loadAccess } from './lib/serviceAccess';
 import { categorySpaceIds, getCategory, parseAudiences, type CategoryFull, type CategoryRow } from './lib/serviceCategories';
 import { getWebhook } from './lib/serviceAdmin';
 import { postDiscordWebhook } from './lib/discord';
@@ -36,7 +37,7 @@ import { addEditor, listEditors, removeEditor } from './lib/volEditors';
 import { deliver, type OutgoingMessage } from './lib/volMessages';
 import {
   VolInputError, addDate, addRole, copyDate, copyPost, createPost, deleteDate, deletePost, deleteRole, getPost, isDateOver, whenText,
-  getPostByPublicId, listPostSignups, listPublicBringing, listWardPosts, resetFullIfShort, updateDate, updatePost, updateRole,
+  getPostByPublicId, listPostSignups, listPublicBringing, listWardPosts, listWardPostsOpenAndPast, resetFullIfShort, updateDate, updatePost, updateRole,
   type PostFull, type PostInput, type PostSummary, type RoleInput,
 } from './lib/volPosts';
 import { isValidDate, isValidTime } from './lib/wardTime';
@@ -64,51 +65,48 @@ export async function spaceVolunteerSection(
 ): Promise<string> {
   let html = '';
   const now = new Date();
-  if (space.kind === 'org' || space.kind === 'ward_council' || space.kind === 'bishopric') {
-    const wardWide = space.kind !== 'org';
-    const scope = wardWide ? {} : { spaceId: space.id };
-    // Every row still passes the post-level check (fail closed; e.g. a shared org page).
-    const visible = async (list: PostSummary[]) => {
-      const out: PostSummary[] = [];
-      for (const p of list) {
-        if (await canViewPost(env, userId, { id: p.id, ward_id: ward.id, space_id: p.space_id, created_by_user_id: null })) out.push(p);
-      }
-      return out;
-    };
-    const open = await visible(await listWardPosts(env, ward.id, { ...scope, past: false, now }));
-    const past = await visible(await listWardPosts(env, ward.id, { ...scope, past: true, now }));
-    // "Create Service Opportunity": any category this person may create in (on an org page,
-    // one this org owns). Copy: the right to create in the post's category.
-    const creatable = await categoriesUserMayCreateIn(env, ward.id, userId);
-    const creatableIds = new Set(creatable.map((x) => x.id));
-    let newPostHref: string | null = null;
-    if (wardWide) {
-      if (creatable.length) newPostHref = `/w/${ward.id}/vol/new`;
-    } else {
-      for (const cat of creatable) {
-        if ((await categorySpaceIds(env, ward.id, cat.id)).includes(space.id)) {
-          newPostHref = `/w/${ward.id}/vol/new?space=${space.id}`;
-          break;
-        }
-      }
-    }
-    const legacy = new Map<string, boolean>();
-    for (const p of past) {
-      if (!p.category_id && !legacy.has(p.space_id)) legacy.set(p.space_id, await canManageOrg(env, ward.id, p.space_id, userId));
-    }
-    html += renderVolunteerSection({
-      wardId: ward.id,
-      open,
-      past,
-      newPostHref,
-      canCopy: (p) => (p.category_id ? creatableIds.has(p.category_id) : legacy.get(p.space_id) === true),
-      showVolunteersLink: await canSeeWardVolunteers(env, ward.id, userId),
-      wardWide,
+  if (space.kind !== 'org' && space.kind !== 'ward_council' && space.kind !== 'bishopric') return html;
+  // One snapshot for every permission check on this page (serviceAccess.loadAccess).
+  let snap = await loadAccess(env, ward.id, userId);
+  const wardWide = space.kind !== 'org';
+  const scope = wardWide ? {} : { spaceId: space.id };
+  // Every row still passes the post-level check (fail closed; e.g. a shared org page).
+  const both = await listWardPostsOpenAndPast(env, ward.id, { ...scope, now });
+  const stored = await loadPosts(env, ward.id, [...both.open, ...both.past].map((p) => p.id));
+  const visible = (list: PostSummary[]) =>
+    list.filter((p) => {
+      const sp = stored.get(p.id);
+      return sp != null && canViewStored(snap, sp);
     });
+  const open = visible(both.open);
+  const past = visible(both.past);
+  // "Create Service Opportunity": any category this person may create in (on an org page,
+  // one this org owns). Copy: the right to create in the post's category.
+  const creatable = await categoriesUserMayCreateIn(env, ward.id, userId, snap);
+  snap = await coveringCategories(env, snap, creatable.map((x) => x.id));
+  const creatableIds = new Set(creatable.map((x) => x.id));
+  let newPostHref: string | null = null;
+  if (wardWide) {
+    if (creatable.length) newPostHref = `/w/${ward.id}/vol/new`;
+  } else if (creatable.some((cat) => snap.owningSpaceIds(cat.id).includes(space.id))) {
+    newPostHref = `/w/${ward.id}/vol/new?space=${space.id}`;
   }
+  const legacy = new Map<string, boolean>();
+  for (const p of past) {
+    if (!p.category_id && !legacy.has(p.space_id)) legacy.set(p.space_id, canManageOrgIn(snap, p.space_id));
+  }
+  html += renderVolunteerSection({
+    wardId: ward.id,
+    open,
+    past,
+    newPostHref,
+    canCopy: (p) => (p.category_id ? creatableIds.has(p.category_id) : legacy.get(p.space_id) === true),
+    showVolunteersLink: snap.isBishopric(),
+    wardWide,
+  });
   if (space.kind === 'org') {
     const editors = await listEditors(env, ward.id, space.id);
-    const canManage = await canManageEditorList(env, ward.id, space.id, userId);
+    const canManage = canManageEditorListIn(snap, space.id);
     const onList = new Set(editors.map((e) => e.user_id));
     const candidates = canManage
       ? (await listWardMembers(env, ward.id)).filter((m) => !onList.has(m.user_id))
@@ -305,15 +303,16 @@ function discordNotice(q: string | undefined): string | undefined {
 volRoutes.get('/w/:wardId/vol/new', requireAuth(), async (c) => {
   const lc = await leaderCtx(c);
   if (lc instanceof Response) return lc;
-  const creatable = await categoriesUserMayCreateIn(c.env, lc.ward.id, lc.user.id);
+  let snap = await loadAccess(c.env, lc.ward.id, lc.user.id);
+  const creatable = await categoriesUserMayCreateIn(c.env, lc.ward.id, lc.user.id, snap);
   if (!creatable.length) return c.text('Forbidden', 403);
+  snap = await coveringCategories(c.env, snap, creatable.map((x) => x.id));
   const categoryId = c.req.query('category') ?? '';
   if (!categoryId) {
     const space = c.req.query('space') ?? '';
     let list: CategoryRow[] = creatable;
     if (space) {
-      const owned: CategoryRow[] = [];
-      for (const x of creatable) if ((await categorySpaceIds(c.env, lc.ward.id, x.id)).includes(space)) owned.push(x);
+      const owned = creatable.filter((x) => snap.owningSpaceIds(x.id).includes(space));
       if (owned.length) list = owned;
     }
     return c.html(renderCategoryPicker({ user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, categories: list }));

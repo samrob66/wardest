@@ -71,6 +71,11 @@ export class AccessSnapshot {
     return this.cats.has(categoryId);
   }
 
+  // The category's owning spaces in this ward (serviceCategories.categorySpaceIds, from memory).
+  owningSpaceIds(categoryId: string): string[] {
+    return (this.cats.get(categoryId)?.owners ?? []).map((o) => o.id);
+  }
+
   spaceKind(spaceId: string): string | null {
     return this.spaces.get(spaceId)?.kind ?? null;
   }
@@ -242,8 +247,8 @@ export async function accessFor(env: Env, wardId: string, userId: string, snap?:
 }
 
 // listCategories inserts any missing default first, so a list can hold categories newer than the
-// snapshot: decide those on a fresh snapshot, as the per-check queries would have.
-async function coveringAll(env: Env, s: AccessSnapshot, ids: string[]): Promise<AccessSnapshot> {
+// snapshot: then a fresh snapshot decides them, as the per-check queries would have.
+export async function coveringCategories(env: Env, s: AccessSnapshot, ids: string[]): Promise<AccessSnapshot> {
   return ids.every((id) => s.hasCategory(id)) ? s : loadAccess(env, s.wardId, s.userId);
 }
 
@@ -314,7 +319,7 @@ export async function categoriesUserMayCreateIn(
   let s = await accessFor(env, wardId, userId, snap);
   if (!s.role) return [];
   const list = await listCategories(env, wardId, { kind: 'opportunity' });
-  s = await coveringAll(env, s, list.map((c) => c.id));
+  s = await coveringCategories(env, s, list.map((c) => c.id));
   return list.filter((c) => s.canCreateInCategory(c.id));
 }
 
@@ -434,6 +439,6 @@ export async function hasServiceRole(env: Env, wardId: string, userId: string, s
   let s = await accessFor(env, wardId, userId, snap);
   if (!s.role) return false;
   const ids = (await listCategories(env, wardId, { includeArchived: true })).map((c) => c.id);
-  s = await coveringAll(env, s, ids);
+  s = await coveringCategories(env, s, ids);
   return s.hasServiceRoleIn(ids);
 }

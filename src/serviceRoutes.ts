@@ -14,8 +14,8 @@ import { requireAuth } from './lib/auth';
 import { getWardById, getWardSpaces, listWardMembers, wardRole, type WardRow } from './lib/wards';
 import { notFoundPage } from './views/notfound';
 import {
-  canCreateInCategory, canManageRequest, canSeeRequest, canSeeRequestCategory, categoriesUserMayCreateIn, isBishopric,
-  isCategoryManager,
+  canCreateInCategory, canManageRequest, canSeeRequest, categoriesUserMayCreateIn, isBishopric, isCategoryManager, loadAccess,
+  type AccessSnapshot,
 } from './lib/serviceAccess';
 import {
   getCategory, getCategoryBySlug, getCategoryRow, listCategories, type CategoryFull, type CategoryRow,
@@ -30,7 +30,7 @@ import { hitLimit } from './lib/volRate';
 import { sha256Hex } from './lib/volSession';
 import { renderHelpForm, renderHelpNote, renderHelpPage, renderHelpVerify, type HelpFormValues } from './views/help';
 import { renderInbox, renderRequestPage } from './views/requests';
-import { canEditPost, canViewPost } from './lib/volAccess';
+import { canEditPost, canViewStored, loadPosts } from './lib/volAccess';
 import { getPost, isPostOver, listPostSignups, listUserPostIds, type PostFull } from './lib/volPosts';
 import {
   InviteInputError, KICK_LIMIT, createInviteBatch, getBatch, previewInvites, pumpInvitations, readUnsub, sendTestInvite,
@@ -74,12 +74,14 @@ function back(c: Context<AppEnv>, path: string, err?: string): Response {
 }
 
 // Spaces this user may add a category to: ones they own; any eligible space for the Bishopric.
-async function addableSpaces(c: Context<AppEnv>, lc: LeaderCtx): Promise<Array<{ id: string; name: string }>> {
-  const bishopric = await isBishopric(c.env, lc.ward.id, lc.user.id);
+// (mayAddTo's rule from the request's snapshot: these rows are already eligible owner spaces,
+// i.e. live org / bishopric / ward_council spaces of the ward.)
+async function addableSpaces(c: Context<AppEnv>, lc: LeaderCtx, snap: AccessSnapshot): Promise<Array<{ id: string; name: string }>> {
+  const bishopric = snap.isBishopric();
   const out: Array<{ id: string; name: string }> = [];
   for (const s of await getWardSpaces(c.env, lc.ward.id)) {
     if (!['org', 'bishopric', 'ward_council'].includes(s.kind)) continue;
-    if (bishopric || (await mayAddTo(c, lc, s.id))) out.push({ id: s.id, name: s.name });
+    if (bishopric || snap.spaceRole(s.id, 'strict') === 'owner') out.push({ id: s.id, name: s.name });
   }
   return out;
 }
@@ -101,19 +103,15 @@ serviceRoutes.get('/w/:wardId/service', requireAuth(), async (c) => {
   const lc = await leaderCtx(c);
   if (lc instanceof Response) return lc;
   const cats = await listCategories(c.env, lc.ward.id, { includeArchived: true });
-  const managed = [];
-  let canSeeRequests = false;
-  for (const cat of cats) {
-    if (await isCategoryManager(c.env, lc.ward.id, cat.id, lc.user.id)) managed.push(cat);
-    if (cat.kind === 'request' && !cat.archived && !canSeeRequests) {
-      canSeeRequests = await canSeeRequestCategory(c.env, lc.ward.id, cat.id, lc.user.id);
-    }
-  }
-  const creatable = await categoriesUserMayCreateIn(c.env, lc.ward.id, lc.user.id);
+  // One snapshot for every check on this page (taken after listCategories added any default).
+  const snap = await loadAccess(c.env, lc.ward.id, lc.user.id);
+  const managed = cats.filter((cat) => snap.isCategoryManager(cat.id));
+  const canSeeRequests = cats.some((cat) => cat.kind === 'request' && !cat.archived && snap.canSeeRequestCategory(cat.id));
+  const canCreate = cats.some((cat) => cat.kind === 'opportunity' && !cat.archived && snap.canCreateInCategory(cat.id));
   return c.html(
     renderServiceHub({
-      user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, canCreate: creatable.length > 0, managed, canSeeRequests,
-      addSpaces: await addableSpaces(c, lc), notice: c.req.query('ok') ? 'Saved.' : undefined, error: c.req.query('err') || undefined,
+      user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, canCreate, managed, canSeeRequests,
+      addSpaces: await addableSpaces(c, lc, snap), notice: c.req.query('ok') ? 'Saved.' : undefined, error: c.req.query('err') || undefined,
     }),
   );
 });
@@ -388,11 +386,9 @@ serviceRoutes.post('/help/:prefix/:slug', async (c) => {
 
 // Request categories this person may see (managers and delegates; confidential: see serviceAccess).
 async function visibleRequestCategories(c: Context<AppEnv>, lc: LeaderCtx): Promise<CategoryRow[]> {
-  const out: CategoryRow[] = [];
-  for (const cat of await listCategories(c.env, lc.ward.id, { kind: 'request', includeArchived: true })) {
-    if (await canSeeRequestCategory(c.env, lc.ward.id, cat.id, lc.user.id)) out.push(cat);
-  }
-  return out;
+  const cats = await listCategories(c.env, lc.ward.id, { kind: 'request', includeArchived: true });
+  const snap = await loadAccess(c.env, lc.ward.id, lc.user.id);
+  return cats.filter((cat) => snap.canSeeRequestCategory(cat.id));
 }
 
 serviceRoutes.get('/w/:wardId/requests', requireAuth(), async (c) => {
@@ -467,9 +463,14 @@ serviceRoutes.get('/w/:wardId/service/mine', requireAuth(), async (c) => {
   if (lc instanceof Response) return lc;
   const now = new Date();
   const items: MineItem[] = [];
-  for (const id of await listUserPostIds(c.env, lc.ward.id, lc.user.id)) {
+  const ids = await listUserPostIds(c.env, lc.ward.id, lc.user.id);
+  const snap = await loadAccess(c.env, lc.ward.id, lc.user.id);
+  const stored = await loadPosts(c.env, lc.ward.id, ids);
+  for (const id of ids) {
+    const p = stored.get(id);
+    if (!p || !canViewStored(snap, p)) continue;
     const post = await getPost(c.env, lc.ward.id, id);
-    if (!post || !(await canViewPost(c.env, lc.user.id, post))) continue;
+    if (!post) continue;
     const signups = await listPostSignups(c.env, lc.ward.id, post.id);
     const warned = await c.env.DB.prepare(
       `SELECT w.date_id, COUNT(*) AS n, MAX(w.sent_at) AS last FROM vol_warn_sent w JOIN vol_dates d ON d.id = w.date_id AND d.ward_id = w.ward_id

@@ -16,6 +16,11 @@
 //   requests inbox: bishop 20 -> 40, EQ president 25 -> 65
 // and 1 -> 11 posts: Relief Society page 130 -> 160; Ward Council page RS president 119 -> 179,
 // counselor 72 -> 152; Bishopric page 74 -> 154; My service opportunities 17 -> 147 (13 per post).
+//
+// After (one AccessSnapshot per request; loadAccess is one batch of 5 statements), the same
+// whatever the number of categories or posts: service hub 12 (both); Relief Society page 28;
+// Ward Council page 23 (both); Bishopric page 25; Public page 9; ward page 24 (all three);
+// category picker 11 (both); My service opportunities 17 + 7 per post; requests inbox 12 (both).
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { asUser, countQueries, env } from './helpers';
@@ -25,16 +30,6 @@ import { newId } from '../src/lib/ids';
 const MAX = 30;
 // getPost (5 statements) + its sign-ups + its warnings; the view check itself adds none.
 const PER_POST_MINE = 7;
-
-// Red until the loops use one access snapshot (plan Task 4 empties this list): these cases are
-// expected to fail today, so the suite stays green commit by commit.
-const STILL_N_PLUS_1 = new Set([
-  'service hub as rsPres', 'service hub as bishop', 'Relief Society space page as rsPres', 'Ward Council space page as rsPres',
-  'Ward Council space page as counselor', 'Bishopric space page as bishop', 'requests inbox as bishop', 'requests inbox as eqPres',
-  'posts: Relief Society space page as rsPres', 'posts: Ward Council space page as rsPres', 'posts: Ward Council space page as counselor',
-  'posts: Bishopric space page as bishop', 'posts: My service opportunities as rsPres',
-]);
-const test = (name: string) => (STILL_N_PLUS_1.has(name) ? it.fails : it);
 
 async function add20Categories(c: ServiceCast): Promise<void> {
   const stmts: D1PreparedStatement[] = [];
@@ -83,14 +78,13 @@ const PAGES: Array<[name: string, path: (c: ServiceCast) => string, users: Who[]
 describe('D1 statements per leader page do not grow with the number of categories', () => {
   for (const [name, path, users] of PAGES) {
     for (const who of users) {
-      test(`${name} as ${who}`)(`${name} as ${who}`, async () => {
+      it(`${name} as ${who}`, async () => {
         const c = await makeServiceCast();
         await insertPost(c.wardId, { spaceId: c.spaces['relief-society']!, categoryId: c.cat.meal!.id, createdBy: c.rsPres, title: 'Meals' });
         await insertPost(c.wardId, { spaceId: c.spaces['ward-council']!, categoryId: c.cat['helping-hand']!.id, createdBy: c.bishop, title: 'Help' });
         const before = await viewCount(path(c), c[who]);
         await add20Categories(c);
         const after = await viewCount(path(c), c[who]);
-        console.log(`[queries] ${name} as ${who}: ${before} -> ${after}`);
         expect(after, `${name} as ${who}: ${before} with 11 categories, ${after} with 31`).toBe(before);
         expect(after).toBeLessThanOrEqual(MAX);
       }, 30_000);
@@ -116,13 +110,12 @@ const POST_PAGES: Array<[name: string, path: (c: ServiceCast) => string, users: 
 describe('D1 statements per space page do not grow with the number of posts', () => {
   for (const [name, path, users] of POST_PAGES) {
     for (const who of users) {
-      test(`posts: ${name} as ${who}`)(`${name} as ${who}`, async () => {
+      it(`${name} as ${who}`, async () => {
         const c = await makeServiceCast();
         await insertPost(c.wardId, { spaceId: c.spaces['relief-society']!, categoryId: c.cat.meal!.id, createdBy: c.rsPres, title: 'Meals' });
         const before = await viewCount(path(c), c[who]);
         await add10Posts(c);
         const after = await viewCount(path(c), c[who]);
-        console.log(`[queries] ${name} as ${who}, 1 -> 11 posts: ${before} -> ${after}`);
         expect(after, `${name} as ${who}: ${before} with 1 post, ${after} with 11`).toBe(before);
         expect(after).toBeLessThanOrEqual(MAX);
       }, 30_000);
@@ -133,13 +126,12 @@ describe('D1 statements per space page do not grow with the number of posts', ()
 // My service opportunities reads each post in full (dates, roles, sign-ups, warnings), so it
 // grows with posts by design; its permission checks must not add to that per post.
 describe('My service opportunities: statements per post', () => {
-  test('posts: My service opportunities as rsPres')('as the RS president, 1 -> 11 posts', async () => {
+  it('as the RS president, 1 -> 11 posts', async () => {
     const c = await makeServiceCast();
     await insertPost(c.wardId, { spaceId: c.spaces['relief-society']!, categoryId: c.cat.meal!.id, createdBy: c.rsPres, title: 'Meals' });
     const before = await viewCount(`/w/${c.wardId}/service/mine`, c.rsPres);
     await add10Posts(c);
     const after = await viewCount(`/w/${c.wardId}/service/mine`, c.rsPres);
-    console.log(`[queries] My service opportunities as rsPres, 1 -> 11 posts: ${before} -> ${after} (${(after - before) / 10} per post)`);
-    expect((after - before) / 10).toBeLessThanOrEqual(PER_POST_MINE);
+    expect((after - before) / 10, `${before} with 1 post, ${after} with 11`).toBeLessThanOrEqual(PER_POST_MINE);
   }, 30_000);
 });

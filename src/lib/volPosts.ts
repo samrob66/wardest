@@ -631,8 +631,18 @@ export async function listWardPosts(
   wardId: string,
   o: { spaceId?: string; past: boolean; now: Date },
 ): Promise<PostSummary[]> {
+  const both = await listWardPostsOpenAndPast(env, wardId, o);
+  return o.past ? both.past : both.open;
+}
+
+// Both lists from one read (a space page shows both).
+export async function listWardPostsOpenAndPast(
+  env: Env,
+  wardId: string,
+  o: { spaceId?: string; now: Date },
+): Promise<{ open: PostSummary[]; past: PostSummary[] }> {
   const ward = await env.DB.prepare(`SELECT timezone FROM wards WHERE id = ?`).bind(wardId).first<{ timezone: string }>();
-  if (!ward) return [];
+  if (!ward) return { open: [], past: [] };
   const tz = ward.timezone;
   const posts = await env.DB.prepare(
     `SELECT p.id, p.public_id, p.title, p.space_id, p.category_id, p.audiences, p.created_by_user_id, s.name AS org_name
@@ -655,13 +665,13 @@ export async function listWardPosts(
     .all<{ post_id: string; date: string }>();
   const today = wardToday(tz, o.now);
   const soonEnd = addDays(today, 14);
-  const out: PostSummary[] = [];
+  const open: PostSummary[] = [];
+  const past: PostSummary[] = [];
   for (const p of posts.results ?? []) {
     const ds = (dates.results ?? []).filter((d) => d.post_id === p.id).map((d) => d.date).sort();
     const rs = (roles.results ?? []).filter((r) => r.post_id === p.id);
     const over = ds.length > 0 && ds.every((d) => isDateOver(d, tz, o.now));
-    if (over !== o.past) continue;
-    out.push({
+    (over ? past : open).push({
       id: p.id,
       public_id: p.public_id,
       title: p.title,
@@ -678,12 +688,9 @@ export async function listWardPosts(
       short_soon: rs.some((r) => r.confirmed < r.needed && r.date >= today && r.date <= soonEnd),
     });
   }
-  out.sort((a, b) =>
-    o.past
-      ? (b.last_date ?? '').localeCompare(a.last_date ?? '')
-      : (a.first_date ?? '9999').localeCompare(b.first_date ?? '9999') || a.title.localeCompare(b.title),
-  );
-  return out;
+  past.sort((a, b) => (b.last_date ?? '').localeCompare(a.last_date ?? ''));
+  open.sort((a, b) => (a.first_date ?? '9999').localeCompare(b.first_date ?? '9999') || a.title.localeCompare(b.title));
+  return { open, past };
 }
 
 export interface PostSignupRow {
