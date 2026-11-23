@@ -329,10 +329,20 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    (secrets), O6 (donate link). Then create D1 + R2 (`wardest-files`), migrate + seed, deploy,
    and verify a real Google sign-in and a live Resend invite.
 3. **Spec the Executive Secretary setup track** — the guided, ordered path for a new bishopric's
-   Exec Sec. Discuss first, review as .docx, then build. Draft order (from the Playbook): role
-   account → Google plan → calendars → booking pages → interview router → zippa.run creator +
-   links → ward links site / portal → flyer → Zoom → assignment rotations → Wardest spaces +
-   callings.
+   Exec Sec. Settled 2026-10-06: it's a "Start here" page in the app that lists existing catalog
+   solutions in order, not a new kind of object; Exec Sec first, a Ward Clerk track later.
+   Order: role account → **Wardest callings + spaces** (moved up so the bishopric can help
+   early) → Google plan → calendars → booking pages → interview router → zippa.run creator +
+   links → public portal → flyer → Zoom → assignment rotations. Full spec in review as a .docx;
+   build after Sam approves it.
+   Settled by Sam 2026-11-21: the 13 steps and their order stand; spec decisions 1, 2, 3, 5
+   and 6 are yes (own Google accounts on Wardest / role account on zippa.run; interview setup
+   split into three steps; hand-off note is step 13; zippa.run request noted in step 1; step 8
+   is Wardest's own portal). All 13 steps are the Exec Sec's ("Steps 10-13 should be done by
+   the Exec Sec, so I guess all of this is the Exec Sec"), so the track has no Bishopric-category
+   steps. Decision 4 (template Sheets' owner) and the rest of the spec (page, build, phases)
+   are on hold: Sam has a new app to brainstorm first that needs callings and spaces and may
+   change them.
 4. **Catalog how-tos from the Playbook.** Revise the 3 drafted solutions (zippa.run + demo site),
    seed them in place of `sol_ex_interviews` / `sol_ex_bulletin`, and ship the generalized
    `InterviewRouter` template with the real calendar IDs stripped. Then the remaining Playbook
@@ -340,10 +350,9 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
 5. **Assignment rotation trackers** (Bishopric Meeting + Ward Council). These were built
    2026-07 and are described in CLAUDE.md under "Related tools". The **Apps Script version** is the
    template asset for two catalog solutions. Bishopric Meeting goes under `bishopric`. Ward Council
-   goes under `exec_secretary`, which is proposed and awaiting Sam's confirmation (the schema has
-   no Ward Council category). It's a Google-based tool each ward owns, which keeps it within
-   BLUEPRINT §12. Harden it
-   before publishing:
+   goes under `exec_secretary` (confirmed by Sam 2026-10-06; the schema has no Ward Council
+   category, and the Exec Sec runs that meeting's logistics). It's a Google-based tool each ward
+   owns, which keeps it within BLUEPRINT §12. Harden it before publishing:
    - Generate a random PIN on first run instead of shipping the fixed default `1830`.
    - Throttle wrong PIN guesses.
    - Use the generic calling list only.
@@ -351,7 +360,13 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    Wardest hosts the code and guide; it doesn't run the tracker.
 6. **Demo / example ward links site.** A generic copy of the M44 hub and its interview sub-pages
    that new wards can see and copy. Agreed 2026-10-06: a GitHub template repo with Pages, owned by
-   a Wardest GitHub account (not samrob66, not m44ward). Creating that account is an owner step.
+   a Wardest GitHub organization (not samrob66, not m44ward). Creating it is an owner step; Sam
+   agreed to an org. `github.com/wardest` is already taken (a user account created 2021-11 with
+   no public repos). It is not known to be Sam's: on 2026-11-21 he said "wardest is mine" but
+   meant this repo, `github.com/samrob66/wardest`. So the org's name is still pending Sam.
+   Confirmed the same day: each ward's own links site stays on a GitHub account owned by that
+   ward's role account (M44: `m44ward`), handed to the next bishopric; only the generic demo
+   belongs to Wardest.
 7. **Other Exec Sec templates** from the same Drive folder (meeting agendas + minutes, speaker
    planner, tithing declaration sign-up, missionary dinner calendar, new & returning members) —
    catalog candidates once Sam confirms they're current.
