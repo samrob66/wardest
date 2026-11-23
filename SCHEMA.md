@@ -54,7 +54,7 @@ erDiagram
 | Table | Purpose |
 |---|---|
 | `users` | Google-identified people; may belong to multiple wards |
-| `solutions` | Global catalog **and** the submission pipeline (one table, keyed by `status`) |
+| `solutions` | Global catalog **and** the submission pipeline (one table, keyed by `status`). `setup_step` (1–99, NULL = not in the track) orders the Executive Secretary's Start here page (`/w/:wardId/start`): published solutions with a step, by step, then `position`, then title; operator-editable on the solution form |
 | `workspace_requests` | Request→approve gate: `create` a new ward (operator reviews) or `join` an existing one after unit-number dedupe (that ward's superadmins review) |
 | `wards` | The tenant; `unit_number` dedupes; `prefix` = the ward's zippa.run prefix (e.g. `m44`) |
 | `ward_memberships` | user↔ward + ward role (`superadmin`/`member`) |

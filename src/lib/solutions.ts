@@ -29,6 +29,7 @@ export interface Solution {
   implementation_scope: string;
   status: string;
   position: number;
+  setup_step: number | null; // Start here order (1-99); null = not in the track
 }
 
 function slugify(s: string): string {
@@ -60,6 +61,20 @@ export interface SolutionInput {
   templateValue: string | null;
   implementationScope: 'ward_singleton' | 'per_space';
   status: 'draft' | 'published';
+  setupStep: number | null;
+}
+
+export const SETUP_STEP_ERROR = 'Setup step must be a whole number from 1 to 99, or blank.';
+
+// The operator form's Setup step field: blank -> null (not in the track), a whole number 1-99
+// -> that number, anything else -> an error (nothing is saved).
+export function parseSetupStep(raw: unknown): { ok: true; value: number | null } | { ok: false; error: string } {
+  const t = typeof raw === 'string' ? raw.trim() : raw == null ? '' : null;
+  if (t === '') return { ok: true, value: null };
+  if (t === null || !/^[0-9]{1,2}$/.test(t)) return { ok: false, error: SETUP_STEP_ERROR };
+  const n = Number(t);
+  if (n < 1 || n > 99) return { ok: false, error: SETUP_STEP_ERROR };
+  return { ok: true, value: n };
 }
 
 export async function createSolution(env: Env, input: SolutionInput): Promise<string> {
@@ -68,8 +83,8 @@ export async function createSolution(env: Env, input: SolutionInput): Promise<st
   await env.DB.prepare(
     `INSERT INTO solutions
        (id, category, title, slug, summary, body, video_url, template_type, template_value,
-        implementation_scope, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        implementation_scope, status, setup_step)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -83,6 +98,7 @@ export async function createSolution(env: Env, input: SolutionInput): Promise<st
       input.templateValue,
       input.implementationScope,
       input.status,
+      input.setupStep,
     )
     .run();
   return id;
@@ -92,7 +108,7 @@ export async function updateSolution(env: Env, id: string, input: SolutionInput)
   await env.DB.prepare(
     `UPDATE solutions SET category = ?, title = ?, summary = ?, body = ?, video_url = ?,
        template_type = ?, template_value = ?, implementation_scope = ?, status = ?,
-       updated_at = datetime('now')
+       setup_step = ?, updated_at = datetime('now')
      WHERE id = ?`,
   )
     .bind(
@@ -105,6 +121,7 @@ export async function updateSolution(env: Env, id: string, input: SolutionInput)
       input.templateValue,
       input.implementationScope,
       input.status,
+      input.setupStep,
       id,
     )
     .run();

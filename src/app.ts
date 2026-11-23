@@ -58,6 +58,7 @@ import {
   listPublishedSolutions,
   submitSolution,
   setSolutionStatus,
+  parseSetupStep,
   type SolutionInput,
 } from './lib/solutions';
 import {
@@ -701,8 +702,10 @@ function defaultPublishTargetId(
   return null;
 }
 
-function parseSolution(body: Record<string, string | File>): SolutionInput {
-  return {
+// The operator solution form. `error` is set when a field is invalid; nothing is saved then.
+function parseSolution(body: Record<string, string | File>): { input: SolutionInput; error?: string } {
+  const step = parseSetupStep(typeof body.setup_step === 'string' ? body.setup_step : '');
+  const input: SolutionInput = {
     category: String(body.category ?? 'exec_secretary'),
     title: String(body.title ?? '').trim(),
     summary: String(body.summary ?? '').trim() || null,
@@ -712,7 +715,11 @@ function parseSolution(body: Record<string, string | File>): SolutionInput {
     templateValue: String(body.template_value ?? '').trim() || null,
     implementationScope: body.implementation_scope === 'per_space' ? 'per_space' : 'ward_singleton',
     status: body.status === 'published' ? 'published' : 'draft',
+    setupStep: step.ok ? step.value : null,
   };
+  if (!input.title) return { input, error: 'Title is required.' };
+  if (!step.ok) return { input, error: step.error };
+  return { input };
 }
 
 // Operator authoring
@@ -721,8 +728,8 @@ appSite.get('/operator/solutions', operatorOnly, async (c) =>
 );
 appSite.get('/operator/solutions/new', operatorOnly, (c) => c.html(renderSolutionForm(c.get('user')!, {})));
 appSite.post('/operator/solutions', operatorOnly, async (c) => {
-  const input = parseSolution(await c.req.parseBody());
-  if (!input.title) return c.html(renderSolutionForm(c.get('user')!, { error: 'Title is required.' }));
+  const { input, error } = parseSolution(await c.req.parseBody());
+  if (error) return c.html(renderSolutionForm(c.get('user')!, { error }));
   await createSolution(c.env, input);
   return c.redirect('/operator/solutions', 302);
 });
@@ -734,8 +741,8 @@ appSite.get('/operator/solutions/:id', operatorOnly, async (c) => {
 appSite.post('/operator/solutions/:id', operatorOnly, async (c) => {
   const s = await getSolution(c.env, c.req.param('id'));
   if (!s) return c.text('Not found', 404);
-  const input = parseSolution(await c.req.parseBody());
-  if (!input.title) return c.html(renderSolutionForm(c.get('user')!, { solution: s, error: 'Title is required.' }));
+  const { input, error } = parseSolution(await c.req.parseBody());
+  if (error) return c.html(renderSolutionForm(c.get('user')!, { solution: s, error }));
   await updateSolution(c.env, s.id, input);
   return c.redirect('/operator/solutions', 302);
 });

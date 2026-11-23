@@ -68,7 +68,7 @@ export function renderOperatorSolutions(user: SessionUser, solutions: Solution[]
       .map(
         (s) => `<div class="card"><div class="row">
           <span><a href="/operator/solutions/${esc(s.id)}"><strong>${esc(s.title)}</strong></a>
-            <span class="muted">${esc(s.implementation_scope)}</span></span>
+            <span class="muted">${esc(s.implementation_scope)}${s.setup_step != null ? ` · Step ${s.setup_step}` : ''}</span></span>
           <span class="badge ${s.status === 'published' ? 'super' : ''}">${esc(s.status)}</span>
         </div></div>`,
       )
@@ -129,6 +129,8 @@ export function renderSolutionForm(user: SessionUser, opts: { solution?: Solutio
               <option value="draft" ${sel('draft', s?.status)}>Draft</option>
               <option value="published" ${sel('published', s?.status)}>Published</option>
             </select></div>
+          <div style="flex:1"><label for="setup_step">Setup step (Start here order; blank = not in the track)</label>
+            <input id="setup_step" name="setup_step" inputmode="numeric" value="${s?.setup_step != null ? esc(String(s.setup_step)) : ''}"></div>
         </div>
         <button class="btn" type="submit">${s ? 'Save' : 'Create'}</button>
       </form>`,

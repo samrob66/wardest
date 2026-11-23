@@ -51,6 +51,8 @@ CREATE TABLE solutions (
   submitted_by_user_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
   submitted_by_ward_id  TEXT,                   -- soft ref (ward may be gone); see SCHEMA.md
   position              INTEGER NOT NULL DEFAULT 0,
+  -- Executive Secretary "Start here" order (1-99); NULL = not in the track. App-validated.
+  setup_step            INTEGER,
   created_at            TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
