@@ -117,8 +117,8 @@ describe('volAccess', () => {
   });
 });
 
-// One or two space-page views per test: each view runs ~150 D1 queries (service-category
-// permission checks), so one test doing all of them ran far longer than the rest.
+// One space-page view per test: each view runs ~150 D1 queries (service-category permission
+// checks), so one test doing all of them ran far longer than the rest.
 describe('volunteer editors card', () => {
   let c: Cast;
   let base: string;
@@ -127,10 +127,13 @@ describe('volunteer editors card', () => {
     base = `http://localhost/w/${c.wardId}/space/${c.spaces['elders-quorum']}`;
   });
 
-  it('an owner sees the card with its manage form; a member sees the card without it', async () => {
+  it('an owner sees the card with its manage form', async () => {
     const page = await (await SELF.fetch(base, { headers: { cookie: await asUser(c.eqPres) } })).text();
     expect(page).toContain('Who can manage volunteer posts');
     expect(page).toContain(`${base.replace('http://localhost', '')}/vol-editors`);
+  });
+
+  it('a member sees the card without the manage form', async () => {
     const teacherPage = await (await SELF.fetch(base, { headers: { cookie: await asUser(c.eqTeacher) } })).text();
     expect(teacherPage).toContain('Who can manage volunteer posts');
     expect(teacherPage).not.toContain('/vol-editors"');

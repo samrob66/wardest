@@ -141,8 +141,10 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
   work a route hands to `waitUntil` is awaited with `settle()` (`test/helpers.ts`), never polled,
   and setup settles after every test; a test that runs on the real clock uses `futureDate()` or
   passes `now`, never a fixed calendar date; one leader page view per test where a page runs
-  ~150+ D1 queries (service hub, space pages); no test should take more than ~0.5 s alone (the
-  2,000-invitation volume test has its own measured timeout).
+  ~150+ D1 queries (service hub, space pages). Those pages are slow because `src/lib/serviceAccess.ts`
+  checks permissions one category at a time (N+1 queries; a known follow-up). Aim for new tests
+  to take under ~0.5 s with their file run alone; several existing ones take more. The
+  2,000-invitation volume test has its own measured timeout.
 - Cron locally: `npx wrangler dev --test-scheduled`, then
   `curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"` (hourly: reminders, nudges, lapses,
   fill warnings, request purges) or `cron=*+*+*+*+*` (every minute: the invitation pump).
