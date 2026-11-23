@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 import { newId } from './ids';
 import { isValidTimezone } from './wardTime';
+import { ensureServiceCategories } from './serviceCategories';
 
 export interface DefaultSpace {
   kind: 'public' | 'bishopric' | 'ward_council' | 'org';
@@ -115,6 +116,8 @@ export async function createWard(
   );
 
   await env.DB.batch(stmts);
+  // The default service categories (meals, moving, requests...) with their owning spaces.
+  await ensureServiceCategories(env, wardId);
   return wardId;
 }
 

@@ -66,6 +66,14 @@ CREATE TABLE wards (
   status            TEXT NOT NULL DEFAULT 'active'
                       CHECK (status IN ('active','suspended')),
   timezone          TEXT NOT NULL DEFAULT 'America/Denver',  -- IANA zone; volunteer cutoffs/reminders
+  -- Portal service sections (superadmin settings): pasted short links for the public serve and
+  -- help pages (http(s) only; QR codes use them when set) and whether each section shows.
+  serve_short_url   TEXT,
+  help_short_url    TEXT,
+  serve_section_on  INTEGER NOT NULL DEFAULT 1,
+  help_section_on   INTEGER NOT NULL DEFAULT 1,
+  -- Safety ceiling on bulk invitation emails per ward-local day (operator adjusts).
+  invite_daily_cap  INTEGER NOT NULL DEFAULT 5000,
   created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
@@ -89,6 +97,7 @@ CREATE TABLE workspace_requests (
   reviewed_at        TEXT,
   created_ward_id    TEXT REFERENCES wards(id) ON DELETE SET NULL,  -- kind='create', on approval
   note               TEXT,
+  bishop_approved    INTEGER NOT NULL DEFAULT 0,   -- "Our bishop has approved using WardForward" (Handbook 38.8.21.2)
   created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -258,8 +267,22 @@ CREATE TABLE deliverables (
 );
 CREATE INDEX idx_deliverables_ward ON deliverables(ward_id);
 
+-- Named sections on a space's portal (e.g. "Ward Links", "Interviews" on the public portal).
+-- Published deliverables with no section fall under the portal's default "Links" section.
+CREATE TABLE portal_sections (
+  id         TEXT PRIMARY KEY,
+  ward_id    TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  space_id   TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  title      TEXT NOT NULL,
+  position   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_portal_sections_ward ON portal_sections(ward_id);
+CREATE INDEX idx_portal_sections_space ON portal_sections(space_id);
+
 -- Publishing layer: which spaces a deliverable appears in, and whether it shows on that
 -- space's portal page + its order. A deliverable can be published to multiple spaces.
+-- section_id: the portal section it shows under (NULL = the default section).
 CREATE TABLE deliverable_spaces (
   id                TEXT PRIMARY KEY,
   ward_id           TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
@@ -267,6 +290,7 @@ CREATE TABLE deliverable_spaces (
   space_id          TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   include_in_portal INTEGER NOT NULL DEFAULT 1,
   position          INTEGER NOT NULL DEFAULT 0,
+  section_id        TEXT REFERENCES portal_sections(id) ON DELETE SET NULL,
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (deliverable_id, space_id)
 );
@@ -314,12 +338,53 @@ CREATE TABLE invite_space_roles (
 -- and every query filters on it. Permission decisions live in src/lib/volAccess.ts.
 -- Dates (YYYY-MM-DD) and times (HH:MM) are ward-local wall time (wards.timezone).
 
--- A volunteer post. Belongs to one org space. public_id is a random, unguessable token used in
+-- Service categories (spec 2026-11-22, section 3): what a volunteer post (kind 'opportunity')
+-- or a member's request for help (kind 'request') is about. New wards get the defaults
+-- (src/lib/serviceCategories.ts). default_audiences: comma list over brothers, sisters, youth,
+-- children. confidential (requests): only the owning spaces' owners and superadmins see them.
+-- opportunity_category_id (requests): where "Turn into a service opportunity" starts.
+-- discord_webhook_url is a secret: never shown in full after saving, never logged.
+CREATE TABLE service_categories (
+  id                      TEXT PRIMARY KEY,
+  ward_id                 TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  kind                    TEXT NOT NULL CHECK (kind IN ('opportunity','request')),
+  slug                    TEXT NOT NULL,
+  name                    TEXT NOT NULL,
+  icon                    TEXT NOT NULL DEFAULT 'other',
+  default_audiences       TEXT NOT NULL DEFAULT '',
+  council_may_create      INTEGER NOT NULL DEFAULT 0,
+  confidential            INTEGER NOT NULL DEFAULT 0,
+  opportunity_category_id TEXT REFERENCES service_categories(id) ON DELETE SET NULL,
+  discord_webhook_url     TEXT,
+  position                INTEGER NOT NULL DEFAULT 0,
+  archived                INTEGER NOT NULL DEFAULT 0,
+  created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (ward_id, slug)
+);
+CREATE INDEX idx_service_categories_ward ON service_categories(ward_id);
+
+-- A category's owning spaces (kind org, bishopric or ward_council only; app-enforced).
+CREATE TABLE service_category_spaces (
+  id          TEXT PRIMARY KEY,
+  ward_id     TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  category_id TEXT NOT NULL REFERENCES service_categories(id) ON DELETE CASCADE,
+  space_id    TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  UNIQUE (category_id, space_id)
+);
+CREATE INDEX idx_service_category_spaces_ward ON service_category_spaces(ward_id);
+CREATE INDEX idx_service_category_spaces_space ON service_category_spaces(space_id);
+
+-- A volunteer post. Belongs to one space (org, ward_council or bishopric: one of its
+-- category's owning spaces) and one category. public_id is a random, unguessable token used in
 -- the public link /v/<public_id> (never a sequential id or readable slug).
 CREATE TABLE vol_posts (
   id                  TEXT PRIMARY KEY,
   ward_id             TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
   space_id            TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  -- Always set by the app (createPost); nullable only so an upgraded database can be
+  -- backfilled (backfillPostCategories in src/lib/serviceCategories.ts).
+  category_id         TEXT REFERENCES service_categories(id) ON DELETE RESTRICT,
+  audiences           TEXT NOT NULL DEFAULT 'brothers,sisters',  -- who it's for (serve page sections)
   public_id           TEXT NOT NULL UNIQUE,
   title               TEXT NOT NULL,
   public_note         TEXT,                     -- shown to anyone with the link (mdLite)
@@ -332,6 +397,7 @@ CREATE TABLE vol_posts (
 );
 CREATE INDEX idx_vol_posts_ward ON vol_posts(ward_id);
 CREATE INDEX idx_vol_posts_space ON vol_posts(space_id);
+CREATE INDEX idx_vol_posts_category ON vol_posts(category_id);
 
 CREATE TABLE vol_dates (
   id                 TEXT PRIMARY KEY,
@@ -391,6 +457,7 @@ CREATE TABLE vol_signups (
   post_id      TEXT NOT NULL REFERENCES vol_posts(id) ON DELETE CASCADE,
   role_id      TEXT NOT NULL REFERENCES vol_roles(id) ON DELETE CASCADE,
   volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+  child_name   TEXT NOT NULL DEFAULT '',        -- '' = the volunteer themself; else a child's first name (a parent signs up their child)
   bringing     TEXT,
   status       TEXT NOT NULL DEFAULT 'waiting'
                  CHECK (status IN ('waiting','confirmed','cancelled','withdrawn','removed','declined','lapsed')),
@@ -405,8 +472,9 @@ CREATE INDEX idx_vol_signups_ward ON vol_signups(ward_id);
 CREATE INDEX idx_vol_signups_post ON vol_signups(post_id);
 CREATE INDEX idx_vol_signups_role ON vol_signups(role_id);
 CREATE INDEX idx_vol_signups_volunteer ON vol_signups(volunteer_id);
--- One active sign-up per volunteer per role (double clicks collapse to one).
-CREATE UNIQUE INDEX ux_vol_signups_active ON vol_signups(role_id, volunteer_id)
+-- One active sign-up per volunteer, role and child name (double clicks collapse to one; a
+-- parent may sign up themself and each child once). Child names compare case-insensitively.
+CREATE UNIQUE INDEX ux_vol_signups_active ON vol_signups(role_id, volunteer_id, child_name COLLATE NOCASE)
   WHERE status IN ('waiting','confirmed');
 
 -- "Who can manage volunteer posts" for an org space, beyond its owners (who are always on it).
@@ -445,3 +513,160 @@ CREATE TABLE vol_rate_events (
 );
 CREATE INDEX idx_vol_rate_events_bucket ON vol_rate_events(bucket, created_at);
 CREATE INDEX idx_vol_rate_events_ward ON vol_rate_events(ward_id);
+
+-- ============================================================ SERVICE (spec 2026-11-22)
+-- Delegates, fill warnings, member requests for help, bulk invitations. All ward-scoped;
+-- permission decisions live in src/lib/serviceAccess.ts (categories, delegates, requests).
+
+-- Coordinators a category's managers name. Counts only while they are still a ward member.
+CREATE TABLE service_delegates (
+  id               TEXT PRIMARY KEY,
+  ward_id          TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  category_id      TEXT NOT NULL REFERENCES service_categories(id) ON DELETE CASCADE,
+  user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  added_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (category_id, user_id)
+);
+CREATE INDEX idx_service_delegates_ward ON service_delegates(ward_id);
+CREATE INDEX idx_service_delegates_user ON service_delegates(user_id);
+
+-- A manager's own fill-warning choice for a category: warn me (on/off), how many hours before
+-- a date starts (1-336), and others to warn (service_warn_others).
+CREATE TABLE service_warn_prefs (
+  id          TEXT PRIMARY KEY,
+  ward_id     TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  category_id TEXT NOT NULL REFERENCES service_categories(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  warn_me     INTEGER NOT NULL DEFAULT 1,
+  hours       INTEGER NOT NULL DEFAULT 48 CHECK (hours BETWEEN 1 AND 336),
+  UNIQUE (category_id, user_id)
+);
+CREATE INDEX idx_service_warn_prefs_ward ON service_warn_prefs(ward_id);
+
+CREATE TABLE service_warn_others (
+  id      TEXT PRIMARY KEY,
+  ward_id TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  pref_id TEXT NOT NULL REFERENCES service_warn_prefs(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE (pref_id, user_id)
+);
+CREATE INDEX idx_service_warn_others_ward ON service_warn_others(ward_id);
+
+-- One fill warning per post date and recipient, ever (claimed with INSERT OR IGNORE).
+CREATE TABLE vol_warn_sent (
+  id      TEXT PRIMARY KEY,
+  ward_id TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  date_id TEXT NOT NULL REFERENCES vol_dates(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (date_id, user_id)
+);
+CREATE INDEX idx_vol_warn_sent_ward ON vol_warn_sent(ward_id);
+
+-- A member's request for help (spec section 6). Minimal by design (Handbook 38.8.32): name,
+-- email, optional phone and a one-line note; moving adds in/out + preferred date; Christmas
+-- adds own/other family. Visible only per serviceAccess.canSeeRequest. Deleted 30 days after
+-- it's closed (done/declined); unverified ones after 7 days (hourly cron).
+CREATE TABLE service_requests (
+  id               TEXT PRIMARY KEY,
+  ward_id          TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  category_id      TEXT NOT NULL REFERENCES service_categories(id) ON DELETE RESTRICT,
+  name             TEXT NOT NULL,
+  email            TEXT NOT NULL,                -- lowercased
+  phone            TEXT,
+  note             TEXT CHECK (note IS NULL OR length(note) <= 200),
+  moving_dir       TEXT CHECK (moving_dir IN ('in','out')),
+  preferred_date   TEXT,                         -- YYYY-MM-DD, ward-local
+  christmas_for    TEXT CHECK (christmas_for IN ('own','other')),
+  status           TEXT NOT NULL DEFAULT 'unverified'
+                     CHECK (status IN ('unverified','new','in_progress','done','declined')),
+  assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  private_note     TEXT CHECK (private_note IS NULL OR length(private_note) <= 200),
+  verified_at      TEXT,
+  closed_at        TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_service_requests_ward ON service_requests(ward_id);
+CREATE INDEX idx_service_requests_category ON service_requests(category_id);
+
+-- Single-use, 48-hour email verification tokens for requests (SHA-256 hash only).
+CREATE TABLE request_tokens (
+  id         TEXT PRIMARY KEY,
+  ward_id    TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_request_tokens_ward ON request_tokens(ward_id);
+CREATE INDEX idx_request_tokens_request ON request_tokens(request_id);
+
+-- One paste of invitation addresses for one post: the operator's record (who, when, post,
+-- counts). Kept after it finishes; its recipient rows are deleted then. post_title keeps the
+-- record readable if the post is deleted.
+CREATE TABLE invite_batches (
+  id                 TEXT PRIMARY KEY,
+  ward_id            TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  post_id            TEXT REFERENCES vol_posts(id) ON DELETE SET NULL,
+  post_title         TEXT,
+  created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  note               TEXT CHECK (note IS NULL OR length(note) <= 500),
+  total              INTEGER NOT NULL DEFAULT 0,
+  invalid_count      INTEGER NOT NULL DEFAULT 0,
+  suppressed_count   INTEGER NOT NULL DEFAULT 0,
+  sent               INTEGER NOT NULL DEFAULT 0,
+  failed             INTEGER NOT NULL DEFAULT 0,
+  status             TEXT NOT NULL DEFAULT 'sending'
+                       CHECK (status IN ('sending','waiting_cap','done','cancelled')),
+  cap_notified_at    TEXT,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at        TEXT
+);
+CREATE INDEX idx_invite_batches_ward ON invite_batches(ward_id);
+CREATE INDEX idx_invite_batches_status ON invite_batches(status);
+
+-- The pasted addresses waiting to be sent. claim_id/claimed_at: an atomic claim by one pump
+-- run (a claim older than 10 minutes may be retaken). Deleted when the batch ends.
+CREATE TABLE invite_recipients (
+  id         TEXT PRIMARY KEY,
+  ward_id    TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  batch_id   TEXT NOT NULL REFERENCES invite_batches(id) ON DELETE CASCADE,
+  email      TEXT NOT NULL,
+  claim_id   TEXT,
+  claimed_at TEXT,
+  sent_at    TEXT,
+  failed     INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (batch_id, email)
+);
+CREATE INDEX idx_invite_recipients_ward ON invite_recipients(ward_id);
+CREATE INDEX idx_invite_recipients_batch ON invite_recipients(batch_id, sent_at);
+CREATE INDEX idx_invite_recipients_claim ON invite_recipients(claim_id);
+
+-- "Stop service invitations from <ward>": SHA-256 of the normalized address, never the
+-- address. Never blocks notify mail (confirmations, reminders).
+CREATE TABLE invite_suppressions (
+  id         TEXT PRIMARY KEY,
+  ward_id    TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  email_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (ward_id, email_hash)
+);
+
+-- Invitations sent per ward-local day, against wards.invite_daily_cap.
+CREATE TABLE invite_daily_counts (
+  ward_id TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  day     TEXT NOT NULL,                         -- YYYY-MM-DD, ward-local
+  sent    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (ward_id, day)
+);
+
+-- Category delegations an invite carries (a manager invited a coordinator by email);
+-- materialized into service_delegates when the invite is accepted.
+CREATE TABLE invite_category_delegations (
+  id          TEXT PRIMARY KEY,
+  invite_id   TEXT NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
+  category_id TEXT NOT NULL REFERENCES service_categories(id) ON DELETE CASCADE,
+  UNIQUE (invite_id, category_id)
+);

@@ -66,4 +66,45 @@ describe('volunteer schema', () => {
     await ins('waiting');
     await expect(ins('bogus')).rejects.toThrow();
   });
+
+  it('one active sign-up per volunteer, role and child name (case-insensitive)', async () => {
+    const { wardId, spaces } = await makeWard(env);
+    const postId = newId('vp');
+    const dateId = newId('vd');
+    const roleId = newId('vr');
+    const volId = newId('vv');
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO vol_posts (id, ward_id, space_id, public_id, title) VALUES (?, ?, ?, ?, 'T')`)
+        .bind(postId, wardId, spaces['primary'], newId('pub')),
+      env.DB.prepare(`INSERT INTO vol_dates (id, ward_id, post_id, date) VALUES (?, ?, ?, '2026-12-06')`)
+        .bind(dateId, wardId, postId),
+      env.DB.prepare(`INSERT INTO vol_roles (id, ward_id, post_id, date_id, name, needed) VALUES (?, ?, ?, ?, 'Helpers', 5)`)
+        .bind(roleId, wardId, postId, dateId),
+      env.DB.prepare(`INSERT INTO volunteers (id, ward_id, email, name) VALUES (?, ?, 'p@example.test', 'P')`)
+        .bind(volId, wardId),
+    ]);
+    const ins = (child: string) =>
+      env.DB.prepare(
+        `INSERT INTO vol_signups (id, ward_id, post_id, role_id, volunteer_id, status, child_name) VALUES (?, ?, ?, ?, ?, 'confirmed', ?)`,
+      )
+        .bind(newId('vs'), wardId, postId, roleId, volId, child)
+        .run();
+    await ins(''); // the parent
+    await ins('Ana');
+    await expect(ins('Ana')).rejects.toThrow();
+    await expect(ins('ana')).rejects.toThrow();
+    await expect(ins('')).rejects.toThrow();
+    await ins('Ben');
+  });
+
+  it('every service table carries ward_id', async () => {
+    for (const t of [
+      'service_categories', 'service_category_spaces', 'service_delegates', 'service_warn_prefs', 'service_warn_others',
+      'vol_warn_sent', 'service_requests', 'request_tokens', 'invite_batches', 'invite_recipients', 'invite_suppressions',
+      'invite_daily_counts', 'portal_sections',
+    ]) {
+      const cols = (await env.DB.prepare(`PRAGMA table_info(${t})`).all<{ name: string }>()).results.map((c) => c.name);
+      expect(cols, t).toContain('ward_id');
+    }
+  });
 });

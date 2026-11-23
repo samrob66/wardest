@@ -68,6 +68,8 @@ erDiagram
 | `deliverables` | The output (url/file/image); tied to an implementation or ad-hoc; 1 implementation : N deliverables; `short_url` = optional pasted short link |
 | `deliverable_spaces` | Publishing layer: which spaces show a deliverable + portal inclusion/order |
 | `invites` / `invite_space_roles` | Callings-chart invites → materialize into memberships |
+| `portal_sections` | Named sections on a space's portal ("Ward Links", "Interviews"); `deliverable_spaces.section_id` places a card in one |
+| `service_*`, `request_tokens`, `invite_*`, `vol_warn_sent` | Service opportunities and requests — see "Service opportunities, requests and invitations" below |
 
 ## Key design decisions
 
@@ -215,6 +217,40 @@ Deliberate privacy choice (Sam, 2026-11-21): on a post's manage page, read-only 
 organization's other members, the Ward Council) see volunteers' **names only**. Their **email
 addresses** are shown only to those who can edit the post and approve volunteers (they check
 people against the directory).
+
+## Service opportunities, requests and invitations
+
+Spec: `docs/superpowers/specs/2026-11-22-service-opportunities-requests-design.md`. All tables
+carry `ward_id` (except `invite_category_delegations`, scoped through its invite) and every query
+filters on it. Permission decisions: `src/lib/serviceAccess.ts` (categories, delegates, requests)
+and `src/lib/volAccess.ts` (posts), both fail closed. An existing local database is upgraded with
+`db/upgrade-2026-11-22-service.sql`.
+
+| Table / column | Holds | Who sees it |
+|---|---|---|
+| `service_categories` | Per-ward list, kind `opportunity` or `request`: slug, name, icon key, `default_audiences`, `council_may_create`, `confidential`, `opportunity_category_id` (request → where "Turn into a service opportunity" starts), `discord_webhook_url` (a secret: never shown in full after saving, never logged), position, archived. New wards get 11 defaults (`ensureServiceCategories`, also run lazily) | Names and icons are public (serve/help pages); settings: the category's managers |
+| `service_category_spaces` | A category's owning spaces (`org`, `bishopric` or `ward_council`; app-enforced) | — |
+| `service_delegates` | Coordinators named by a category's managers. Count only while they still have a `ward_memberships` row | Managers |
+| `service_warn_prefs` / `service_warn_others` | Each manager's own fill-warning choice per category: warn me, hours before (1–336, default 48), others to warn | That manager |
+| `vol_warn_sent` | One row per (post date, recipient) once a fill warning went | — |
+| `vol_posts.category_id` / `.audiences` | Every post's category (nullable only for the upgrade backfill; always set by the app) and who it's for (`brothers,sisters,youth,children`) | As the post |
+| `vol_signups.child_name` | `''` = the volunteer; else a child's first name (a parent signs up their child). The active unique index is per (role, volunteer, child name, case-insensitive) | As the sign-up |
+| `service_requests` | A member's request: name, email, optional phone, note (≤200), moving in/out + preferred date, Christmas own/other family, status (`unverified`, `new`, `in_progress`, `done`, `declined`), assignee (one of the category's delegates), private note (≤200). Deleted 30 days after it's closed; unverified ones after 7 days | `canSeeRequest`: the category's managers and delegates; a **confidential** category only its owning spaces' owners (the bishop, for the bishopric space), its delegates and superadmins — not other bishopric members. Never on a public page; leader emails never carry the details |
+| `request_tokens` | Single-use 48h verification tokens for requests (SHA-256 only) | — |
+| `invite_batches` | One paste of invitation addresses for a post: who, when, post (+ title), note, counts, status (`sending`, `waiting_cap`, `done`, `cancelled`) | The operator (all wards); the leader who sent it (progress) |
+| `invite_recipients` | The pasted addresses, claimed atomically by the pump; deleted when the batch ends | — |
+| `invite_suppressions` | "Stop service invitations from <ward>": SHA-256 of the normalized address only. Blocks invitations, never notify mail | — |
+| `invite_daily_counts` | Invitations sent per ward-local day, against `wards.invite_daily_cap` (default 5000; the operator edits it) | Operator |
+| `invite_category_delegations` | Category delegations carried by an invite; accepting it adds the delegate rows | — |
+| `wards.serve_short_url` / `help_short_url` / `serve_section_on` / `help_section_on` | Portal service sections: pasted short links (http(s) only) and on/off (superadmin) | Public via the portal |
+| `workspace_requests.bishop_approved` | The required "Our bishop has approved using WardForward for our ward" box (Handbook 38.8.21.2) | Operator |
+
+Category roles (spec §3): *managers* = owners of an owning space, bishopric members and
+superadmins (confidential: owners of an owning space and superadmins only). *May create* in an
+opportunity category: its delegates; or, while it has none, its managers and the owning orgs'
+`vol_editors`; plus ward council members when `council_may_create`; plus bishopric and
+superadmins. Messages about a category go to its delegates, else as before (posts: creator +
+org editors; requests: owners of the owning spaces, else superadmins); a post's creator always.
 
 ## Not modeled yet (deferred, by design)
 

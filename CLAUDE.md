@@ -112,6 +112,10 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
   `npm run dev` (portal at `http://localhost:8787/p/m44`; `/auth/dev-login?email=…` needs
   `.dev.vars`). `db/schema.sql` has no `IF NOT EXISTS`, so to reset, delete `.wrangler/state`
   first — or point at a scratch DB with `--persist-to <dir>` on both `d1 execute` and `dev`.
+  An existing local DB made before 2026-11-22 needs
+  `npx wrangler d1 execute wardforward-db --local --file=./db/upgrade-2026-11-22-service.sql`
+  (service categories, requests, invitations, portal sections; run once), or delete
+  `.wrangler/state` to reset.
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm test` — Vitest inside the Workers runtime (`@cloudflare/vitest-plugin`); applies
   `db/schema.sql` to a test D1, intercepts every outbound fetch and fakes the `EMAIL` binding. Run `npm test && npm run
