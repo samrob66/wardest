@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import type { Env } from './types';
 import { renderLanding } from './views/landing';
+import { installErrorPages } from './views/errorPages';
 
 // wardforward.com — static marketing / entry point.
 export const landing = new Hono<{ Bindings: Env }>();
+installErrorPages(landing);
 
 landing.get('/', (c) => c.html(renderLanding()));
 

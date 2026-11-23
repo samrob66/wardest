@@ -1,8 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { env, makeWard, asUser } from './helpers';
 import { fixture, futureDate } from './volFixtures';
 import { DISCLAIMER, siteFooter } from '../src/views/footer';
+import { Hono } from 'hono';
+import { installErrorPages } from '../src/views/errorPages';
+import { appSite } from '../src/app';
 
 // General Handbook 38.8.21.2: an online resource made to help with callings must say it is not
 // an official, Church-sponsored product, and should give contact information.
@@ -66,6 +69,63 @@ describe('independence disclaimer on every surface', () => {
     const r = await page('http://localhost/p/no-such-ward-here');
     expect(r.status).toBe(404);
     expect(r.html).toContain(TEXT);
+  });
+});
+
+describe('unknown paths and errors are branded pages with the disclaimer', () => {
+  it('an unknown path on the app host -> 404 HTML page', async () => {
+    const res = await SELF.fetch('http://localhost/no/such/page');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type') ?? '').toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain(TEXT);
+    expect(html).toContain("This link doesn't exist");
+  });
+
+  it('an unknown path on the landing host -> 404 HTML page', async () => {
+    const res = await SELF.fetch('http://wardforward.com/x');
+    expect(res.status).toBe(404);
+    const html = await res.text();
+    expect(html).toContain(TEXT);
+  });
+
+  it('a thrown error in a real app route -> 500 HTML page, logged, message not leaked', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const broken = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === 'prepare') return () => { throw new Error('secret db detail'); };
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const ctx = { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
+    // A route on appSite itself and routes mounted from the volunteer sub-app.
+    for (const path of ['/p/m44', '/v/abc123', '/vol/m44/me']) {
+      const res = await appSite.fetch(new Request('http://localhost' + path), { ...env, DB: broken }, ctx);
+      expect(res.status, path).toBe(500);
+      const html = await res.text();
+      expect(html, path).toContain(TEXT);
+      expect(html, path).not.toContain('secret db detail');
+      expect(html, path).not.toMatch(/at \w+ \(/); // no stack
+    }
+    expect(err.mock.calls.map((c) => c.join(' ')).join('\n')).toContain('secret db detail');
+    err.mockRestore();
+  });
+
+  it('installErrorPages gives any Hono app the same 404 and 500 pages', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const app = new Hono();
+    app.get('/boom', () => { throw new Error('kaboom'); });
+    installErrorPages(app);
+    const boom = await app.request('/boom');
+    expect(boom.status).toBe(500);
+    const html = await boom.text();
+    expect(html).toContain(TEXT);
+    expect(html).not.toContain('kaboom');
+    const missing = await app.request('/nope');
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toContain(TEXT);
+    err.mockRestore();
   });
 });
 

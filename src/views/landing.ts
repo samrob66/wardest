@@ -33,7 +33,6 @@ export function renderLanding(): string {
     <span class="btn btn-primary" aria-disabled="true">Sign in (coming soon)</span>
     <a class="btn btn-ghost" href="#">Donate</a>
   </div>
-  <p class="muted">Not an official website of The Church of Jesus Christ of Latter-day Saints.</p>
   ${siteFooter()}
 </body>
 </html>`;

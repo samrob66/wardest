@@ -5,14 +5,17 @@
 //   exactly these addresses (allowed_sender_addresses).
 // - One recipient per message, always: a `to` holding several addresses is refused, never sent
 //   as a shared list. There is no CC/BCC.
-// - Headers: only List-Unsubscribe, List-Unsubscribe-Post and X-* are passed through; CR/LF
-//   anywhere in a subject, header or replyTo refuses the message (header injection).
-// - Never throws. A transient error (rate limit, service error) is retried twice with a short
-//   backoff; anything else is logged with `[mail]` and the caller's tag and reported in the
-//   result.
-// - Log mode: with EMAIL_DELIVERY=log (local .dev.vars) or no binding at all, each message is
-//   printed (recipient, subject, every link, and the text) instead of sent, so a local tester
-//   can click the links.
+// - Headers: only List-Unsubscribe, List-Unsubscribe-Post and X-* are passed through; CR/LF in
+//   a header name or value or in replyTo refuses the message (header injection). CR/LF in a
+//   subject is collapsed to one space.
+// - Never throws. A transient error (rate limit, service error, failed delivery) is retried
+//   twice with a short backoff; anything else is logged with `[mail]` and the caller's tag and
+//   reported in the result.
+// - Log mode: with EMAIL_DELIVERY=log, or with no binding while APP_URL is local
+//   (localhost / 127.0.0.1), each message is printed (recipient, subject, every link, and the
+//   text) instead of sent, so a local tester can click the links. No binding anywhere else is a
+//   misconfiguration: the message is refused (`no_binding`) and never printed, since it can
+//   hold sign-in links.
 // - Every message ends with the independence disclaimer (General Handbook 38.8.21.2) and, when
 //   CONTACT_EMAIL is set, a contact line, in both the html and the text part.
 import type { Env } from '../types';
@@ -49,9 +52,19 @@ export interface MailResult {
 // two seconds in all. Tests shrink it.
 export const mailRetry = { baseMs: 250, retries: 2 };
 
-const RETRYABLE = new Set(['E_RATE_LIMIT_EXCEEDED', 'E_INTERNAL_SERVER_ERROR']);
+const RETRYABLE = new Set(['E_RATE_LIMIT_EXCEEDED', 'E_INTERNAL_SERVER_ERROR', 'E_DELIVERY_FAILED']);
 const ADDRESS = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 const CRLF = /[\r\n]/;
+
+// APP_URL points at this machine (wrangler dev), so printing a message is safe.
+function isLocalAppUrl(appUrl: string | undefined): boolean {
+  try {
+    const h = new URL(appUrl ?? '').hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h.endsWith('.localhost');
+  } catch {
+    return false;
+  }
+}
 
 function allowedHeader(name: string): boolean {
   const n = name.toLowerCase();
@@ -108,7 +121,7 @@ function refuse(m: MailMessage, to: string, error: string): MailResult {
 // Checks one message; returns the refusal reason, or null when it may go.
 function check(m: MailMessage, to: string): string | null {
   if (!to || !ADDRESS.test(to)) return 'invalid_recipient';
-  if (CRLF.test(m.subject) || (m.replyTo !== undefined && CRLF.test(m.replyTo))) return 'invalid_header';
+  if (m.replyTo !== undefined && CRLF.test(String(m.replyTo))) return 'invalid_header';
   for (const [k, v] of Object.entries(m.headers ?? {})) {
     if (CRLF.test(k) || CRLF.test(v)) return 'invalid_header';
     if (!allowedHeader(k)) return 'header_not_allowed';
@@ -126,23 +139,29 @@ function errorCode(e: unknown): string {
 }
 
 export async function sendMail(env: Env, m: MailMessage): Promise<MailResult> {
-  const to = (m.to ?? '').trim().toLowerCase();
+  let to = '';
   try {
+    to = typeof m.to === 'string' ? m.to.trim().toLowerCase() : '';
     const refused = check(m, to);
     if (refused) return refuse(m, to, refused);
+    const subject = String(m.subject ?? '').replace(/[\r\n]+/g, ' ');
     const body = withFooter(env, m.html, m.text ?? htmlToText(m.html));
     const text = body.text;
 
     const binding = env.EMAIL;
-    if (env.EMAIL_DELIVERY === 'log' || !binding) {
-      logMessage({ ...m, html: body.html }, to, text);
+    if (env.EMAIL_DELIVERY === 'log' || (!binding && isLocalAppUrl(env.APP_URL))) {
+      logMessage({ ...m, subject, html: body.html }, to, text);
       return { to, ok: true, logged: true };
+    }
+    if (!binding) {
+      console.error(`[mail] EMAIL binding missing; not sent stream=${m.stream} ${m.tag ?? ''}`.trim());
+      return { to, ok: false, error: 'no_binding' };
     }
 
     const payload: EmailMessageBuilder = {
       to,
       from: STREAM_FROM[m.stream],
-      subject: m.subject,
+      subject,
       html: body.html,
       text,
     };
@@ -177,7 +196,8 @@ export async function sendMailBatch(
   ms: MailMessage[],
   opts: { concurrency?: number } = {},
 ): Promise<MailResult[]> {
-  const limit = Math.max(1, Math.floor(opts.concurrency ?? 5));
+  const c = opts.concurrency;
+  const limit = typeof c === 'number' && Number.isFinite(c) ? Math.max(1, Math.floor(c)) : 5;
   const results: MailResult[] = new Array(ms.length);
   let next = 0;
   const worker = async () => {

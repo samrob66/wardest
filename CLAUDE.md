@@ -51,7 +51,9 @@ implementation tracker) and **Publish & Share** (portals).
   headers are allow-listed (`List-Unsubscribe`, `List-Unsubscribe-Post`, `X-*`); `sendMailBatch`
   sends many, bounded concurrency, never throws. Locally `EMAIL_DELIVERY=log` (in `.dev.vars`)
   prints every email (with its links) to the `wrangler dev` console; without it the local binding
-  is Wrangler's simulator (logs, saves to files, never sends). Tests swap `EMAIL` for a recording
+  is Wrangler's simulator (logs, saves to files, never sends). With no binding, mail prints only
+  when `APP_URL` is localhost/127.0.0.1; anywhere else it is refused (`no_binding`, logged as
+  `[mail] EMAIL binding missing`) and never printed, since it can hold sign-in links. Tests swap `EMAIL` for a recording
   fake (`sentEmails()` / `mockEmail()` in `test/helpers.ts`).
 - **Volunteer sign-ups** (spec `docs/superpowers/specs/2026-11-21-volunteer-signups-design.md`).
   Routes live in `src/volRoutes.ts`: leader pages `/w/:wardId/vol/*` and `/w/:wardId/volunteers`
@@ -73,7 +75,8 @@ implementation tracker) and **Publish & Share** (portals).
   Church of Jesus Christ of Latter-day Saints." plus `Contact: <mailto>` when the `CONTACT_EMAIL`
   var is set (`""` hides it). `src/lib/mail.ts` appends the same text (and contact) to the html
   and text of every email. New page shells must render `siteFooter()` too. Never use the Church's
-  official name as our branding, or its wordmark or symbol.
+  official name as our branding, or its wordmark or symbol. Unknown paths and uncaught errors
+  on both hosts get branded 404/500 pages (`installErrorPages`, `src/views/errorPages.ts`).
 
 Key invariants: **ward = visibility boundary**, **individual = edit/ownership boundary**. Spaces are
 opt-in shared audiences with **no automatic top-down visibility**. Public portals are `noindex` but

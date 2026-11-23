@@ -50,6 +50,36 @@ describe('sendMail: log mode', () => {
   });
 });
 
+describe('sendMail: missing binding', () => {
+  it('outside local dev: refuses with no_binding and never prints the message', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await sendMail({ ...env, EMAIL: undefined, APP_URL: 'https://app.wardforward.com' }, msg());
+    expect(r).toMatchObject({ ok: false, error: 'no_binding', to: 'a@x.com' });
+    expect(log).not.toHaveBeenCalled();
+    const errs = err.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(errs).toContain('[mail] EMAIL binding missing');
+    expect(errs).not.toContain('/vol/access/abc');
+    expect(sentEmails()).toHaveLength(0);
+  });
+
+  it('local dev (localhost or 127.0.0.1 APP_URL) with no binding still prints', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    for (const APP_URL of ['http://localhost:8787', 'http://127.0.0.1:8788']) {
+      const r = await sendMail({ ...env, EMAIL: undefined, APP_URL }, msg());
+      expect(r, APP_URL).toMatchObject({ ok: true, logged: true });
+    }
+    expect(log).toHaveBeenCalledTimes(2);
+  });
+
+  it('EMAIL_DELIVERY=log prints even with a production APP_URL', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const r = await sendMail({ ...env, EMAIL: undefined, EMAIL_DELIVERY: 'log', APP_URL: 'https://app.wardforward.com' }, msg());
+    expect(r).toMatchObject({ ok: true, logged: true });
+    expect(log.mock.calls.map((c) => c.join(' ')).join('\n')).toContain('to: a@x.com');
+  });
+});
+
 describe('sendMail: send mode', () => {
   it('notify stream sends one message from no-reply', async () => {
     const r = await sendMail(env, msg({ to: '  A@X.com ' }));
@@ -115,13 +145,30 @@ describe('sendMail: send mode', () => {
     expect(err).toHaveBeenCalled();
   });
 
-  it('refuses CRLF in subject or header value', async () => {
+  it('collapses CR/LF in a subject to one space (no header injection, the mail still goes)', async () => {
+    const r = await sendMail(env, msg({ subject: 'Hi\r\n\r\nBcc: evil@z.com\nthere' }));
+    expect(r.ok).toBe(true);
+    const e = sentEmails()[0]!;
+    expect(e.subject).toBe('Hi Bcc: evil@z.com there');
+    expect(e.subject).not.toMatch(/[\r\n]/);
+  });
+
+  it('refuses CR/LF in a header name, header value or replyTo', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const a = await sendMail(env, msg({ subject: 'Hi\r\nBcc: evil@z.com' }));
     const b = await sendMail(env, msg({ headers: { 'X-Ref': 'ok\nBcc: evil@z.com' } }));
     const c = await sendMail(env, msg({ headers: { 'X-Ref\r\nBcc': 'v' } }));
     const d = await sendMail(env, msg({ replyTo: 'a@x.com\r\nBcc: evil@z.com' }));
-    for (const r of [a, b, c, d]) expect(r).toMatchObject({ ok: false, error: 'invalid_header' });
+    for (const r of [b, c, d]) expect(r).toMatchObject({ ok: false, error: 'invalid_header' });
+    expect(sentEmails()).toHaveLength(0);
+  });
+
+  it('a non-string `to` is refused, never thrown', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const to of [42, null, undefined, { a: 1 }]) {
+      const r = await sendMail(env, msg({ to: to as never }));
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe('invalid_recipient');
+    }
     expect(sentEmails()).toHaveLength(0);
   });
 
@@ -147,6 +194,16 @@ describe('sendMail: send mode', () => {
     let n = 0;
     mockEmail(() => {
       if (++n === 1) throw codeError('E_RATE_LIMIT_EXCEEDED');
+    });
+    const r = await sendMail(env, msg());
+    expect(r.ok).toBe(true);
+    expect(sentEmails()).toHaveLength(2);
+  });
+
+  it('retries a failed delivery (E_DELIVERY_FAILED) then succeeds', async () => {
+    let n = 0;
+    mockEmail(() => {
+      if (++n === 1) throw codeError('E_DELIVERY_FAILED');
     });
     const r = await sendMail(env, msg());
     expect(r.ok).toBe(true);
@@ -209,6 +266,23 @@ describe('sendMailBatch', () => {
     const rs = await sendMailBatch(env, [msg({ to: 'a@x.com, b@y.com' }), msg({ to: 'c@z.com' })]);
     expect(rs.map((r) => r.ok)).toEqual([false, true]);
     expect(sentEmails().map((e) => e.to)).toEqual(['c@z.com']);
+  });
+
+  it('a bad concurrency (NaN, 0, negative, Infinity) still sends everything', async () => {
+    for (const concurrency of [NaN, 0, -3, Infinity]) {
+      const before = sentEmails().length;
+      const rs = await sendMailBatch(env, [msg({ to: 'n1@x.com' }), msg({ to: 'n2@x.com' }), msg({ to: 'n3@x.com' })], { concurrency });
+      expect(rs, String(concurrency)).toHaveLength(3);
+      expect(rs.every((r) => r && r.ok), String(concurrency)).toBe(true);
+      expect(sentEmails().length - before, String(concurrency)).toBe(3);
+    }
+  });
+
+  it('a non-string `to` in a batch: that one fails, the batch still returns every result', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const rs = await sendMailBatch(env, [msg({ to: 'ok1@x.com' }), msg({ to: 7 as never }), msg({ to: 'ok2@x.com' })]);
+    expect(rs.map((r) => r.ok)).toEqual([true, false, true]);
+    expect(rs[1]!.error).toBe('invalid_recipient');
   });
 
   it('never runs more than `concurrency` sends at once', async () => {

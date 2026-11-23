@@ -7,6 +7,7 @@ import { normalizeHttpUrl } from './lib/urls';
 import { renderPortal } from './views/portal';
 import { renderPortalPrint, isPrintSize, type PrintSize } from './views/portalprint';
 import { notFoundPage } from './views/notfound';
+import { installErrorPages } from './views/errorPages';
 import { loadUser, requireAuth, isOperator } from './lib/auth';
 import { authRoutes } from './auth-routes';
 import { volRoutes, spaceVolunteerSection } from './volRoutes';
@@ -116,6 +117,9 @@ import {
 } from './views/pages';
 
 export const appSite = new Hono<AppEnv>();
+
+// Unknown paths and uncaught errors get branded pages with the independence footer.
+installErrorPages(appSite);
 
 // Populate c.get('user') for every request.
 appSite.use('*', loadUser());

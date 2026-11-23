@@ -1,15 +1,16 @@
 import { esc } from '../lib/html';
 import { siteFooter } from './footer';
 
-// Branded 404 for an unknown/unpublished portal prefix, file, or space.
-export function notFoundPage(what: string): string {
+// Small centred page for "not found" and "something went wrong". `heading` and `body` are
+// trusted markup (our own constants); escape anything user-supplied before passing it in.
+function messagePage(title: string, heading: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Not found — WardForward</title>
+<title>${esc(title)} — WardForward</title>
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Georgia,serif;color:#2c3a4a;min-height:100vh;
@@ -24,11 +25,29 @@ export function notFoundPage(what: string): string {
 </style>
 </head>
 <body>
-  <h1>This link doesn't exist</h1>
+  <h1>${heading}</h1>
   <div class="divider"></div>
-  <p>We couldn't find <code>${esc(what)}</code>. It may have been removed or mistyped.</p>
+  ${body}
   <p><a href="https://wardforward.com">Go to WardForward</a></p>
   ${siteFooter()}
 </body>
 </html>`;
+}
+
+// Branded 404 for an unknown/unpublished portal prefix, file, space, or path.
+export function notFoundPage(what: string): string {
+  return messagePage(
+    'Not found',
+    "This link doesn't exist",
+    `<p>We couldn't find <code>${esc(what)}</code>. It may have been removed or mistyped.</p>`,
+  );
+}
+
+// Branded 500 for an uncaught error. Never includes the error itself.
+export function errorPage(): string {
+  return messagePage(
+    'Something went wrong',
+    'Something went wrong',
+    '<p>Sorry, that didn’t work. Please try again in a moment.</p>',
+  );
 }
