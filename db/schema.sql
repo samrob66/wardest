@@ -65,6 +65,7 @@ CREATE TABLE wards (
   prefix            TEXT NOT NULL UNIQUE,        -- lowercased; public portal path /p/<prefix> + the ward's zippa.run prefix, e.g. 'm44'
   status            TEXT NOT NULL DEFAULT 'active'
                       CHECK (status IN ('active','suspended')),
+  timezone          TEXT NOT NULL DEFAULT 'America/Denver',  -- IANA zone; volunteer cutoffs/reminders
   created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
@@ -305,3 +306,142 @@ CREATE TABLE invite_space_roles (
 -- Decision: stateless sessions (signed cookie, short TTL) — no sessions table.
 -- Authorization is re-checked against D1 on every request, so a stale cookie only
 -- affects identity, never role escalation. Revisit only if "log out everywhere" is needed.
+
+-- ============================================================ VOLUNTEER SIGN-UPS
+-- Organization presidents post needs (dates x helper roles); ward members sign up from an
+-- unguessable public link with any email. See SCHEMA.md "Volunteer sign-ups" and
+-- docs/superpowers/specs/2026-11-21-volunteer-signups-design.md. Every table carries ward_id
+-- and every query filters on it. Permission decisions live in src/lib/volAccess.ts.
+-- Dates (YYYY-MM-DD) and times (HH:MM) are ward-local wall time (wards.timezone).
+
+-- A volunteer post. Belongs to one org space. public_id is a random, unguessable token used in
+-- the public link /v/<public_id> (never a sequential id or readable slug).
+CREATE TABLE vol_posts (
+  id                  TEXT PRIMARY KEY,
+  ward_id             TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  space_id            TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  public_id           TEXT NOT NULL UNIQUE,
+  title               TEXT NOT NULL,
+  public_note         TEXT,                     -- shown to anyone with the link (mdLite)
+  private_details     TEXT,                     -- address/door code/allergies: approved volunteers on this post + leaders only
+  cancel_cutoff_hours INTEGER NOT NULL DEFAULT 24 CHECK (cancel_cutoff_hours >= 0 AND cancel_cutoff_hours <= 336),
+  full_notified_at    TEXT,                     -- "fully filled" email sent; reset when it drops below full
+  created_by_user_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_vol_posts_ward ON vol_posts(ward_id);
+CREATE INDEX idx_vol_posts_space ON vol_posts(space_id);
+
+CREATE TABLE vol_dates (
+  id                 TEXT PRIMARY KEY,
+  ward_id            TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  post_id            TEXT NOT NULL REFERENCES vol_posts(id) ON DELETE CASCADE,
+  date               TEXT NOT NULL,             -- YYYY-MM-DD, ward-local
+  start_time         TEXT,                      -- HH:MM, ward-local (optional)
+  approval_nudged_at TEXT,                      -- 48h "still waiting for approval" nudge sent
+  position           INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_vol_dates_ward ON vol_dates(ward_id);
+CREATE INDEX idx_vol_dates_post ON vol_dates(post_id);
+
+CREATE TABLE vol_roles (
+  id           TEXT PRIMARY KEY,
+  ward_id      TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  post_id      TEXT NOT NULL REFERENCES vol_posts(id) ON DELETE CASCADE,
+  date_id      TEXT NOT NULL REFERENCES vol_dates(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  needed       INTEGER NOT NULL CHECK (needed BETWEEN 1 AND 500),
+  start_time   TEXT,                            -- HH:MM; falls back to the date's start_time
+  end_time     TEXT,
+  note         TEXT,
+  bring_prompt TEXT,                            -- "what are you bringing?" (answers are public, names are not)
+  position     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_vol_roles_ward ON vol_roles(ward_id);
+CREATE INDEX idx_vol_roles_post ON vol_roles(post_id);
+CREATE INDEX idx_vol_roles_date ON vol_roles(date_id);
+
+-- A person who signs up by email (no Google account). Email is their key, per ward.
+-- approval: 'none' = address not verified yet; 'pending' = verified, waiting for a leader;
+-- 'approved' = approved once for the whole ward; 'declined' = can't sign up again here.
+CREATE TABLE volunteers (
+  id                 TEXT PRIMARY KEY,
+  ward_id            TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  email              TEXT NOT NULL,             -- lowercased
+  name               TEXT NOT NULL,
+  approval           TEXT NOT NULL DEFAULT 'none'
+                       CHECK (approval IN ('none','pending','approved','declined')),
+  email_verified_at  TEXT,
+  decided_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  decided_at         TEXT,
+  discord_user_id    TEXT,                      -- set via Discord OAuth ("Connect Discord")
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (ward_id, email)
+);
+CREATE INDEX idx_volunteers_ward ON volunteers(ward_id);
+
+-- status: 'waiting' (address unconfirmed or not yet approved; never counts) | 'confirmed' |
+-- 'cancelled' (by the volunteer) | 'withdrawn' (over-limit offer withdrawn) | 'removed' (by a
+-- leader, or approval revoked) | 'declined' | 'lapsed' (still waiting when the date was over).
+-- over_limit = 1 when it counted after the role was already full.
+CREATE TABLE vol_signups (
+  id           TEXT PRIMARY KEY,
+  ward_id      TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  post_id      TEXT NOT NULL REFERENCES vol_posts(id) ON DELETE CASCADE,
+  role_id      TEXT NOT NULL REFERENCES vol_roles(id) ON DELETE CASCADE,
+  volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+  bringing     TEXT,
+  status       TEXT NOT NULL DEFAULT 'waiting'
+                 CHECK (status IN ('waiting','confirmed','cancelled','withdrawn','removed','declined','lapsed')),
+  over_limit   INTEGER NOT NULL DEFAULT 0,
+  confirmed_at TEXT,
+  confirm_seq  INTEGER,                         -- order of confirmation on the role (set atomically); decides who is over the limit
+  ended_at     TEXT,
+  reminded_at  TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_vol_signups_ward ON vol_signups(ward_id);
+CREATE INDEX idx_vol_signups_post ON vol_signups(post_id);
+CREATE INDEX idx_vol_signups_role ON vol_signups(role_id);
+CREATE INDEX idx_vol_signups_volunteer ON vol_signups(volunteer_id);
+-- One active sign-up per volunteer per role (double clicks collapse to one).
+CREATE UNIQUE INDEX ux_vol_signups_active ON vol_signups(role_id, volunteer_id)
+  WHERE status IN ('waiting','confirmed');
+
+-- "Who can manage volunteer posts" for an org space, beyond its owners (who are always on it).
+CREATE TABLE vol_editors (
+  id               TEXT PRIMARY KEY,
+  ward_id          TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  space_id         TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  added_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (space_id, user_id)
+);
+CREATE INDEX idx_vol_editors_ward ON vol_editors(ward_id);
+CREATE INDEX idx_vol_editors_user ON vol_editors(user_id);
+
+-- Single-use, short-lived email-confirmation tokens. Only a SHA-256 hash is stored.
+CREATE TABLE vol_tokens (
+  id           TEXT PRIMARY KEY,
+  ward_id      TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+  purpose      TEXT NOT NULL CHECK (purpose IN ('verify')),
+  token_hash   TEXT NOT NULL UNIQUE,
+  expires_at   TEXT NOT NULL,
+  used_at      TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_vol_tokens_ward ON vol_tokens(ward_id);
+CREATE INDEX idx_vol_tokens_volunteer ON vol_tokens(volunteer_id);
+
+-- Rate-limit events for the public forms (per address, per post, per IP). Pruned by the cron.
+CREATE TABLE vol_rate_events (
+  id         TEXT PRIMARY KEY,
+  ward_id    TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+  bucket     TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_vol_rate_events_bucket ON vol_rate_events(bucket, created_at);
+CREATE INDEX idx_vol_rate_events_ward ON vol_rate_events(ward_id);

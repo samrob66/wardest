@@ -9,9 +9,11 @@ import { renderPortalPrint, isPrintSize, type PrintSize } from './views/portalpr
 import { notFoundPage } from './views/notfound';
 import { loadUser, requireAuth, isOperator } from './lib/auth';
 import { authRoutes } from './auth-routes';
+import { volRoutes, spaceVolunteerSection } from './volRoutes';
 import { getUserWards } from './lib/users';
 import {
   PREFIX_RE,
+  RESERVED_PREFIXES,
   createWard,
   createWorkspaceRequest,
   getWardById,
@@ -29,7 +31,9 @@ import {
   setWardMemberRole,
   getSpaceById,
   listSpaceMembers,
+  setWardTimezone,
 } from './lib/wards';
+import { isValidTimezone } from './lib/wardTime';
 import {
   listOpenTasks,
   listArchivedTasks,
@@ -119,6 +123,9 @@ appSite.use('*', loadUser());
 // --- Auth (Google OAuth + dev-login) ---
 appSite.route('/auth', authRoutes);
 
+// --- Volunteer sign-ups (/w/:wardId/vol/*, /v/*, /vol/*) ---
+appSite.route('/', volRoutes);
+
 // --- Operator guard (auth + allowlist) ---
 const operatorOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
   const user = c.get('user');
@@ -176,6 +183,7 @@ appSite.post('/operator/requests/:id/approve', operatorOnly, async (c) => {
 
   const prefix = String((await c.req.parseBody()).prefix ?? '').trim().toLowerCase();
   if (!PREFIX_RE.test(prefix)) return reload('Prefix must be 2–12 lowercase letters/digits.');
+  if (RESERVED_PREFIXES.has(prefix)) return reload(`Prefix "${prefix}" is reserved by Wardest; pick another.`);
   if (await prefixTaken(c.env, prefix)) return reload(`Prefix "${prefix}" is already taken.`);
   if (await getWardByUnitNumber(c.env, req.unit_number)) return reload('A ward with that unit number already exists.');
 
@@ -241,6 +249,20 @@ appSite.post('/w/:wardId/members/:userId/role', requireAuth(), async (c) => {
   return c.redirect(`/w/${ward.id}${err ? `?err=${encodeURIComponent(err)}` : '?ok=1'}`, 302);
 });
 
+// Ward time zone (volunteer cutoffs and reminders run in it). Superadmin only.
+appSite.post('/w/:wardId/timezone', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  if ((await wardRole(c.env, ward.id, user.id)) !== 'superadmin') return c.text('Forbidden', 403);
+  const tz = String((await c.req.parseBody()).timezone ?? '').trim();
+  if (!isValidTimezone(tz)) {
+    return c.redirect(`/w/${ward.id}?err=${encodeURIComponent('That time zone is not recognized.')}`, 302);
+  }
+  await setWardTimezone(c.env, ward.id, tz);
+  return c.redirect(`/w/${ward.id}?ok=1`, 302);
+});
+
 // ===== Phase 3: per-space portals =====
 async function loadSpaceCtx(c: Context<AppEnv>) {
   const user = c.get('user')!;
@@ -275,10 +297,12 @@ appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
   }
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
   const error = c.req.query('err') || undefined;
+  const volunteerHtml = await spaceVolunteerSection(c.env, ward, space, user.id);
   return c.html(
     renderSpacePortal({
       user, ward, space, canManage, canParticipate, blocks, cards, tasks, members,
       shares, shareTargets, portalUrl: portalUrl(c.env.APP_URL, ward, space), notice, error,
+      volunteerHtml,
     }),
   );
 });

@@ -10,15 +10,18 @@
     "db:init:local": "wrangler d1 execute wardest-db --local --file=./db/schema.sql",
     "db:seed:local": "wrangler d1 execute wardest-db --local --file=./db/seed-m44.sql",
     "db:seed:solutions:local": "wrangler d1 execute wardest-db --local --file=./db/seed-solutions.sql",
-    "db:reset:local": "npm run db:init:local && npm run db:seed:local"
+    "db:reset:local": "npm run db:init:local && npm run db:seed:local",
+    "test": "vitest run"
   },
   "dependencies": {
     "hono": "^4.9.0",
     "uqr": "^0.1.2"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "^5.20260710.1",
     "typescript": "^5.7.0",
+    "vitest": "5.1.0",
     "wrangler": "^4.111.0"
   }
 }

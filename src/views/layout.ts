@@ -1,8 +1,10 @@
 import { esc } from '../lib/html';
 
 // Shared shell for authenticated / app pages.
-export function layout(o: { title: string; body: string; userEmail?: string | null }): string {
-  const nav = o.userEmail
+// `head`: extra trusted markup for <head> (built by our own views, e.g. Open Graph tags).
+// `nav`: replaces the right side of the top bar (public volunteer pages show no sign-in link).
+export function layout(o: { title: string; body: string; userEmail?: string | null; head?: string; nav?: string }): string {
+  const nav = o.nav !== undefined ? o.nav : o.userEmail
     ? `<span class="who">${esc(o.userEmail)}</span> · <a href="/auth/logout">Sign out</a>`
     : `<a href="/auth/login">Sign in</a>`;
   return `<!doctype html>
@@ -47,6 +49,7 @@ export function layout(o: { title: string; body: string; userEmail?: string | nu
   form.inline label{margin:0}
   code{font-family:'Courier New',monospace;color:#4a6fa5}
 </style>
+${o.head ?? ''}
 </head>
 <body>
   <div class="nav"><a class="brand" href="/">Wardest</a><span>${nav}</span></div>

@@ -343,6 +343,9 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    steps. Decision 4 (template Sheets' owner) and the rest of the spec (page, build, phases)
    are on hold: Sam has a new app to brainstorm first that needs callings and spaces and may
    change them.
+   Step 2 (callings and spaces) must say: put the Ward Clerk in the Bishopric space; an
+   Activities chair or Ward Mission Leader who isn't in the Ward Council space sees only their
+   own organization's volunteer posts until they're added (volunteer sign-ups spec §5).
 4. **Catalog how-tos from the Playbook.** Revise the 3 drafted solutions (zippa.run + demo site),
    seed them in place of `sol_ex_interviews` / `sol_ex_bulletin`, and ship the generalized
    `InterviewRouter` template with the real calendar IDs stripped. Then the remaining Playbook
@@ -371,3 +374,80 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    planner, tithing declaration sign-up, missionary dinner calendar, new & returning members) —
    catalog candidates once Sam confirms they're current.
 8. **Phase 4** — second ward onboarded end-to-end; operator dashboard; print polish.
+9. ✅ **BUILT 2026-11-21, local-verified — Volunteer sign-ups** (spec
+   `docs/superpowers/specs/2026-11-21-volunteer-signups-design.md`, plan
+   `docs/superpowers/plans/2026-11-21-volunteer-signups.md`). Organization presidents post needs
+   (dates × helper roles); ward members sign up from an unguessable public link `/v/<id>` with any
+   email (first-timers confirm their address, then a leader approves them once for the ward);
+   the Ward Council and Bishopric space pages list every post, org pages their own; volunteers
+   get confirmations and day-before reminders by email and, if connected, Discord DM; an hourly
+   cron sends reminders and 48h approval nudges and lapses stale waiting sign-ups. Schema:
+   `wards.timezone` + the `vol_*` / `volunteers` tables (edited in place; nothing deployed).
+   Tests: `npm test` (Vitest in the Workers runtime). Owner steps before it can go live:
+   - **Turnstile:** create a widget for `app.wardest.com`; put its site key in `wrangler.toml`
+     `[vars] TURNSTILE_SITE_KEY` (today: Cloudflare's always-pass test key) and
+     `wrangler secret put TURNSTILE_SECRET_KEY`.
+   - **Discord:** register one Wardest Discord application (bot + OAuth2, redirect
+     `https://app.wardest.com/vol/discord/callback`, plus the localhost one for testing);
+     `wrangler secret put` `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`; each
+     ward's Discord admin adds the bot to the ward's server. Live DM not yet proven (no token).
+   - **Resend:** check the plan's daily send limit before a second ward goes live (reminders and
+     confirmations count against it).
+   - Cron: the `[triggers]` hourly cron deploys with the Worker; nothing else to set up.
+
+   Local hand check (e.g. from the main checkout): its `.dev.vars` needs
+   `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA` (Cloudflare's always-pass test
+   secret; the site key is already the test key in `wrangler.toml`) and `RESEND_API_KEY=dev`,
+   which prints every volunteer email, with its links, to the `wrangler dev` console.
+
+   Decisions and known limitations (2026-11-21):
+   - The page after the public sign-up form is the same for every outcome that depends on the
+     address (confirmed, over the limit, needs confirming, waiting for approval, already signed
+     up, declined): "check your email to finish". The email says what happened. So the spec's
+     on-screen over-limit notice (§6.3 step 6) is dropped; the email carries it. Only outcomes
+     that read the same for any address show on screen: closed, role full ("If you already signed
+     up for it, you're still on it"), rate limited, a form error, a failed bot check.
+   - Timing too: the route runs only the address-independent checks (bot check, IP limit, role
+     found and not over, input format, role full, per-post limit) before answering; everything
+     that depends on the address (the volunteer, the sign-up row, the emails) runs afterwards in
+     `waitUntil`, and a failure there is logged, never thrown.
+   - Email cap (round 2, option A): 3 a day per address, one shared bucket, for the emails that
+     don't come with a new sign-up that counts: "already signed up", "please contact your
+     leaders", and replacement confirm-your-address links. Never capped: the confirmation for a
+     sign-up that counts (the spec §6.3 step 2 safeguard), the "waiting for a leader" note, and a
+     new address's first confirm link (free whenever none is live). Every confirm link sent stays
+     valid until used or its 72h runs out (round 3), so a newcomer who signs up for several dates
+     can click any of their emails; "you're already signed up" to an unconfirmed address carries
+     one too.
+   - Approved sign-ups are inserted and confirmed in one D1 batch (one transaction). A ward member
+     who had waiting sign-ups from before is approved through the normal approval, so those count;
+     an approved volunteer resubmitting where a sign-up was left waiting gets it promoted. If the
+     confirmation can't be built or sent after a sign-up counts, one log line names the ward,
+     the sign-up and the kind (no retry in v1).
+   - The "· k waiting" count shows only on leaders' pages (manage page, space sections), never on
+     the public page or its preview card.
+   - Accepted leak (2026-11-21): because approved addresses count at once, a public count rising
+     after a sign-up shows the address was approved. Accepted as noisy, visible to leaders, and
+     the probed person gets the confirmation email. The waiting count is shown on leaders' pages
+     only.
+   - A date that's over can't be moved ("This date is over; use Copy date to reuse it"), so its
+     volunteers never land on a date they didn't choose.
+   - Later improvement: an impostor can rename an unconfirmed person just before they confirm.
+     Store the typed name with each confirm token and apply the name from the link that's clicked.
+   - An email that belongs to a Wardest member of the ward is always approved, even after a
+     decline or a revoked approval. Removing them from the ward is the real lever.
+   - Ward prefixes `verify`, `cancel`, `withdraw`, `access` and `discord` are refused at ward
+     approval: they're fixed segments under `/vol/`.
+   - Follow-ups from the final review (minor, recorded at merge 2026-11-22; fix before a second
+     ward goes live):
+     1. If reading the database to build the "fully filled" email fails, the volunteer's own
+        confirmation for that sign-up isn't sent either, and the log line doesn't name the
+        sign-up. Send the confirmation first (or independently) and name the sign-up in the log.
+     2. Two near-simultaneous first sign-ups from the same new ward member can send a spurious
+        "waiting for approval" email alongside the real outcome.
+     3. No test covers a double-click (two quick submits) from an address that's already
+        approved.
+   - Toolchain (accepted with the test harness): `npm install` of `@cloudflare/vitest-plugin`
+     1.5.1 + `vitest` 5.1.0 moved the lockfile to **wrangler 4.157.0** (miniflare
+     5.20261103.0-beta, `@cloudflare/workers-types` 5.20261121.1); `package.json` still says
+     `wrangler ^4.111.0`, which that satisfies.

@@ -5,6 +5,7 @@ import type { PendingInvite } from '../lib/invites';
 import { esc } from '../lib/html';
 import { safeHref, displayUrl } from '../lib/urls';
 import { layout } from './layout';
+import { COMMON_TIMEZONES } from '../lib/wardTime';
 
 export function renderSignedOut(): string {
   return layout({
@@ -212,6 +213,20 @@ export function renderWardPage(o: {
           .join('')
       : '';
 
+  // Ward time zone: volunteer cancel cutoffs, day-before reminders and "is over" use it.
+  const tzOptions = [...COMMON_TIMEZONES];
+  if (!tzOptions.some(([tz]) => tz === ward.timezone)) tzOptions.push([ward.timezone, ward.timezone]);
+  const timezoneHtml = isSuper
+    ? `<h2>Time zone</h2>
+       <form method="post" action="/w/${esc(ward.id)}/timezone" class="inline card">
+         <div style="flex:1"><label>Volunteer reminders and cutoffs use this time zone</label>
+           <select name="timezone">${tzOptions
+             .map(([tz, label]) => `<option value="${esc(tz)}"${tz === ward.timezone ? ' selected' : ''}>${esc(label)}</option>`)
+             .join('')}</select></div>
+         <button class="btn sm" type="submit">Save</button>
+       </form>`
+    : '';
+
   return layout({
     title: ward.name,
     userEmail: user.email,
@@ -235,6 +250,7 @@ export function renderWardPage(o: {
       ${portalsHtml}
       ${joinsHtml}
       ${membersHtml}
+      ${timezoneHtml}
       ${inviteForm}
       ${invitesHtml}
       <p style="margin-top:1rem"><a href="/">Back to home</a></p>`,

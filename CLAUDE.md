@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; built-in shortener retired (2026-10, short links are pasted `zippa.run` links). Deploy + real Google/Resend pending owner (O2–O6 + `wrangler r2 bucket create wardest-files`). Next: see IMPLEMENTATION.md §10 (roadmap)
+## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; built-in shortener retired (2026-10, short links are pasted `zippa.run` links). Volunteer sign-ups built & local-verified 2026-11-21 (IMPLEMENTATION.md §10 item 9; Turnstile + Discord owner steps pending). Deploy + real Google/Resend pending owner (O2–O6 + `wrangler r2 bucket create wardest-files`). Next: see IMPLEMENTATION.md §10 (roadmap)
 
 Reading order: `BLUEPRINT.md` (what Wardest is) → `SCHEMA.md` + `db/schema.sql` (data model +
 canonical visibility rules) → `IMPLEMENTATION.md` (the execution playbook: stack decisions,
@@ -41,7 +41,22 @@ implementation tracker) and **Publish & Share** (portals).
 - **Auth: Sign in with Google (OAuth/OIDC) implemented in-app.** NOT Cloudflare Access (50-user free
   cap; can't do per-space authz). We manage sessions + authorization; Google manages credentials.
 - **Email: Resend**, sending from `no-reply@send.wardest.com` (subdomain so Google keeps the apex MX).
-  API key is a Worker secret `RESEND_API_KEY` — never commit it.
+  API key is a Worker secret `RESEND_API_KEY` — never commit it. Locally, `RESEND_API_KEY=dev`
+  prints volunteer emails (with their links) to the `wrangler dev` console instead of sending.
+- **Volunteer sign-ups** (spec `docs/superpowers/specs/2026-11-21-volunteer-signups-design.md`).
+  Routes live in `src/volRoutes.ts`: leader pages `/w/:wardId/vol/*` and `/w/:wardId/volunteers`
+  (Google session), the public post page `/v/:publicId` (random id, `noindex`, never names /
+  emails / private details), and volunteer pages `/vol/*` (verify, cancel, withdraw, My sign-ups
+  at `/vol/:prefix/me`, Discord connect). Volunteers sign in by emailed link into a separate
+  `wardest_vol` cookie (path `/vol`). Every permission decision goes through
+  `src/lib/volAccess.ts` (fail closed). Domain functions return messages; `deliver()` in
+  `src/lib/volMessages.ts` sends them (Resend, plus a best-effort Discord DM). An hourly **Cron
+  Trigger** (`wrangler.toml [triggers]`, `src/lib/volCron.ts`) sends day-before reminders and 48h
+  approval nudges and lapses stale waiting sign-ups, in each ward's `wards.timezone`. Public
+  forms are protected by **Cloudflare Turnstile** (`TURNSTILE_SITE_KEY` var, `TURNSTILE_SECRET_KEY`
+  secret; test keys locally) plus D1 rate limits. **Discord** DMs use one Wardest application
+  (`DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` secrets). Emailed links open
+  a page whose button POSTs (mail scanners prefetch links).
 
 Key invariants: **ward = visibility boundary**, **individual = edit/ownership boundary**. Spaces are
 opt-in shared audiences with **no automatic top-down visibility**. Public portals are `noindex` but
@@ -70,13 +85,19 @@ is http(s)-only, normalized on write and guarded on render (`src/lib/urls.ts`).
 ## Deploy / develop
 
 Cloudflare Wrangler (Wrangler ≥ 3.60.0 uses space-separated subcommands; the colon form is
-deprecated). Prefix with `npx ` if not installed globally.
+deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **wrangler 4.157.0**
+(miniflare 5.20261103.0-beta), pulled in with the test harness in 2026-11.
 
 - Local: `npm run db:init:local` → `npm run db:seed:local` → `npm run db:seed:solutions:local` →
   `npm run dev` (portal at `http://localhost:8787/p/m44`; `/auth/dev-login?email=…` needs
   `.dev.vars`). `db/schema.sql` has no `IF NOT EXISTS`, so to reset, delete `.wrangler/state`
   first — or point at a scratch DB with `--persist-to <dir>` on both `d1 execute` and `dev`.
 - `npm run typecheck` — `tsc --noEmit`.
+- `npm test` — Vitest inside the Workers runtime (`@cloudflare/vitest-plugin`); applies
+  `db/schema.sql` to a test D1 and intercepts every outbound fetch. Run `npm test && npm run
+  typecheck` before committing.
+- Cron locally: `npx wrangler dev --test-scheduled`, then
+  `curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"`.
 - `wrangler deploy` — deploy (full owner steps: IMPLEMENTATION.md §5b + §10 item 2).
 - `wrangler d1 execute wardest-db --remote --file=<sql>` — run schema/seeds against prod D1.
 - `wrangler secret put RESEND_API_KEY` — store the Resend key.
