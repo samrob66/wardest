@@ -117,17 +117,26 @@ describe('volAccess', () => {
   });
 });
 
+// One or two space-page views per test: each view runs ~150 D1 queries (service-category
+// permission checks), so one test doing all of them ran far longer than the rest.
 describe('volunteer editors card', () => {
-  it('owners manage the list; others get 403; non-org spaces have no card', async () => {
-    const c = await makeCast();
-    const base = `http://localhost/w/${c.wardId}/space/${c.spaces['elders-quorum']}`;
+  let c: Cast;
+  let base: string;
+  beforeAll(async () => {
+    c = await makeCast();
+    base = `http://localhost/w/${c.wardId}/space/${c.spaces['elders-quorum']}`;
+  });
+
+  it('an owner sees the card with its manage form; a member sees the card without it', async () => {
     const page = await (await SELF.fetch(base, { headers: { cookie: await asUser(c.eqPres) } })).text();
     expect(page).toContain('Who can manage volunteer posts');
     expect(page).toContain(`${base.replace('http://localhost', '')}/vol-editors`);
     const teacherPage = await (await SELF.fetch(base, { headers: { cookie: await asUser(c.eqTeacher) } })).text();
     expect(teacherPage).toContain('Who can manage volunteer posts');
     expect(teacherPage).not.toContain('/vol-editors"');
+  });
 
+  it('owners and the bishopric manage the list; others get 403', async () => {
     const form = (uid: string) => new URLSearchParams({ user_id: uid }).toString();
     const post = async (as: string, path: string, body: string) =>
       SELF.fetch(base + path, {
@@ -142,7 +151,9 @@ describe('volunteer editors card', () => {
     expect((await post(c.eqCounselor, `/vol-editors/${c.eqCounselor}/remove`, '')).status).toBe(403);
     expect((await post(c.bishop, `/vol-editors/${c.eqCounselor}/remove`, '')).status).toBe(302);
     expect(await listEditorUserIds(env, c.wardId, c.spaces['elders-quorum']!)).not.toContain(c.eqCounselor);
+  });
 
+  it('non-org spaces have no card', async () => {
     const wc = await (await SELF.fetch(`http://localhost/w/${c.wardId}/space/${c.spaces['ward-council']}`, { headers: { cookie: await asUser(c.rsPres) } })).text();
     expect(wc).not.toContain('Who can manage volunteer posts');
   });

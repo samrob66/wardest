@@ -165,14 +165,22 @@ describe('category management pages', () => {
     expect(pub.status).toBe(403);
   });
 
-  it('the hub lists what you manage; the ward page links to it only for service roles', async () => {
+  // One page view per test: each hub view runs ~200 D1 queries (a permission check per
+  // category), so a test that strings several together runs far longer than the rest.
+  it('the hub lists what you manage, and no requests link for someone who sees no requests', async () => {
     const hub = await (await get(c.rsPres, `/w/${c.wardId}/service`)).text();
     expect(hub).toContain('Create Service Opportunity');
     expect(hub).toContain(`/w/${c.wardId}/service/category/${c.cat.meal!.id}`);
     expect(hub).not.toContain(`/w/${c.wardId}/service/category/${c.cat.move!.id}`);
+    expect(hub).not.toContain(`/w/${c.wardId}/requests"`);
+  });
+
+  it("the bishop's hub links to the requests inbox", async () => {
     const bishopHub = await (await get(c.bishop, `/w/${c.wardId}/service`)).text();
     expect(bishopHub).toContain(`/w/${c.wardId}/requests`);
-    expect(hub).not.toContain(`/w/${c.wardId}/requests"`);
+  });
+
+  it('the ward page links to the hub only for service roles; a stranger gets 403', async () => {
     const ward = await (await get(c.rsPres, `/w/${c.wardId}`)).text();
     expect(ward).toContain(`/w/${c.wardId}/service"`);
     const plain = await (await get(c.plainMember, `/w/${c.wardId}`)).text();

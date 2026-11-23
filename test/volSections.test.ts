@@ -57,12 +57,16 @@ describe('volunteer sections on space pages', () => {
     expect(s).not.toContain(`/w/${c.wardId}/vol/${ids.past}/copy`);
   });
 
+  // One space-page view per test (each runs ~150 D1 queries).
   it("an org page shows that org's posts only, with New and Copy for its managers", async () => {
     const s = section(await page(c.eqPres, c.wardId, c.spaces['elders-quorum']!));
     expect(s).toContain('EQ soon post');
     expect(s).not.toContain('RS meals post');
     expect(s).toContain(`/w/${c.wardId}/vol/new?space=${c.spaces['elders-quorum']}`);
     expect(s).toContain(`/w/${c.wardId}/vol/${ids.past}/copy`);
+  });
+
+  it("an org member who can't manage posts sees them, without New", async () => {
     const teacher = section(await page(c.eqTeacher, c.wardId, c.spaces['elders-quorum']!));
     expect(teacher).toContain('EQ soon post');
     expect(teacher).not.toContain('/vol/new');
