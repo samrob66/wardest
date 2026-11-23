@@ -102,13 +102,14 @@ describe('volPosts', () => {
     const r = await addRole(env, s.wardId, d, role());
     const v = await addVolunteer(s.wardId, postId, r, 'confirmed');
     await addVolunteer(s.wardId, postId, r, 'waiting');
-    const none = await updateRole(env, s.wardId, r, role({ note: 'Bring gloves' }));
+    // NOW, not the real clock: these 2026-12 dates stop being upcoming once that clock passes them.
+    const none = await updateRole(env, s.wardId, r, role({ note: 'Bring gloves' }), NOW);
     expect(none).toHaveLength(0);
-    const msgs = await updateRole(env, s.wardId, r, role({ note: 'Bring gloves', start_time: '10:00' }));
+    const msgs = await updateRole(env, s.wardId, r, role({ note: 'Bring gloves', start_time: '10:00' }), NOW);
     expect(msgs).toHaveLength(1);
     expect(msgs[0]!.kind).toBe('vol_role_changed');
     expect(msgs[0]!.to).toBe(v.email);
-    const dm = await updateDate(env, s.wardId, d, '2026-12-07', '09:00');
+    const dm = await updateDate(env, s.wardId, d, '2026-12-07', '09:00', NOW);
     expect(dm).toHaveLength(1);
   });
 

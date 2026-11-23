@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { env, asUser, makeLeader, uniqueEmail, settle } from './helpers';
-import { NOW, fixture, counts, signupRows } from './volFixtures';
+import { NOW, fixture, counts, signupRows, futureDate } from './volFixtures';
 import { submitSignup, normalizeChildName } from '../src/lib/volSignup';
 import { VolInputError } from '../src/lib/volPosts';
 
@@ -67,7 +67,8 @@ describe('child sign-ups', () => {
   });
 
   it('the leader list shows "Ana (signed up by Jane Doe)"; the public page never shows it', async () => {
-    const fx = await fixture({ audiences: 'brothers,youth' });
+    // The pages use the real clock, so the post's date must be after it (not the 2026-12-06 default).
+    const fx = await fixture({ audiences: 'brothers,youth', date: futureDate() });
     const email = await parent(fx.wardId, 'Jane Doe');
     await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'Jane Doe', email, bringing: null, now: NOW, child: 'Ana' });
     const html = await (
