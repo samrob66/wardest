@@ -30,8 +30,7 @@ const PER_POST_MINE = 7;
 // expected to fail today, so the suite stays green commit by commit.
 const STILL_N_PLUS_1 = new Set([
   'service hub as rsPres', 'service hub as bishop', 'Relief Society space page as rsPres', 'Ward Council space page as rsPres',
-  'Ward Council space page as counselor', 'Bishopric space page as bishop', 'ward page as plainMember', 'category picker as rsPres',
-  'category picker as bishop', 'requests inbox as bishop', 'requests inbox as eqPres',
+  'Ward Council space page as counselor', 'Bishopric space page as bishop', 'requests inbox as bishop', 'requests inbox as eqPres',
   'posts: Relief Society space page as rsPres', 'posts: Ward Council space page as rsPres', 'posts: Ward Council space page as counselor',
   'posts: Bishopric space page as bishop', 'posts: My service opportunities as rsPres',
 ]);

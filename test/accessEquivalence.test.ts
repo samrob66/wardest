@@ -14,7 +14,10 @@ import * as curS from '../src/lib/serviceAccess';
 import * as curV from '../src/lib/volAccess';
 import * as refS from './reference/serviceAccessRef';
 import * as refV from './reference/volAccessRef';
-import type { PostRef } from '../src/lib/volAccess';
+import { loadAccess, type AccessSnapshot } from '../src/lib/serviceAccess';
+import {
+  canEditStored, canManageEditorListIn, canManageOrgIn, canViewStored, loadPosts, type PostRef, type StoredPost,
+} from '../src/lib/volAccess';
 
 type SImpl = typeof refS;
 type VImpl = typeof refV;
@@ -281,10 +284,82 @@ async function settleAll(jobs: Array<[string, Promise<unknown>]>): Promise<Table
   return Object.fromEntries(jobs.map(([k], i) => [k, values[i]]));
 }
 
-async function compare(fn: (impl: { s: SImpl; v: VImpl }) => Promise<Table>): Promise<void> {
-  const [ref, cur] = [await fn(IMPLS[0]!), await fn(IMPLS[1]!)];
+// The reference answers, computed once per table and user (the snapshot tests reuse them).
+const refCache = new Map<string, Promise<Table>>();
+function reference(key: string, fn: (impl: { s: SImpl; v: VImpl }) => Promise<Table>): Promise<Table> {
+  if (!refCache.has(key)) refCache.set(key, fn(IMPLS[0]!));
+  return refCache.get(key)!;
+}
+
+async function compare(key: string, fn: (impl: { s: SImpl; v: VImpl }) => Promise<Table>): Promise<void> {
+  const ref = await reference(key, fn);
+  const cur = await fn(IMPLS[1]!);
   expect(Object.keys(ref).length).toBeGreaterThan(0);
   expect(cur).toEqual(ref);
+}
+
+// ---- the snapshot path the listing routes use: one snapshot per (ward, user), posts batch-read
+// with loadPosts, decisions made in memory. Compared key by key with the reference tables.
+
+async function snaps(c: Cast, uid: string): Promise<Record<string, AccessSnapshot>> {
+  return { [c.w1]: await loadAccess(env, c.w1, uid), [c.w2]: await loadAccess(env, c.w2, uid) };
+}
+
+async function snapPostTable(c: Cast, uid: string): Promise<Table> {
+  const s = await snaps(c, uid);
+  const t: Table = {};
+  const byWard = new Map<string, Map<string, StoredPost>>();
+  for (const w of [c.w1, c.w2]) {
+    byWard.set(w, await loadPosts(env, w, Object.values(c.posts).filter((r) => r.ward_id === w).map((r) => r.id)));
+  }
+  for (const [k, ref] of Object.entries(c.posts)) {
+    const p = byWard.get(ref.ward_id)?.get(ref.id);
+    t[`edit ${k}`] = p ? canEditStored(s[ref.ward_id]!, p) : false;
+    t[`view ${k}`] = p ? canViewStored(s[ref.ward_id]!, p) : false;
+  }
+  for (const [k, sid] of Object.entries(c.spaces)) {
+    t[`manageOrg ${k}`] = canManageOrgIn(s[c.w1]!, sid);
+    t[`editorList ${k}`] = canManageEditorListIn(s[c.w1]!, sid);
+  }
+  for (const [k, vid] of Object.entries(c.vols)) t[`approve ${k}`] = await curV.canApproveVolunteer(env, c.w1, vid, uid, s[c.w1]);
+  t.wardVolunteers = s[c.w1]!.isBishopric();
+  t['wardVolunteers w2'] = s[c.w2]!.isBishopric();
+  return t;
+}
+
+async function snapCategoryTable(c: Cast, uid: string): Promise<Table> {
+  const s = await snaps(c, uid);
+  const t: Table = {};
+  for (const [k, cid] of Object.entries(c.cats)) {
+    const x = s[c.w1]!;
+    t[`manager ${k}`] = x.isCategoryManager(cid);
+    t[`delegate ${k}`] = x.isCategoryDelegate(cid);
+    t[`create ${k}`] = x.canCreateInCategory(cid);
+    t[`managePosts ${k}`] = x.mayManagePostsInCategory(cid);
+    t[`seeRequestCat ${k}`] = x.canSeeRequestCategory(cid);
+  }
+  for (const k of ['w2:meal', 'w2:req-christmas']) {
+    const x = s[c.w2]!;
+    t[`w2 manager ${k}`] = x.isCategoryManager(c.cats[k]!);
+    t[`w2 create ${k}`] = x.canCreateInCategory(c.cats[k]!);
+    t[`w2 delegate ${k}`] = x.isCategoryDelegate(c.cats[k]!);
+    t[`w2 seeRequestCat ${k}`] = x.canSeeRequestCategory(c.cats[k]!);
+  }
+  for (const [k, rid] of Object.entries(c.reqs)) t[`seeRequest ${k}`] = await curS.canSeeRequest(env, c.w1, rid, uid, s[c.w1]);
+  t['seeRequest w2 own'] = await curS.canSeeRequest(env, c.w2, c.reqs['w2:req-moving']!, uid, s[c.w2]);
+  t.bishopric = s[c.w1]!.isBishopric();
+  t['bishopric w2'] = s[c.w2]!.isBishopric();
+  return t;
+}
+
+async function snapListTable(c: Cast, uid: string): Promise<Table> {
+  const s = await snaps(c, uid);
+  return {
+    mayCreateIn: (await curS.categoriesUserMayCreateIn(env, c.w1, uid, s[c.w1])).map((x) => x.id),
+    'mayCreateIn w2': (await curS.categoriesUserMayCreateIn(env, c.w2, uid, s[c.w2])).map((x) => x.id),
+    hasServiceRole: await curS.hasServiceRole(env, c.w1, uid, s[c.w1]),
+    'hasServiceRole w2': await curS.hasServiceRole(env, c.w2, uid, s[c.w2]),
+  };
 }
 
 let c: Cast;
@@ -300,21 +375,30 @@ beforeAll(async () => {
 describe('access equivalence: posts, orgs and volunteers', () => {
   beforeAll(async () => renullLegacy(c), SLOW);
   for (const key of USERS) {
-    it(`${key}`, async () => compare((impl) => postTable(impl, c, c.users[key]!)), SLOW);
+    it(`${key}`, async () => compare(`posts ${key}`, (impl) => postTable(impl, c, c.users[key]!)), SLOW);
+    it(`${key} (one snapshot)`, async () => {
+      expect(await snapPostTable(c, c.users[key]!)).toEqual(await reference(`posts ${key}`, (impl) => postTable(impl, c, c.users[key]!)));
+    }, SLOW);
   }
 });
 
 describe('access equivalence: categories and requests', () => {
   for (const key of USERS) {
-    it(`${key}`, async () => compare((impl) => categoryTable(impl, c, c.users[key]!)), SLOW);
+    it(`${key}`, async () => compare(`cats ${key}`, (impl) => categoryTable(impl, c, c.users[key]!)), SLOW);
+    it(`${key} (one snapshot)`, async () => {
+      expect(await snapCategoryTable(c, c.users[key]!)).toEqual(await reference(`cats ${key}`, (impl) => categoryTable(impl, c, c.users[key]!)));
+    }, SLOW);
   }
 });
 
 describe('access equivalence: lists', () => {
   for (const key of USERS) {
-    it(`${key}`, async () => compare((impl) => listTable(impl, c, c.users[key]!)), SLOW);
+    it(`${key}`, async () => compare(`lists ${key}`, (impl) => listTable(impl, c, c.users[key]!)), SLOW);
+    it(`${key} (one snapshot)`, async () => {
+      expect(await snapListTable(c, c.users[key]!)).toEqual(await reference(`lists ${key}`, (impl) => listTable(impl, c, c.users[key]!)));
+    }, SLOW);
   }
-  it('recipients', async () => compare((impl) => recipientTable(impl, c)), SLOW);
+  it('recipients', async () => compare('recipients', (impl) => recipientTable(impl, c)), SLOW);
 });
 
 describe('access equivalence: aliases', () => {
@@ -363,5 +447,20 @@ describe('access equivalence: the cast exercises every rule', () => {
     expect(await v.canApproveVolunteer(env, c.w1, c.vols.archived!, u.eqPres!)).toBe(true);
     expect(await v.canApproveVolunteer(env, c.w1, c.vols.legacy!, u.eqPres!)).toBe(true);
     expect(await s.requestNotifyEmails(env, c.w1, c.cats['req-moving']!)).toHaveLength(1); // stale delegate -> EQ owner
+  }, SLOW);
+
+  it("a snapshot for someone else, or another ward, is never used for a decision", async () => {
+    const u = c.users;
+    const bishops = await loadAccess(env, c.w1, u.bishop!);
+    expect(await curS.isBishopric(env, c.w1, u.counselor!, bishops)).toBe(await refS.isBishopric(env, c.w1, u.counselor!));
+    expect(await curS.isBishopric(env, c.w1, u.plainMember!, bishops)).toBe(false);
+    expect(await curS.isCategoryManager(env, c.w1, c.cats['req-other']!, u.counselor!, bishops)).toBe(false);
+    expect(await curV.canEditPost(env, u.plainMember!, c.posts.bish!, bishops)).toBe(false);
+    const outsiders = await loadAccess(env, c.w2, u.outsider!);
+    expect(await curS.isBishopric(env, c.w1, u.outsider!, outsiders)).toBe(false);
+    // A stored post of ward 1 against a ward-2 snapshot: deny.
+    const p = (await loadPosts(env, c.w1, [c.posts.org!.id])).get(c.posts.org!.id)!;
+    expect(canViewStored(outsiders, p)).toBe(false);
+    expect(canEditStored(outsiders, p)).toBe(false);
   }, SLOW);
 });

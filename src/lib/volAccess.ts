@@ -3,6 +3,8 @@
 // category, delegate and request decisions live in its sibling serviceAccess.ts. Fail closed: an
 // unknown, wrong-ward or missing anything -> false. Ward superadmin = Bishopric (break-glass,
 // as in visibility.ts). space_shares grant nothing here: the spec lists the audiences exactly.
+// Decisions are made from serviceAccess's per-request AccessSnapshot; a page checking many posts
+// loads them with loadPosts and decides each with canEditStored / canViewStored on ONE snapshot.
 //
 // A post belongs to one space (org, ward_council or bishopric) and one service category.
 //   Bishopric (bishopric space member) or superadmin -> create/edit/delete/approve anything
@@ -21,7 +23,7 @@
 //   A post with no category yet (an upgraded DB before its backfill): the old org rule, org
 //   owners + vol_editors edit.
 import type { Env } from '../types';
-import { isBishopric, isCategoryDelegate, isCategoryManager, mayManagePostsInCategory } from './serviceAccess';
+import { accessFor, isBishopric, loadAccess, type AccessSnapshot } from './serviceAccess';
 
 export { isBishopric };
 
@@ -32,139 +34,148 @@ export interface PostRef {
   created_by_user_id: string | null;
 }
 
-async function wardRoleOf(env: Env, wardId: string, userId: string): Promise<string | null> {
-  if (!wardId || !userId) return null;
-  const r = await env.DB.prepare(`SELECT role FROM ward_memberships WHERE ward_id = ? AND user_id = ?`)
-    .bind(wardId, userId)
-    .first<{ role: string }>();
-  return r?.role ?? null;
-}
-
-// Is `spaceId` an org space of `wardId`?
-async function isOrgSpaceOf(env: Env, wardId: string, spaceId: string): Promise<boolean> {
-  if (!spaceId) return false;
-  const r = await env.DB.prepare(`SELECT 1 AS ok FROM spaces WHERE id = ? AND ward_id = ? AND kind = 'org'`)
-    .bind(spaceId, wardId)
-    .first();
-  return r != null;
-}
-
-// Role in a space of this ward (null when not a member, or the space isn't in the ward).
-async function spaceRoleIn(env: Env, wardId: string, spaceId: string, userId: string): Promise<string | null> {
-  const r = await env.DB.prepare(
-    `SELECT sm.role AS role FROM space_memberships sm JOIN spaces s ON s.id = sm.space_id
-      WHERE sm.space_id = ? AND sm.user_id = ? AND s.ward_id = ?`,
-  )
-    .bind(spaceId, userId, wardId)
-    .first<{ role: string }>();
-  return r?.role ?? null;
-}
-
-async function inWardSpaceOfKind(env: Env, wardId: string, kind: 'bishopric' | 'ward_council', userId: string): Promise<boolean> {
-  const r = await env.DB.prepare(
-    `SELECT 1 AS ok FROM space_memberships sm JOIN spaces s ON s.id = sm.space_id
-      WHERE s.ward_id = ? AND s.kind = ? AND sm.user_id = ? LIMIT 1`,
-  )
-    .bind(wardId, kind, userId)
-    .first();
-  return r != null;
-}
-
-interface StoredPost extends PostRef {
+// A post as stored: its space is an org, ward_council or bishopric space of the same ward, and
+// its category (when set) a category of the same ward. Decisions never rest on a caller's ref.
+export interface StoredPost extends PostRef {
   category_id: string | null;
   kind: string;
 }
 
-// Re-read the post from D1 so a decision never rests on a caller-supplied ref. Its space must
-// be an org, ward_council or bishopric space of the same ward, and its category (when set) a
-// category of the same ward.
+const STORED_POST_SQL = `SELECT p.id, p.ward_id, p.space_id, p.created_by_user_id, p.category_id, s.kind AS kind
+       FROM vol_posts p JOIN spaces s ON s.id = p.space_id AND s.ward_id = p.ward_id
+       LEFT JOIN service_categories c ON c.id = p.category_id AND c.ward_id = p.ward_id
+      WHERE p.ward_id = ? AND s.kind IN ('org','ward_council','bishopric')
+        AND (p.category_id IS NULL OR p.category_id = '' OR c.id IS NOT NULL)`;
+
+// Re-read the post from D1 so a decision never rests on a caller-supplied ref.
 async function storedPost(env: Env, post: PostRef): Promise<StoredPost | null> {
   if (!post?.id || !post.ward_id) return null;
-  const p = await env.DB.prepare(
-    `SELECT p.id, p.ward_id, p.space_id, p.created_by_user_id, p.category_id, s.kind AS kind
-       FROM vol_posts p JOIN spaces s ON s.id = p.space_id AND s.ward_id = p.ward_id
-      WHERE p.id = ? AND p.ward_id = ? AND s.kind IN ('org','ward_council','bishopric')`,
-  )
-    .bind(post.id, post.ward_id)
-    .first<StoredPost>();
-  if (!p) return null;
-  if (p.category_id) {
-    const c = await env.DB.prepare(`SELECT 1 AS ok FROM service_categories WHERE id = ? AND ward_id = ?`)
-      .bind(p.category_id, p.ward_id)
-      .first();
-    if (!c) return null;
-  }
-  return p;
+  return env.DB.prepare(`${STORED_POST_SQL} AND p.id = ?`).bind(post.ward_id, post.id).first<StoredPost>();
 }
+
+// Many posts of one ward at once (for lists): id -> stored post. Ids that aren't a valid post of
+// the ward are missing from the map (deny).
+export async function loadPosts(env: Env, wardId: string, ids: string[]): Promise<Map<string, StoredPost>> {
+  const out = new Map<string, StoredPost>();
+  const want = [...new Set(ids.filter(Boolean))];
+  if (!wardId || !want.length) return out;
+  const CHUNK = 90; // D1 allows 100 bound parameters per statement
+  const stmts: D1PreparedStatement[] = [];
+  for (let i = 0; i < want.length; i += CHUNK) {
+    const part = want.slice(i, i + CHUNK);
+    stmts.push(env.DB.prepare(`${STORED_POST_SQL} AND p.id IN (${part.map(() => '?').join(',')})`).bind(wardId, ...part));
+  }
+  for (const res of await env.DB.batch<StoredPost>(stmts)) for (const p of res.results ?? []) out.set(p.id, p);
+  return out;
+}
+
+// ---------------------------------------------------------------- decisions on a snapshot
 
 // May create/edit/delete posts for this organization and approve volunteers on them.
-export async function canManageOrg(env: Env, wardId: string, spaceId: string, userId: string): Promise<boolean> {
-  if (!(await wardRoleOf(env, wardId, userId))) return false;
-  if (!(await isOrgSpaceOf(env, wardId, spaceId))) return false;
-  if (await isBishopric(env, wardId, userId)) return true;
-  if ((await spaceRoleIn(env, wardId, spaceId, userId)) === 'owner') return true;
-  const ed = await env.DB.prepare(
-    `SELECT 1 AS ok FROM vol_editors WHERE ward_id = ? AND space_id = ? AND user_id = ?`,
-  )
-    .bind(wardId, spaceId, userId)
-    .first();
-  return ed != null;
+export function canManageOrgIn(s: AccessSnapshot, spaceId: string): boolean {
+  if (!s.role) return false;
+  if (!spaceId || s.spaceKind(spaceId) !== 'org') return false;
+  if (s.isBishopric()) return true;
+  if (s.spaceRole(spaceId, 'loose') === 'owner') return true;
+  return s.isVolEditorOf(spaceId);
 }
 
-export async function canEditPost(env: Env, userId: string, post: PostRef): Promise<boolean> {
-  const p = await storedPost(env, post);
-  if (!p) return false;
-  if (!(await wardRoleOf(env, p.ward_id, userId))) return false;
-  if (p.created_by_user_id && p.created_by_user_id === userId) return true;
-  if (await isBishopric(env, p.ward_id, userId)) return true;
-  if (!p.category_id) return p.kind === 'org' && canManageOrg(env, p.ward_id, p.space_id, userId);
+// Who may change an org's "Who can manage volunteer posts" list: its owners and the Bishopric.
+export function canManageEditorListIn(s: AccessSnapshot, spaceId: string): boolean {
+  if (!s.role) return false;
+  if (!spaceId || s.spaceKind(spaceId) !== 'org') return false;
+  if (s.isBishopric()) return true;
+  return s.spaceRole(spaceId, 'loose') === 'owner';
+}
+
+// The snapshot's user may edit this stored post (a snapshot of another ward: no).
+export function canEditStored(s: AccessSnapshot, p: StoredPost): boolean {
+  if (p.ward_id !== s.wardId) return false;
+  if (!s.role) return false;
+  if (p.created_by_user_id && p.created_by_user_id === s.userId) return true;
+  if (s.isBishopric()) return true;
+  if (!p.category_id) return p.kind === 'org' && canManageOrgIn(s, p.space_id);
   // Archive-agnostic: archiving a category stops new posts, not the management of these.
-  if (await mayManagePostsInCategory(env, p.ward_id, p.category_id, userId)) return true;
-  return isCategoryDelegate(env, p.ward_id, p.category_id, userId);
+  if (s.mayManagePostsInCategory(p.category_id)) return true;
+  return s.isCategoryDelegate(p.category_id);
 }
 
-export async function canViewPost(env: Env, userId: string, post: PostRef): Promise<boolean> {
+export function canViewStored(s: AccessSnapshot, p: StoredPost): boolean {
+  if (p.ward_id !== s.wardId) return false;
+  if (!s.role) return false;
+  if (canEditStored(s, p)) return true;
+  if (p.category_id && s.isCategoryManager(p.category_id)) return true;
+  if (p.kind === 'bishopric') return false; // Bishopric members could already edit it (above)
+  if (s.inSpaceOfKind('ward_council', 'loose')) return true;
+  if (p.kind === 'ward_council') return false;
+  return s.spaceRole(p.space_id, 'loose') != null;
+}
+
+// ---------------------------------------------------------------- the async checks
+//
+// Same names, arguments and answers as before; each takes an optional snapshot (used when it is
+// for the same ward and user, else one is loaded).
+
+export async function canManageOrg(
+  env: Env,
+  wardId: string,
+  spaceId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  return canManageOrgIn(await accessFor(env, wardId, userId, snap), spaceId);
+}
+
+export async function canEditPost(env: Env, userId: string, post: PostRef, snap?: AccessSnapshot): Promise<boolean> {
   const p = await storedPost(env, post);
   if (!p) return false;
-  if (!(await wardRoleOf(env, p.ward_id, userId))) return false;
-  if (await canEditPost(env, userId, p)) return true;
-  if (p.category_id && (await isCategoryManager(env, p.ward_id, p.category_id, userId))) return true;
-  if (p.kind === 'bishopric') return false; // Bishopric members could already edit it (above)
-  if (await inWardSpaceOfKind(env, p.ward_id, 'ward_council', userId)) return true;
-  if (p.kind === 'ward_council') return false;
-  return (await spaceRoleIn(env, p.ward_id, p.space_id, userId)) != null;
+  return canEditStored(await accessFor(env, p.ward_id, userId, snap), p);
+}
+
+export async function canViewPost(env: Env, userId: string, post: PostRef, snap?: AccessSnapshot): Promise<boolean> {
+  const p = await storedPost(env, post);
+  if (!p) return false;
+  return canViewStored(await accessFor(env, p.ward_id, userId, snap), p);
 }
 
 // Bishopric, or anyone who can edit a post where this volunteer has a 'waiting' sign-up.
-export async function canApproveVolunteer(env: Env, wardId: string, volunteerId: string, userId: string): Promise<boolean> {
-  if (!(await wardRoleOf(env, wardId, userId))) return false;
+export async function canApproveVolunteer(
+  env: Env,
+  wardId: string,
+  volunteerId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  const s = await accessFor(env, wardId, userId, snap);
+  if (!s.role) return false;
   const v = await env.DB.prepare(`SELECT 1 AS ok FROM volunteers WHERE id = ? AND ward_id = ?`)
     .bind(volunteerId, wardId)
     .first();
   if (!v) return false;
-  if (await isBishopric(env, wardId, userId)) return true;
+  if (s.isBishopric()) return true;
   const posts = await env.DB.prepare(
-    `SELECT DISTINCT p.id, p.ward_id, p.space_id, p.created_by_user_id
-       FROM vol_signups s JOIN vol_posts p ON p.id = s.post_id AND p.ward_id = s.ward_id
+    `SELECT DISTINCT p.id FROM vol_signups s JOIN vol_posts p ON p.id = s.post_id AND p.ward_id = s.ward_id
       WHERE s.ward_id = ? AND s.volunteer_id = ? AND s.status = 'waiting'`,
   )
     .bind(wardId, volunteerId)
-    .all<PostRef>();
-  for (const p of posts.results ?? []) {
-    if (await canEditPost(env, userId, p)) return true;
-  }
+    .all<{ id: string }>();
+  const stored = await loadPosts(env, wardId, (posts.results ?? []).map((p) => p.id));
+  for (const p of stored.values()) if (canEditStored(s, p)) return true;
   return false;
 }
 
-// Who may change an org's "Who can manage volunteer posts" list: its owners and the Bishopric.
-export async function canManageEditorList(env: Env, wardId: string, spaceId: string, userId: string): Promise<boolean> {
-  if (!(await wardRoleOf(env, wardId, userId))) return false;
-  if (!(await isOrgSpaceOf(env, wardId, spaceId))) return false;
-  if (await isBishopric(env, wardId, userId)) return true;
-  return (await spaceRoleIn(env, wardId, spaceId, userId)) === 'owner';
+export async function canManageEditorList(
+  env: Env,
+  wardId: string,
+  spaceId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  return canManageEditorListIn(await accessFor(env, wardId, userId, snap), spaceId);
 }
 
 // The ward-wide volunteers list (declined list, undo decline, revoke approval): Bishopric.
-export async function canSeeWardVolunteers(env: Env, wardId: string, userId: string): Promise<boolean> {
-  return isBishopric(env, wardId, userId);
+export async function canSeeWardVolunteers(env: Env, wardId: string, userId: string, snap?: AccessSnapshot): Promise<boolean> {
+  return isBishopric(env, wardId, userId, snap);
 }
+

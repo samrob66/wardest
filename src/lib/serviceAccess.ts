@@ -1,6 +1,9 @@
 // The permission module for service categories, their delegates and members' requests (spec
-// 2026-11-22 §3, §6). Sibling of volAccess.ts (posts), which builds on it. Every decision reads
-// D1 afresh and is ward-scoped. Fail closed: an unknown, wrong-ward or missing anything -> false.
+// 2026-11-22 §3, §6). Sibling of volAccess.ts (posts), which builds on it. Every decision is
+// ward-scoped and made from a per-request AccessSnapshot (loadAccess: one D1 batch). Fail
+// closed: an unknown, wrong-ward or missing anything -> false.
+// Loops (a page checking many categories or posts) build ONE snapshot with loadAccess and pass
+// it to every check; never one snapshot per item, never one kept across requests.
 //
 //   Manager of a category    owner of any of its owning spaces; any bishopric member; ward
 //                            superadmin (break-glass). A CONFIDENTIAL category (Christmas, Other
@@ -29,30 +32,290 @@ interface CatInfo {
   archived: number;
 }
 
-async function wardRoleOf(env: Env, wardId: string, userId: string): Promise<string | null> {
-  if (!wardId || !userId) return null;
-  const r = await env.DB.prepare(`SELECT role FROM ward_memberships WHERE ward_id = ? AND user_id = ?`)
-    .bind(wardId, userId)
-    .first<{ role: string }>();
-  return r?.role ?? null;
+// ---------------------------------------------------------------- the per-request snapshot
+//
+// Everything a decision needs about one (ward, user), read in one D1 batch of five statements,
+// however many categories or posts the ward has. Every decision is made from it in memory, by the
+// same rules as the per-check queries it replaced (frozen in test/reference/serviceAccessRef.ts;
+// test/accessEquivalence.test.ts proves they agree). Build one per request; never keep one across
+// requests or in module state (Workers isolates are shared between requests).
+//
+// Space membership comes in two strengths, as before: 'strict' (the membership row's own ward_id
+// matches its space's) for this module's rules, 'loose' (the space is in the ward) for
+// volAccess's view rules.
+
+interface SnapSpace {
+  kind: string;
+  role: string | null; // this user's role in it; null when not a member
+  strict: boolean; // the membership row is stamped with the space's ward
 }
 
-async function inWardSpaceOfKind(env: Env, wardId: string, kind: 'bishopric' | 'ward_council', userId: string): Promise<boolean> {
-  const r = await env.DB.prepare(
-    `SELECT 1 AS ok FROM space_memberships sm JOIN spaces s ON s.id = sm.space_id
-      WHERE s.ward_id = ? AND s.kind = ? AND sm.user_id = ? AND sm.ward_id = s.ward_id LIMIT 1`,
-  )
-    .bind(wardId, kind, userId)
-    .first();
-  return r != null;
+interface SnapCat extends CatInfo {
+  owners: Array<{ id: string; kind: string }>; // its owning spaces in the same ward
 }
+
+export class AccessSnapshot {
+  constructor(
+    readonly wardId: string,
+    readonly userId: string,
+    readonly role: string | null, // ward role; null = not a member, and every decision is false
+    private readonly spaces: ReadonlyMap<string, SnapSpace>, // every space of the ward
+    private readonly cats: ReadonlyMap<string, SnapCat>, // every category of the ward
+    private readonly delegates: ReadonlyMap<string, ReadonlySet<string>>, // category -> current delegates
+    private readonly editorOf: ReadonlySet<string>, // spaces whose vol_editors list has this user
+  ) {}
+
+  // ---- facts (volAccess builds its post rules on these)
+
+  hasCategory(categoryId: string): boolean {
+    return this.cats.has(categoryId);
+  }
+
+  spaceKind(spaceId: string): string | null {
+    return this.spaces.get(spaceId)?.kind ?? null;
+  }
+
+  spaceRole(spaceId: string, mode: 'strict' | 'loose'): string | null {
+    const sp = this.spaces.get(spaceId);
+    if (!sp?.role || (mode === 'strict' && !sp.strict)) return null;
+    return sp.role;
+  }
+
+  inSpaceOfKind(kind: 'bishopric' | 'ward_council', mode: 'strict' | 'loose'): boolean {
+    for (const sp of this.spaces.values()) {
+      if (sp.kind === kind && sp.role && (mode === 'loose' || sp.strict)) return true;
+    }
+    return false;
+  }
+
+  isVolEditorOf(spaceId: string): boolean {
+    return this.editorOf.has(spaceId);
+  }
+
+  // ---- decisions (the async exports below answer through these)
+
+  // Superadmin OR any member of the ward's Bishopric space.
+  isBishopric(): boolean {
+    if (!this.role) return false;
+    if (this.role === 'superadmin') return true;
+    return this.inSpaceOfKind('bishopric', 'strict');
+  }
+
+  private ownsAnOwningSpace(cat: SnapCat): boolean {
+    return cat.owners.some((o) => this.spaceRole(o.id, 'strict') === 'owner');
+  }
+
+  private isVolEditorOfAnOwningOrg(cat: SnapCat): boolean {
+    return cat.owners.some((o) => o.kind === 'org' && this.editorOf.has(o.id));
+  }
+
+  private managerOf(cat: SnapCat): boolean {
+    if (this.role === 'superadmin') return true;
+    if (this.ownsAnOwningSpace(cat)) return true;
+    if (cat.confidential) return false;
+    return this.inSpaceOfKind('bishopric', 'strict');
+  }
+
+  isCategoryManager(categoryId: string): boolean {
+    if (!this.role) return false;
+    const cat = this.cats.get(categoryId);
+    if (!cat) return false;
+    return this.managerOf(cat);
+  }
+
+  isCategoryDelegate(categoryId: string): boolean {
+    if (!this.role) return false;
+    if (!this.cats.has(categoryId)) return false;
+    return this.delegates.get(categoryId)?.has(this.userId) ?? false;
+  }
+
+  canCreateInCategory(categoryId: string): boolean {
+    const cat = this.cats.get(categoryId);
+    if (!cat || cat.archived) return false;
+    return this.mayManagePostsInCategory(categoryId);
+  }
+
+  mayManagePostsInCategory(categoryId: string): boolean {
+    if (!this.role) return false;
+    const cat = this.cats.get(categoryId);
+    if (!cat || cat.kind !== 'opportunity') return false;
+    if (this.isBishopric()) return true;
+    if (this.isCategoryDelegate(categoryId)) return true;
+    if (cat.council_may_create && this.inSpaceOfKind('ward_council', 'strict')) return true;
+    if ((this.delegates.get(categoryId)?.size ?? 0) > 0) return false;
+    if (this.managerOf(cat)) return true;
+    return this.isVolEditorOfAnOwningOrg(cat);
+  }
+
+  canSeeRequestCategory(categoryId: string): boolean {
+    const cat = this.cats.get(categoryId);
+    if (!cat || cat.kind !== 'request') return false;
+    return this.isCategoryManager(categoryId) || this.isCategoryDelegate(categoryId);
+  }
+
+  // Manages, coordinates or may create in any of these categories.
+  hasServiceRoleIn(categoryIds: Iterable<string>): boolean {
+    if (!this.role) return false;
+    for (const id of categoryIds) {
+      if (this.isCategoryManager(id) || this.isCategoryDelegate(id) || this.canCreateInCategory(id)) return true;
+    }
+    return false;
+  }
+}
+
+type Row = Record<string, unknown>;
+
+// The snapshot for (ward, user). Missing ids give an empty snapshot (not a member), with no query.
+export async function loadAccess(env: Env, wardId: string, userId: string): Promise<AccessSnapshot> {
+  if (!wardId || !userId) return new AccessSnapshot(wardId, userId, null, new Map(), new Map(), new Map(), new Set());
+  const [role, spaces, cats, delegates, editors] = await env.DB.batch<Row>([
+    env.DB.prepare(`SELECT role FROM ward_memberships WHERE ward_id = ? AND user_id = ?`).bind(wardId, userId),
+    // Every space of the ward with this user's membership (UNIQUE(space_id, user_id): one row each).
+    env.DB.prepare(
+      `SELECT s.id, s.kind, sm.role AS role, sm.ward_id AS sm_ward
+         FROM spaces s LEFT JOIN space_memberships sm ON sm.space_id = s.id AND sm.user_id = ?
+        WHERE s.ward_id = ?`,
+    ).bind(userId, wardId),
+    // Every category of the ward (archived included), one row per owning space of the same ward.
+    env.DB.prepare(
+      `SELECT c.id, c.ward_id, c.kind, c.confidential, c.council_may_create, c.archived, s.id AS owner_id, s.kind AS owner_kind
+         FROM service_categories c
+         LEFT JOIN service_category_spaces cs ON cs.category_id = c.id AND cs.ward_id = c.ward_id
+         LEFT JOIN spaces s ON s.id = cs.space_id AND s.ward_id = cs.ward_id
+        WHERE c.ward_id = ?`,
+    ).bind(wardId),
+    // Delegates who still belong to the ward (a stale row counts for nothing).
+    env.DB.prepare(
+      `SELECT d.category_id, d.user_id FROM service_delegates d
+         JOIN ward_memberships wm ON wm.user_id = d.user_id AND wm.ward_id = d.ward_id
+        WHERE d.ward_id = ?`,
+    ).bind(wardId),
+    env.DB.prepare(`SELECT space_id FROM vol_editors WHERE ward_id = ? AND user_id = ?`).bind(wardId, userId),
+  ]);
+  const rows = (x: D1Result<Row> | undefined): Row[] => x?.results ?? [];
+
+  const spaceMap = new Map<string, SnapSpace>();
+  for (const r of rows(spaces)) {
+    const memberRole = r.role == null ? null : String(r.role);
+    spaceMap.set(String(r.id), { kind: String(r.kind), role: memberRole, strict: memberRole != null && r.sm_ward === wardId });
+  }
+  const catMap = new Map<string, SnapCat>();
+  for (const r of rows(cats)) {
+    const id = String(r.id);
+    let cat = catMap.get(id);
+    if (!cat) {
+      cat = {
+        id,
+        ward_id: String(r.ward_id),
+        kind: String(r.kind),
+        confidential: Number(r.confidential),
+        council_may_create: Number(r.council_may_create),
+        archived: Number(r.archived),
+        owners: [],
+      };
+      catMap.set(id, cat);
+    }
+    if (r.owner_id != null) cat.owners.push({ id: String(r.owner_id), kind: String(r.owner_kind) });
+  }
+  const delegateMap = new Map<string, Set<string>>();
+  for (const r of rows(delegates)) {
+    const cid = String(r.category_id);
+    let set = delegateMap.get(cid);
+    if (!set) delegateMap.set(cid, (set = new Set()));
+    set.add(String(r.user_id));
+  }
+  const roleRow = rows(role)[0];
+  return new AccessSnapshot(
+    wardId,
+    userId,
+    roleRow?.role == null ? null : String(roleRow.role),
+    spaceMap,
+    catMap,
+    delegateMap,
+    new Set(rows(editors).map((r) => String(r.space_id))),
+  );
+}
+
+// The caller's snapshot when it is for this ward and user, else a fresh one.
+export async function accessFor(env: Env, wardId: string, userId: string, snap?: AccessSnapshot): Promise<AccessSnapshot> {
+  return snap && snap.wardId === wardId && snap.userId === userId ? snap : loadAccess(env, wardId, userId);
+}
+
+// listCategories inserts any missing default first, so a list can hold categories newer than the
+// snapshot: decide those on a fresh snapshot, as the per-check queries would have.
+async function coveringAll(env: Env, s: AccessSnapshot, ids: string[]): Promise<AccessSnapshot> {
+  return ids.every((id) => s.hasCategory(id)) ? s : loadAccess(env, s.wardId, s.userId);
+}
+
+// ---------------------------------------------------------------- the checks
+//
+// Each takes an optional snapshot (used when it is for the same ward and user; else one is
+// loaded), so a single check costs one batch and a loop costs one batch in all.
 
 // Superadmin OR any member of the ward's Bishopric space. (Re-exported by volAccess.ts.)
-export async function isBishopric(env: Env, wardId: string, userId: string): Promise<boolean> {
-  const role = await wardRoleOf(env, wardId, userId);
-  if (!role) return false;
-  if (role === 'superadmin') return true;
-  return inWardSpaceOfKind(env, wardId, 'bishopric', userId);
+export async function isBishopric(env: Env, wardId: string, userId: string, snap?: AccessSnapshot): Promise<boolean> {
+  return (await accessFor(env, wardId, userId, snap)).isBishopric();
+}
+
+export async function isCategoryManager(
+  env: Env,
+  wardId: string,
+  categoryId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  return (await accessFor(env, wardId, userId, snap)).isCategoryManager(categoryId);
+}
+
+// Managers add categories, rename, archive, set audiences, manage delegates and warnings.
+export const canManageCategory = isCategoryManager;
+
+export async function isCategoryDelegate(
+  env: Env,
+  wardId: string,
+  categoryId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  return (await accessFor(env, wardId, userId, snap)).isCategoryDelegate(categoryId);
+}
+
+// May create NEW posts in the category: an opportunity category that isn't archived, and the
+// person may manage its posts (below).
+export async function canCreateInCategory(
+  env: Env,
+  wardId: string,
+  categoryId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  return (await accessFor(env, wardId, userId, snap)).canCreateInCategory(categoryId);
+}
+
+// The create rule without the archived check: who may edit (and approve on) EXISTING posts in
+// the category. Archiving a category only stops new posts; its posts stay manageable.
+export async function mayManagePostsInCategory(
+  env: Env,
+  wardId: string,
+  categoryId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  return (await accessFor(env, wardId, userId, snap)).mayManagePostsInCategory(categoryId);
+}
+
+// Opportunity categories the user may create in (for the picker and the "Create" buttons).
+export async function categoriesUserMayCreateIn(
+  env: Env,
+  wardId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<CategoryRow[]> {
+  let s = await accessFor(env, wardId, userId, snap);
+  if (!s.role) return [];
+  const list = await listCategories(env, wardId, { kind: 'opportunity' });
+  s = await coveringAll(env, s, list.map((c) => c.id));
+  return list.filter((c) => s.canCreateInCategory(c.id));
 }
 
 async function category(env: Env, wardId: string, categoryId: string): Promise<CatInfo | null> {
@@ -62,102 +325,6 @@ async function category(env: Env, wardId: string, categoryId: string): Promise<C
   )
     .bind(categoryId, wardId)
     .first<CatInfo>();
-}
-
-// Owner of one of the category's owning spaces (spaces of this ward only).
-async function ownsAnOwningSpace(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
-  const r = await env.DB.prepare(
-    `SELECT 1 AS ok FROM service_category_spaces cs
-       JOIN spaces s ON s.id = cs.space_id AND s.ward_id = cs.ward_id
-       JOIN space_memberships sm ON sm.space_id = s.id AND sm.ward_id = s.ward_id
-      WHERE cs.category_id = ? AND cs.ward_id = ? AND sm.user_id = ? AND sm.role = 'owner' LIMIT 1`,
-  )
-    .bind(categoryId, wardId, userId)
-    .first();
-  return r != null;
-}
-
-async function isVolEditorOfAnOwningOrg(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
-  const r = await env.DB.prepare(
-    `SELECT 1 AS ok FROM service_category_spaces cs
-       JOIN spaces s ON s.id = cs.space_id AND s.ward_id = cs.ward_id AND s.kind = 'org'
-       JOIN vol_editors ve ON ve.space_id = s.id AND ve.ward_id = s.ward_id
-      WHERE cs.category_id = ? AND cs.ward_id = ? AND ve.user_id = ? LIMIT 1`,
-  )
-    .bind(categoryId, wardId, userId)
-    .first();
-  return r != null;
-}
-
-// Delegates who still belong to the ward (a stale row counts for nothing).
-async function activeDelegateCount(env: Env, wardId: string, categoryId: string): Promise<number> {
-  const r = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM service_delegates d JOIN ward_memberships wm ON wm.user_id = d.user_id AND wm.ward_id = d.ward_id
-      WHERE d.category_id = ? AND d.ward_id = ?`,
-  )
-    .bind(categoryId, wardId)
-    .first<{ n: number }>();
-  return r?.n ?? 0;
-}
-
-async function managerOf(env: Env, cat: CatInfo, userId: string, role: string): Promise<boolean> {
-  if (role === 'superadmin') return true;
-  if (await ownsAnOwningSpace(env, cat.ward_id, cat.id, userId)) return true;
-  if (cat.confidential) return false;
-  return inWardSpaceOfKind(env, cat.ward_id, 'bishopric', userId);
-}
-
-export async function isCategoryManager(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
-  const role = await wardRoleOf(env, wardId, userId);
-  if (!role) return false;
-  const cat = await category(env, wardId, categoryId);
-  if (!cat) return false;
-  return managerOf(env, cat, userId, role);
-}
-
-// Managers add categories, rename, archive, set audiences, manage delegates and warnings.
-export const canManageCategory = isCategoryManager;
-
-export async function isCategoryDelegate(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
-  if (!(await wardRoleOf(env, wardId, userId))) return false;
-  if (!(await category(env, wardId, categoryId))) return false;
-  const r = await env.DB.prepare(`SELECT 1 AS ok FROM service_delegates WHERE ward_id = ? AND category_id = ? AND user_id = ?`)
-    .bind(wardId, categoryId, userId)
-    .first();
-  return r != null;
-}
-
-// May create NEW posts in the category: an opportunity category that isn't archived, and the
-// person may manage its posts (below).
-export async function canCreateInCategory(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
-  const cat = await category(env, wardId, categoryId);
-  if (!cat || cat.archived) return false;
-  return mayManagePostsInCategory(env, wardId, categoryId, userId);
-}
-
-// The create rule without the archived check: who may edit (and approve on) EXISTING posts in
-// the category. Archiving a category only stops new posts; its posts stay manageable.
-export async function mayManagePostsInCategory(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
-  const role = await wardRoleOf(env, wardId, userId);
-  if (!role) return false;
-  const cat = await category(env, wardId, categoryId);
-  if (!cat || cat.kind !== 'opportunity') return false;
-  if (await isBishopric(env, wardId, userId)) return true;
-  if (await isCategoryDelegate(env, wardId, categoryId, userId)) return true;
-  if (cat.council_may_create && (await inWardSpaceOfKind(env, wardId, 'ward_council', userId))) return true;
-  if ((await activeDelegateCount(env, wardId, categoryId)) > 0) return false;
-  if (await managerOf(env, cat, userId, role)) return true;
-  return isVolEditorOfAnOwningOrg(env, wardId, categoryId, userId);
-}
-
-// Opportunity categories the user may create in (for the picker and the "Create" buttons).
-export async function categoriesUserMayCreateIn(env: Env, wardId: string, userId: string): Promise<CategoryRow[]> {
-  if (!(await wardRoleOf(env, wardId, userId))) return [];
-  const out: CategoryRow[] = [];
-  for (const c of await listCategories(env, wardId, { kind: 'opportunity' })) {
-    if (await canCreateInCategory(env, wardId, c.id, userId)) out.push(c);
-  }
-  return out;
 }
 
 async function requestCategoryId(env: Env, wardId: string, requestId: string): Promise<string | null> {
@@ -172,16 +339,26 @@ async function requestCategoryId(env: Env, wardId: string, requestId: string): P
 }
 
 // May this person see a request category's requests (inbox, request pages, notifications)?
-export async function canSeeRequestCategory(env: Env, wardId: string, categoryId: string, userId: string): Promise<boolean> {
-  const cat = await category(env, wardId, categoryId);
-  if (!cat || cat.kind !== 'request') return false;
-  return (await isCategoryManager(env, wardId, categoryId, userId)) || (await isCategoryDelegate(env, wardId, categoryId, userId));
+export async function canSeeRequestCategory(
+  env: Env,
+  wardId: string,
+  categoryId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
+  return (await accessFor(env, wardId, userId, snap)).canSeeRequestCategory(categoryId);
 }
 
-export async function canSeeRequest(env: Env, wardId: string, requestId: string, userId: string): Promise<boolean> {
+export async function canSeeRequest(
+  env: Env,
+  wardId: string,
+  requestId: string,
+  userId: string,
+  snap?: AccessSnapshot,
+): Promise<boolean> {
   const cid = await requestCategoryId(env, wardId, requestId);
   if (!cid) return false;
-  return canSeeRequestCategory(env, wardId, cid, userId);
+  return canSeeRequestCategory(env, wardId, cid, userId, snap);
 }
 
 // Status, private note, assignment, closing message: the same people who may see it.
@@ -253,12 +430,10 @@ export async function requestNotifyEmails(env: Env, wardId: string, categoryId: 
 }
 
 // Shows the ward page's "Service" link: manages, coordinates or may create in a category.
-export async function hasServiceRole(env: Env, wardId: string, userId: string): Promise<boolean> {
-  if (!(await wardRoleOf(env, wardId, userId))) return false;
-  for (const c of await listCategories(env, wardId, { includeArchived: true })) {
-    if (await isCategoryManager(env, wardId, c.id, userId)) return true;
-    if (await isCategoryDelegate(env, wardId, c.id, userId)) return true;
-    if (await canCreateInCategory(env, wardId, c.id, userId)) return true;
-  }
-  return false;
+export async function hasServiceRole(env: Env, wardId: string, userId: string, snap?: AccessSnapshot): Promise<boolean> {
+  let s = await accessFor(env, wardId, userId, snap);
+  if (!s.role) return false;
+  const ids = (await listCategories(env, wardId, { includeArchived: true })).map((c) => c.id);
+  s = await coveringAll(env, s, ids);
+  return s.hasServiceRoleIn(ids);
 }
