@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { env, makeLeader, uniqueEmail, sentEmails } from './helpers';
+import { env, makeLeader, uniqueEmail, sentEmails, settle } from './helpers';
 import { fixture, tokenFrom, signupRows, type Fx, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress, revokeApproval } from '../src/lib/volSignup';
 import { makeLinkToken } from '../src/lib/volSession';
@@ -106,14 +106,13 @@ describe('My sign-ups', () => {
         body: new URLSearchParams({ email, 'cf-turnstile-response': 'ok' }).toString(),
       });
     const unknown = await (await ask(uniqueEmail('nobody'))).text();
+    await settle();
     expect(sentEmails()).toHaveLength(0);
     const known = await (await ask(a.email)).text();
     const strip = (h: string) => h.replace(/\s+/g, ' ');
     expect(strip(known)).toBe(strip(unknown));
-    // Delivery runs via waitUntil; give it a moment.
-    for (let i = 0; i < 20 && !sentEmails().length; i++) {
-      await new Promise((r) => setTimeout(r, 10));
-    }
+    // Delivery runs via waitUntil.
+    await settle();
     const mails = sentEmails();
     expect(mails).toHaveLength(1);
     expect(mails[0]!.to).toBe(a.email);

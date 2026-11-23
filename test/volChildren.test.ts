@@ -2,7 +2,7 @@
 // children for one role; each is one head; the same child again is "already signed up".
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { env, asUser, makeLeader, uniqueEmail, waitFor } from './helpers';
+import { env, asUser, makeLeader, uniqueEmail, settle } from './helpers';
 import { NOW, fixture, counts, signupRows } from './volFixtures';
 import { submitSignup, normalizeChildName } from '../src/lib/volSignup';
 import { VolInputError } from '../src/lib/volPosts';
@@ -94,10 +94,8 @@ describe('child sign-ups', () => {
     });
     expect(res.status).toBe(200);
     // The sign-up itself runs after the response (waitUntil).
-    const rows = await waitFor(async () => {
-      const r = await signupRows(fx.wardId, fx.bigRoleId);
-      return r.length ? r : null;
-    }) ?? [];
+    await settle();
+    const rows = await signupRows(fx.wardId, fx.bigRoleId);
     expect(rows.map((r) => (r as unknown as { child_name: string }).child_name)).toEqual(['Ben']);
     // On a brothers/sisters page there is no child choice.
     const plain = await fixture({ date: '2099-12-06' });

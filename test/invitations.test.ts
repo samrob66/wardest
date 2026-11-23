@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { env, asUser, barrierDb, sentEmails, resetFetches, uniqueEmail, waitFor } from './helpers';
+import { env, asUser, barrierDb, sentEmails, resetFetches, uniqueEmail, settle } from './helpers';
 import { fixture, futureDate, type Fx } from './volFixtures';
 import { createInviteBatch, pumpInvitations, suppressAddress } from '../src/lib/invitations';
 import { STREAM_FROM } from '../src/lib/mail';
@@ -94,7 +94,7 @@ describe('bulk invitations: routes', () => {
     expect(res.status).toBe(302);
     const loc = res.headers.get('location')!;
     expect(loc).toMatch(new RegExp(`/w/${fx.wardId}/vol/${fx.postId}/invite/[^/]+$`));
-    await waitFor(() => invitations().length === 3);
+    await settle();
     expect(invitations().map((e) => e.to).sort()).toEqual([...list].sort());
     const page = await (await get(fx.eqPres, new URL(loc, 'http://localhost').pathname)).text();
     expect(page).toMatch(/3 of 3 sent/);

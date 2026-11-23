@@ -1,4 +1,5 @@
 import { env as testEnv } from 'cloudflare:test';
+import { waitForGlobalWaitUntil } from 'cloudflare:test-internal';
 import schemaSql from '../db/schema.sql?raw';
 import type { Env } from '../src/types';
 import { createWard } from '../src/lib/wards';
@@ -315,15 +316,17 @@ export function hookDb(db: D1Database, marker: string, before: () => Promise<voi
   });
 }
 
-// Polls until `check` returns truthy (or `ms` pass). For work a route hands to waitUntil, which
-// SELF.fetch doesn't wait for.
-export async function waitFor<T>(check: () => Promise<T> | T, ms = 4000): Promise<T> {
-  const end = Date.now() + ms;
-  for (;;) {
-    const v = await check();
-    if (v || Date.now() > end) return v;
-    await new Promise((r) => setTimeout(r, 15));
-  }
+// Waits until every promise the worker under SELF handed to ctx.waitUntil has settled (the public
+// sign-up finished after the response, sendLater deliveries, the invitation kick), including
+// any waitUntil work those start. SELF.fetch resolves as soon as the response is ready, and the
+// test pool never waits for that work on its own: @cloudflare/vitest-plugin (pinned 1.5.1)
+// records each promise in a global list but nothing drains it. So a test that needs the result
+// calls settle() instead of polling against a deadline, and test/setup.ts calls it after every
+// test so no test's background work runs on into the next one. A rejected promise rethrows
+// here. `cloudflare:test-internal` is the plugin's own module (`cloudflare:test` re-exports
+// from it); if an upgrade drops this export, every test file fails to import, never silently.
+export async function settle(): Promise<void> {
+  await waitForGlobalWaitUntil();
 }
 
 // A D1 wrapper that runs hooks around the FIRST run()/first()/all() of a statement whose SQL

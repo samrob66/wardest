@@ -3,9 +3,11 @@
 // 2. Replaces global fetch so no outbound request (Turnstile, Discord) reaches the network;
 //    each one is recorded for sentFetches().
 // 3. Replaces the EMAIL binding with a recording fake; each send is recorded for sentEmails().
+// 4. After every test, waits for the work routes handed to waitUntil (settle()), so one test's
+//    background sign-ups and emails never run on into the next test.
 import { env } from 'cloudflare:test';
-import { beforeAll, beforeEach } from 'vitest';
-import { applySchema, installEmailFake, installFetchInterceptor, resetFetches } from './helpers';
+import { afterEach, beforeAll, beforeEach } from 'vitest';
+import { applySchema, installEmailFake, installFetchInterceptor, resetFetches, settle } from './helpers';
 
 installFetchInterceptor();
 installEmailFake();
@@ -16,3 +18,4 @@ beforeAll(async () => {
 });
 
 beforeEach(() => resetFetches());
+afterEach(() => settle());

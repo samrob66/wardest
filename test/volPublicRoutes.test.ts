@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { env, asUser, makeLeader, uniqueEmail, sentFetches, sentEmails, waitFor } from './helpers';
+import { env, asUser, makeLeader, uniqueEmail, sentFetches, sentEmails, settle } from './helpers';
 import { makeLinkToken } from '../src/lib/volSession';
 import { NOW, fixture, tokenFrom, volunteerRow, signupRows, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress } from '../src/lib/volSignup';
@@ -70,15 +70,11 @@ describe('public sign-up route', () => {
     expect(html).not.toContain('Member Person');
     expect(html).not.toContain(existing);
     // The sign-up itself is made after the response (waitUntil): the row appears.
-    const rows = await waitFor(async () => {
-      const r = (await signupRows(fx.wardId, fx.bigRoleId)).filter((x) => x.status === 'confirmed');
-      return r.length === 2 ? r : null;
-    });
-    expect(rows).not.toBeNull();
+    await settle();
+    const rows = (await signupRows(fx.wardId, fx.bigRoleId)).filter((x) => x.status === 'confirmed');
+    expect(rows).toHaveLength(2);
     // ...and the real owner of the address is told (the spec's safeguard).
-    const mail = await waitFor(() =>
-      sentEmails().find((e) => e.to === member.toLowerCase()),
-    );
+    const mail = sentEmails().find((e) => e.to === member.toLowerCase());
     expect(mail!.subject).toContain("you're signed up");
   });
 
@@ -146,7 +142,7 @@ describe('the result page never depends on the address', () => {
         .filter((m) => m.to === e.toLowerCase())
         .map((m) => m.subject)
         .join(' | ');
-    await waitFor(() => subjectsTo(approved) && subjectsTo(declined) && subjectsTo(already));
+    await settle();
     expect(subjectsTo(approved)).toContain("you're signed up");
     expect(subjectsTo(declined)).toContain('about your volunteer sign-up');
     expect(subjectsTo(already)).toContain("you're already signed up");
