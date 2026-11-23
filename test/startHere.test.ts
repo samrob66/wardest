@@ -4,6 +4,7 @@ import { SELF } from 'cloudflare:test';
 import schemaSql from '../db/schema.sql?raw';
 import upgradeSql from '../db/upgrade-2026-11-23-start-here.sql?raw';
 import seedSql from '../db/seed-start-here.sql?raw';
+import solutionsSeedSql from '../db/seed-solutions.sql?raw';
 import { renderLanding } from '../src/views/landing';
 import { asUser, countQueries, ensureUser, env, makeLeader, makeWard, schemaStatements, uniqueEmail } from './helpers';
 import { parseSetupStep } from '../src/lib/solutions';
@@ -400,5 +401,48 @@ describe('db/seed-start-here.sql', () => {
     expect(sh.rows).toHaveLength(14);
     expect(sh.rows.map((r) => r.title)).toEqual(SPEC_TITLES);
     expect(sh.next?.solutionId).toBe('sol_es_role_account');
+  });
+});
+
+// ---------------------------------------------------------------- Task B1: how-to bodies
+// The content files reach the Workers runtime through the generated seed (npm run
+// seed:start-here:check keeps it equal to content/start-here/*.md).
+
+describe('Start here how-tos (steps 1-11 and 14)', () => {
+  it('each full how-to is substantial, has a Done when list, and carries its fixed notes', async () => {
+    await clearSteps();
+    await applySeed();
+    const rows = (
+      await env.DB.prepare(`SELECT id, setup_step, body FROM solutions WHERE id LIKE 'sol_es_%' ORDER BY setup_step`).all<{
+        id: string; setup_step: number; body: string;
+      }>()
+    ).results;
+    const byStep = new Map(rows.map((r) => [r.setup_step, r]));
+    for (const step of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14]) {
+      const r = byStep.get(step)!;
+      expect(r.body.length, `step ${step}`).toBeGreaterThan(600);
+      expect(r.body, `step ${step}`).toContain('Done when');
+      expect(r.body, `step ${step}`).not.toContain('Full how-to coming soon');
+      expect(r.body, `step ${step}`).not.toMatch(/\\n/); // no encoding left in the stored text
+    }
+    expect(byStep.get(1)!.body).toContain('zippa.run');
+    expect(byStep.get(2)!.body).toContain('38.8.21.2');
+    expect(byStep.get(2)!.body).toContain('Ward Clerk');
+    expect(byStep.get(7)!.body).toMatch(/prefix/);
+    expect(byStep.get(8)!.body).toContain('Public');
+    expect(byStep.get(8)!.body).toContain('Save share link');
+    expect(byStep.get(9)!.body).toContain('Portal service sections');
+    expect(byStep.get(11)!.body).toContain('38.8.32');
+  });
+
+  it('carries no M44 data', () => {
+    for (const bad of [/@group\.calendar\.google\.com/, /Mapleton/i, /M44/i, /1830/]) {
+      expect(seedSql, String(bad)).not.toMatch(bad);
+    }
+  });
+
+  it('the old placeholder examples are gone from seed-solutions.sql except the DELETE that removes them', () => {
+    const lines = solutionsSeedSql.split(/\r?\n/).filter((l) => /sol_ex_interviews|sol_ex_bulletin/.test(l));
+    expect(lines).toEqual([`DELETE FROM solutions WHERE id IN ('sol_ex_interviews','sol_ex_bulletin');`]);
   });
 });

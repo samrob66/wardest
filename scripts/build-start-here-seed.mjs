@@ -58,6 +58,9 @@ function parseFile(file, text) {
   if (fm.template_type && !TEMPLATE_TYPES.includes(fm.template_type)) fail(file, `unknown template_type "${fm.template_type}"`);
   if (fm.template_value && !fm.template_type) fail(file, 'template_value needs a template_type');
   if (!body) fail(file, 'the how-to body is empty');
+  for (const [k, v] of [...Object.entries(fm), ['body', body]]) {
+    if (v.includes('\\n')) fail(file, `${k} contains a backslash followed by n, which the seed uses to encode line breaks`);
+  }
 
   return {
     id: fm.id,
@@ -73,14 +76,16 @@ function parseFile(file, text) {
   };
 }
 
-// A SQL string literal on one line: quotes doubled, each newline as char(10).
+// A SQL string literal on one line: quotes doubled. Text with newlines becomes ONE call,
+// replace('...\n...', '\n', char(10)), where \n is the two characters backslash and n, so the
+// expression stays shallow however long the body is (SQLite's expression depth limit is 1000;
+// a chain of || per line would hit it). parseFile refuses text that already contains a
+// backslash followed by n, so the decoding is exact.
 function lit(v) {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'number') return String(v);
-  return v
-    .split('\n')
-    .map((part) => `'${part.replace(/'/g, "''")}'`)
-    .join(' || char(10) || ');
+  const q = `'${v.replace(/'/g, "''").replace(/\n/g, '\\n')}'`;
+  return v.includes('\n') ? `replace(${q}, '\\n', char(10))` : q;
 }
 
 const COLS = ['id', 'category', 'title', 'slug', 'summary', 'body', 'video_url', 'template_type', 'template_value', 'implementation_scope', 'status', 'setup_step'];
