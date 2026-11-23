@@ -23,6 +23,25 @@ describe('parseRecipients', () => {
     expect(r.valid.every((v) => /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(v))).toBe(true);
   });
 
+  it('plain addresses before a named address in the same segment are kept', () => {
+    const r = parseRecipients('ann@x.test bob@x.test Carol <carol@x.test>');
+    expect(r.valid).toEqual(['ann@x.test', 'bob@x.test', 'carol@x.test']);
+    expect(r.invalid).toEqual([]);
+  });
+
+  it('named and plain addresses mixed across separators: 4 valid', () => {
+    const r = parseRecipients('Name <a@x.test>, b@x.test c@x.test Dee <d@x.test>');
+    expect(r.valid).toEqual(['a@x.test', 'b@x.test', 'c@x.test', 'd@x.test']);
+    expect(r.invalid).toEqual([]);
+    expect(r.duplicates).toBe(0);
+  });
+
+  it('a lone name with no address is reported invalid, never silently dropped', () => {
+    const r = parseRecipients('Frank, gus@x.test');
+    expect(r.valid).toEqual(['gus@x.test']);
+    expect(r.invalid).toEqual(['Frank']);
+  });
+
   it('empty input', () => {
     expect(parseRecipients('')).toEqual({ valid: [], invalid: [], duplicates: 0 });
     expect(MAX_RECIPIENTS).toBe(10_000);
