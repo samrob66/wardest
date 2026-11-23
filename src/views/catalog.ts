@@ -5,7 +5,7 @@ import type { DeliverableRow, Publication } from '../lib/deliverables';
 import type { WardRow, SpaceRow } from '../lib/wards';
 import { CATEGORIES, categoryLabel } from '../lib/solutions';
 import { esc, mdLite } from '../lib/html';
-import { safeHref, displayUrl } from '../lib/urls';
+import { safeHref, displayUrl, templateHref } from '../lib/urls';
 import { qrSvg } from '../lib/qr';
 import { layout } from './layout';
 
@@ -199,7 +199,7 @@ export function renderSolutionDetail(o: {
   const qs = perSpace && spaceId ? `?space=${esc(spaceId)}` : '';
 
   const template = solution.template_value
-    ? `<p><a class="btn ghost" href="${esc(safeHref(solution.template_value))}" target="_blank" rel="noopener">
+    ? `<p><a class="btn ghost" href="${esc(templateHref(solution.template_value))}" target="_blank" rel="noopener">
          Use template${solution.template_type === 'google_copy' ? ' (make a copy)' : ''}</a></p>`
     : '';
   const video = solution.video_url

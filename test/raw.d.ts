@@ -3,3 +3,9 @@ declare module '*.sql?raw' {
   const sql: string;
   export default sql;
 }
+
+// The same for the Apps Script templates in templates/.
+declare module '*.gs?raw' {
+  const text: string;
+  export default text;
+}

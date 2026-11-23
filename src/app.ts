@@ -74,6 +74,7 @@ import {
 import { canViewImplementation, canEditImplementation, canViewSpaceContent } from './lib/visibility';
 import { loadStartHere } from './lib/startHere';
 import { renderStartHere } from './views/startHere';
+import interviewRouterGs from '../templates/interview-router.gs';
 import {
   listBlocks,
   getBlock,
@@ -285,6 +286,11 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
     }),
   );
 });
+
+// Template files a solution offers (Start here step 6). They hold no ward data, so no sign-in.
+appSite.get('/templates/interview-router.gs', (c) =>
+  c.body(interviewRouterGs, 200, { 'content-type': 'text/plain; charset=utf-8' }),
+);
 
 // The Executive Secretary's Start here page (spec 2026-11-23-execsec-start-here-design.md §4).
 // Every ward member sees it; status is changed on each solution's own page.

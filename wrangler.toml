@@ -2,6 +2,10 @@ name = "wardforward"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 
+# Apps Script templates (templates/*.gs) are bundled as text and served at /templates/<name>
+# (Start here step 6). Text module rule, so `import x from '../templates/x.gs'` is a string.
+rules = [{ type = "Text", globs = ["**/*.gs"], fallthrough = true }]
+
 # Non-secret config. Secrets (SESSION_SECRET, GOOGLE_CLIENT_ID/SECRET, ...) are set
 # via `wrangler secret put` (prod) or `.dev.vars` (local). `.dev.vars` overrides these in dev.
 [vars]

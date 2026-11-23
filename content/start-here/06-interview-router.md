@@ -4,8 +4,8 @@ step: 6
 title: Install the interview router
 summary: Install the small script that moves each new booking onto the right leader's calendar every minute.
 category: exec_secretary
-template_type:
-template_value:
+template_type: file
+template_value: /templates/interview-router.gs
 ---
 ## What this gives the ward
 

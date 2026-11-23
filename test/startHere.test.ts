@@ -5,6 +5,8 @@ import schemaSql from '../db/schema.sql?raw';
 import upgradeSql from '../db/upgrade-2026-11-23-start-here.sql?raw';
 import seedSql from '../db/seed-start-here.sql?raw';
 import solutionsSeedSql from '../db/seed-solutions.sql?raw';
+import routerGs from '../templates/interview-router.gs?raw';
+import { templateHref } from '../src/lib/urls';
 import { renderLanding } from '../src/views/landing';
 import { asUser, countQueries, ensureUser, env, makeLeader, makeWard, schemaStatements, uniqueEmail } from './helpers';
 import { parseSetupStep } from '../src/lib/solutions';
@@ -401,6 +403,68 @@ describe('db/seed-start-here.sql', () => {
     expect(sh.rows).toHaveLength(14);
     expect(sh.rows.map((r) => r.title)).toEqual(SPEC_TITLES);
     expect(sh.next?.solutionId).toBe('sol_es_role_account');
+  });
+});
+
+// ---------------------------------------------------------------- Task B2: interview router template
+
+describe('interview router template', () => {
+  it('GET /templates/interview-router.gs serves the file as plain text, no sign-in needed', async () => {
+    const res = await SELF.fetch('http://localhost/templates/interview-router.gs');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    const body = await res.text();
+    expect(body).toBe(routerGs);
+    expect(body).toContain('PASTE_BISHOP_CALENDAR_ID_HERE');
+    expect(body).toContain('PASTE_1ST_COUNSELOR_CALENDAR_ID_HERE');
+    expect(body).toContain('PASTE_2ND_COUNSELOR_CALENDAR_ID_HERE');
+    expect(body).toContain("'[Bishop]'");
+    expect(body).toContain('function routeAppointments()');
+  });
+
+  it('carries no M44 data', () => {
+    for (const bad of [/[a-z0-9]{16,}@group\.calendar\.google\.com/, /Mapleton/i, /M44/i, /1830/]) {
+      expect(routerGs, String(bad)).not.toMatch(bad);
+    }
+  });
+
+  // Checked by structure, so the test never has to name anyone: every route (commented or not)
+  // is a calling tag in square brackets with a PASTE_ placeholder for its calendar.
+  it('ROUTES holds only calling tags and placeholder calendar IDs', () => {
+    const text = routerGs.replace(/\r\n?/g, '\n');
+    const block = text.slice(text.indexOf('const ROUTES = ['), text.indexOf('];', text.indexOf('const ROUTES = [')));
+    const rows = block.split('\n').filter((l) => /\btag\s*:/.test(l));
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    for (const row of rows) {
+      const tag = row.match(/\btag\s*:\s*(['"])(.*?)\1/)?.[2];
+      const id = row.match(/\bcalendarId\s*:\s*(['"])(.*?)\1/)?.[2];
+      expect(tag, row).toMatch(/^\[[^\]]+\]$/);
+      expect(id, row).toMatch(/^PASTE_[A-Z0-9_]+_CALENDAR_ID_HERE$/);
+    }
+    // Every calendar ID anywhere in the file is a placeholder.
+    for (const m of text.matchAll(/calendarId\s*:\s*(['"])(.*?)\1/g)) expect(m[2]).toMatch(/^PASTE_/);
+  });
+
+  it('step 6 offers it as its template, and the solution page links to it', async () => {
+    await clearSteps();
+    await applySeed();
+    const s = await env.DB.prepare(`SELECT template_type, template_value FROM solutions WHERE id = 'sol_es_interview_router'`).first<{
+      template_type: string; template_value: string;
+    }>();
+    expect(s).toEqual({ template_type: 'file', template_value: '/templates/interview-router.gs' });
+    const { wardId, memberId } = await wardWithMember();
+    const page = await getPage(memberId, `/w/${wardId}/s/sol_es_interview_router`);
+    expect(page.status).toBe(200);
+    expect(page.html).toContain('href="/templates/interview-router.gs"');
+    expect(page.html).toContain('Use template');
+  });
+
+  it('templateHref lets only /templates/ paths through as relative links', () => {
+    expect(templateHref('/templates/interview-router.gs')).toBe('/templates/interview-router.gs');
+    expect(templateHref('https://docs.google.com/x/copy')).toBe('https://docs.google.com/x/copy');
+    for (const bad of ['//evil.example/x', '/templates/../admin', '/other/x.gs', 'javascript:alert(1)', '/\\evil.example', '/templates/a b']) {
+      expect(templateHref(bad), bad).toBe('#');
+    }
   });
 });
 

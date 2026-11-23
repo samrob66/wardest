@@ -142,7 +142,11 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
   re-running refreshes text and `setup_step`), and `npm run seed:start-here:check` fails when it
   is out of date. Never edit the generated SQL by hand. The page is `/w/:wardId/start`
   (`src/lib/startHere.ts`, `src/views/startHere.ts`); operators change a step's order with the
-  solution form's Setup step field.
+  solution form's Setup step field. Template files live in `templates/` (the one editable copy);
+  `*.gs` is bundled as text by the `wrangler.toml` `rules` entry and served without sign-in, e.g.
+  `GET /templates/interview-router.gs` (step 6's template; calendar IDs are `PASTE_…`
+  placeholders and tags are callings, never M44 data). A solution's template link may be a
+  `/templates/<file>` path (`templateHref`, `src/lib/urls.ts`); everything else stays http(s).
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm test` — Vitest inside the Workers runtime (`@cloudflare/vitest-plugin`); applies
   `db/schema.sql` to a test D1, intercepts every outbound fetch and fakes the `EMAIL` binding. Run `npm test && npm run

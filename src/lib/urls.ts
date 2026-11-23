@@ -24,6 +24,13 @@ export function safeHref(u: string | null | undefined): string {
   return u && /^https?:\/\//i.test(u) ? u : '#';
 }
 
+// A solution's template link: safeHref, plus one same-site exception, a template WardForward
+// serves itself at /templates/<file> (e.g. the interview router, Start here step 6). Only a
+// plain file name is allowed after /templates/, so no other path and no // or \ host trick.
+export function templateHref(u: string | null | undefined): string {
+  return u && /^\/templates\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(u) && !u.includes('..') ? u : safeHref(u);
+}
+
 // How a link reads in print: no scheme, no trailing slash ("zippa.run/m44Bulletin").
 export function displayUrl(u: string): string {
   return u.replace(/^https?:\/\//i, '').replace(/\/$/, '');
