@@ -108,11 +108,22 @@ describe('public sign-up route', () => {
 
   it('more than 20 sign-ups an hour from one IP are refused', async () => {
     const fx = await fixture({ date: futureDate() });
-    let last: Response | null = null;
-    for (let i = 0; i < 21; i++) {
-      last = await publicSignup(fx.publicId, { role_id: fx.bigRoleId, name: 'R', email: uniqueEmail('r' + i), 'cf-turnstile-response': 'ok' }, '198.51.100.7');
+    // The per-IP cap counts every submission that passes the bot check, before anything about
+    // the role or the address is looked at. So the first 20 name a role that doesn't exist: each
+    // still counts, but none starts a background sign-up (21 real ones made this the slowest
+    // test in the suite).
+    for (let i = 0; i < 20; i++) {
+      const r = await publicSignup(fx.publicId, { role_id: 'no-such-role', name: 'R', email: uniqueEmail('r' + i), 'cf-turnstile-response': 'ok' }, '198.51.100.7');
+      expect(r.status, `attempt ${i + 1}`).toBe(200);
     }
-    expect(last!.status).toBe(429);
+    const email = uniqueEmail('r20');
+    const last = await publicSignup(fx.publicId, { role_id: fx.bigRoleId, name: 'R', email, 'cf-turnstile-response': 'ok' }, '198.51.100.7');
+    expect(last.status).toBe(429);
+    expect(await last.text()).toContain('Too many sign-ups from here');
+    await settle();
+    expect(await volunteerRow(fx.wardId, email)).toBeNull();
+    // The same sign-up from another IP goes through.
+    expect((await publicSignup(fx.publicId, { role_id: fx.bigRoleId, name: 'R', email, 'cf-turnstile-response': 'ok' }, '198.51.100.8')).status).toBe(200);
   });
 });
 
