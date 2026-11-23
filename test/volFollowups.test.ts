@@ -1,6 +1,6 @@
 // Review round 4 follow-ups (2026-11-22): each pins one failure mode of the sign-up engine.
 import { describe, it, expect, vi } from 'vitest';
-import { env, makeLeader, uniqueEmail, sentFetches, barrierDb, interceptDb, gate } from './helpers';
+import { env, makeLeader, uniqueEmail, sentEmails, barrierDb, interceptDb, gate } from './helpers';
 import { NOW, fixture, signupRows, volunteerRow, tokenFrom } from './volFixtures';
 import { submitSignup, verifyAddress, approveVolunteer } from '../src/lib/volSignup';
 import { deliver } from '../src/lib/volMessages';
@@ -42,8 +42,7 @@ describe('follow-up 1: a failed "fully filled" build never costs the volunteer t
 
     // ...and it is actually delivered.
     await deliver(env, out.messages);
-    const sent = sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'));
-    expect(sent.some((f) => (f.body as { to: string[]; subject: string }).to[0] === last.toLowerCase())).toBe(true);
+    expect(sentEmails().some((e) => e.to === last.toLowerCase())).toBe(true);
   });
 });
 

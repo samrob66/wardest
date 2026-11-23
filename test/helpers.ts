@@ -58,7 +58,6 @@ export function jsonResponse(data: unknown, status = 200): Response {
 
 function defaultResponse(f: SentFetch): Response {
   const u = new URL(f.url);
-  if (u.hostname === 'api.resend.com') return jsonResponse({ id: 'email_' + sent.length });
   if (u.hostname === 'challenges.cloudflare.com') {
     const b = f.body as Record<string, string> | null;
     return jsonResponse({ success: !!b && b.response !== 'fail' });

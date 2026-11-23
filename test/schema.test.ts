@@ -8,14 +8,14 @@ const VOL_TABLES = [
 
 describe('test harness', () => {
   it('uses the test bindings, never the local .dev.vars secrets', () => {
-    expect(env.RESEND_API_KEY).toBe('test');
+    expect(env.EMAIL_DELIVERY).toBe('');
     expect(env.DISCORD_BOT_TOKEN).toBe('test');
     expect(env.SESSION_SECRET).toBe('test-session-secret-0123456789abcdef');
   });
 
   it('intercepts outbound fetch', async () => {
     const { sentFetches } = await import('./helpers');
-    const r = await fetch('https://api.resend.com/emails', { method: 'POST', body: '{"a":1}', headers: { 'content-type': 'application/json' } });
+    const r = await fetch('https://discord.com/api/v10/users/@me/channels', { method: 'POST', body: '{"a":1}', headers: { 'content-type': 'application/json' } });
     expect(r.ok).toBe(true);
     expect(sentFetches()).toHaveLength(1);
     expect(sentFetches()[0]!.body).toEqual({ a: 1 });

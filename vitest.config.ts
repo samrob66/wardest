@@ -15,7 +15,6 @@ export default defineConfig({
           // Send mode: mail goes to the recording fake EMAIL binding (test/helpers.ts), even
           // when the local .dev.vars says EMAIL_DELIVERY=log.
           EMAIL_DELIVERY: '',
-          RESEND_API_KEY: 'test',
           TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
           TURNSTILE_SECRET_KEY: 'test',
           DISCORD_BOT_TOKEN: 'test',

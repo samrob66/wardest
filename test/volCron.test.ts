@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { env, makeLeader, uniqueEmail, sentFetches, resetFetches } from './helpers';
+import { env, makeLeader, uniqueEmail, sentEmails, resetFetches } from './helpers';
 import { fixture, tokenFrom, signupRows, type Fx } from './volFixtures';
 import { submitSignup, verifyAddress } from '../src/lib/volSignup';
 import { runVolunteerCron } from '../src/lib/volCron';
@@ -15,8 +15,8 @@ async function confirmedMember(fx: Fx, name = 'Rita Reminder', when = at('2026-1
   return email.toLowerCase();
 }
 
-function resendTo(email: string) {
-  return sentFetches().filter((f) => f.url.startsWith('https://api.resend.com') && (f.body as { to: string[] }).to[0] === email);
+function mailTo(email: string) {
+  return sentEmails().filter((e) => e.to === email);
 }
 
 describe('runVolunteerCron', () => {
@@ -27,9 +27,9 @@ describe('runVolunteerCron', () => {
     expect((await runVolunteerCron(env, at('2026-12-05T15:00:00Z'), { wardIds: [fx.wardId] })).reminders).toBe(0); // 08:00
     resetFetches();
     expect((await runVolunteerCron(env, at('2026-12-05T16:00:00Z'), { wardIds: [fx.wardId] })).reminders).toBe(2); // 09:00
-    const mail = resendTo(email);
+    const mail = mailTo(email);
     expect(mail).toHaveLength(1);
-    const html = (mail[0]!.body as { html: string }).html;
+    const html = mail[0]!.html;
     expect(html).toContain('Door code 4242');
     expect(html).toContain('Other Helper');
     expect(html).toContain('/vol/cancel/');
@@ -64,9 +64,9 @@ describe('runVolunteerCron', () => {
     resetFetches();
     const r = await runVolunteerCron(env, at('2026-12-05T00:00:00Z'), only); // 40h out
     expect(r.nudges).toBe(1);
-    const nudgeMails = sentFetches().filter((f) => /still waiting for approval/.test((f.body as { subject?: string }).subject ?? ''));
-    expect(nudgeMails.map((f) => (f.body as { to: string[] }).to[0]).sort()).toEqual([fx.eqPresEmail, fx.counselorEmail].sort());
-    expect((nudgeMails[0]!.body as { html: string }).html).toContain('Penny Pending');
+    const nudgeMails = sentEmails().filter((e) => /still waiting for approval/.test(e.subject));
+    expect(nudgeMails.map((e) => e.to).sort()).toEqual([fx.eqPresEmail, fx.counselorEmail].sort());
+    expect(nudgeMails[0]!.html).toContain('Penny Pending');
     expect((await runVolunteerCron(env, at('2026-12-05T01:00:00Z'), only)).nudges).toBe(0);
   });
 

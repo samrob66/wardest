@@ -9,7 +9,6 @@ export interface Env {
   SESSION_SECRET: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
-  RESEND_API_KEY: string; // removed in the next commit, with its two call sites
   // Non-secret config ([vars] in wrangler.toml)
   OPERATOR_EMAILS: string; // comma-separated
   APP_URL: string; // e.g. https://app.wardest.com (or http://localhost:8787 in dev)

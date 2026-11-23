@@ -1,5 +1,7 @@
 import type { Env } from '../types';
 import { newId, randomToken } from './ids';
+import { esc } from './html';
+import { sendMail } from './mail';
 
 export interface InviteSpaceRole {
   space_id: string;
@@ -132,28 +134,21 @@ export async function acceptInvite(env: Env, invite: InviteRow, userId: string):
   await env.DB.batch(stmts);
 }
 
-// Best-effort transactional email via Resend. Returns false on failure (dev dummy key, etc.)
-// so invite creation never blocks on email — the accept link is also shown in the admin UI.
+// Best-effort invitation email (src/lib/mail.ts, notify stream). Returns false on failure so
+// invite creation never blocks on email — the accept link is also shown in the admin UI.
 export async function sendInviteEmail(
   env: Env,
   o: { to: string; wardName: string; acceptUrl: string },
 ): Promise<boolean> {
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        from: 'Wardest <no-reply@send.wardest.com>',
-        to: [o.to],
-        subject: `You've been added to ${o.wardName} on Wardest`,
-        html:
-          `<p>You've been invited to <strong>${o.wardName}</strong> on Wardest.</p>` +
-          `<p><a href="${o.acceptUrl}">Accept your invitation</a></p>` +
-          `<p style="color:#888;font-size:12px">If you didn't expect this, you can ignore it.</p>`,
-      }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  const r = await sendMail(env, {
+    stream: 'notify',
+    to: o.to,
+    subject: `You've been added to ${o.wardName} on WardForward`,
+    html:
+      `<p>You've been invited to <strong>${esc(o.wardName)}</strong> on WardForward.</p>` +
+      `<p><a href="${esc(o.acceptUrl)}">Accept your invitation</a></p>` +
+      `<p style="color:#888;font-size:12px">If you didn't expect this, you can ignore it.</p>`,
+    tag: 'kind=invite',
+  });
+  return r.ok;
 }

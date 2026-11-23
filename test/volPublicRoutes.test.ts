@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { env, asUser, makeLeader, uniqueEmail, sentFetches, waitFor } from './helpers';
+import { env, asUser, makeLeader, uniqueEmail, sentFetches, sentEmails, waitFor } from './helpers';
 import { makeLinkToken } from '../src/lib/volSession';
 import { NOW, fixture, tokenFrom, volunteerRow, signupRows, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress } from '../src/lib/volSignup';
@@ -77,9 +77,9 @@ describe('public sign-up route', () => {
     expect(rows).not.toBeNull();
     // ...and the real owner of the address is told (the spec's safeguard).
     const mail = await waitFor(() =>
-      sentFetches().find((f) => f.url.startsWith('https://api.resend.com') && (f.body as { to: string[] }).to[0] === member.toLowerCase()),
+      sentEmails().find((e) => e.to === member.toLowerCase()),
     );
-    expect((mail!.body as { subject: string }).subject).toContain("you're signed up");
+    expect(mail!.subject).toContain("you're signed up");
   });
 
   it("a role from a different post -> closed, no row", async () => {
@@ -142,19 +142,17 @@ describe('the result page never depends on the address', () => {
     expect(pages[0]).toContain('check your email to finish');
     // And what happened went to each address by email.
     const subjectsTo = (e: string) =>
-      sentFetches()
-        .filter((f) => f.url.startsWith('https://api.resend.com') && (f.body as { to: string[] }).to[0] === e.toLowerCase())
-        .map((f) => (f.body as { subject: string }).subject)
+      sentEmails()
+        .filter((m) => m.to === e.toLowerCase())
+        .map((m) => m.subject)
         .join(' | ');
     await waitFor(() => subjectsTo(approved) && subjectsTo(declined) && subjectsTo(already));
     expect(subjectsTo(approved)).toContain("you're signed up");
     expect(subjectsTo(declined)).toContain('about your volunteer sign-up');
     expect(subjectsTo(already)).toContain("you're already signed up");
     // The unconfirmed already-signed address gets a working confirm link in that email.
-    const alreadyMail = sentFetches().find(
-      (f) => f.url.startsWith('https://api.resend.com') && (f.body as { to: string[] }).to[0] === already.toLowerCase(),
-    )!;
-    expect((alreadyMail.body as { html: string }).html).toContain('/vol/verify/');
+    const alreadyMail = sentEmails().find((m) => m.to === already.toLowerCase())!;
+    expect(alreadyMail.html).toContain('http://localhost:8787/vol/verify/');
   });
 
   it('a full role reads the same for the person already on it, with wording true for them', async () => {

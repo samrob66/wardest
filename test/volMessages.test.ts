@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { env, sentFetches, mockFetch, jsonResponse } from './helpers';
+import { env, sentEmails, mockEmail } from './helpers';
 import { deliver, type OutgoingMessage } from '../src/lib/volMessages';
 import * as E from '../src/lib/volEmails';
 
@@ -12,38 +12,42 @@ function msg(over: Partial<OutgoingMessage> = {}): OutgoingMessage {
 describe('deliver', () => {
   it('de-duplicates identical messages', async () => {
     await deliver(env, [msg(), msg()]);
-    const resend = sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'));
-    expect(resend).toHaveLength(1);
-    const body = resend[0]!.body as { from: string; to: string[]; subject: string };
-    expect(body.from).toBe('Wardest <no-reply@send.wardest.com>');
-    expect(body.to).toEqual(['a@example.test']);
-    expect(resend[0]!.headers.authorization).toBe('Bearer test');
+    const sent = sentEmails();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.from).toEqual({ email: 'no-reply@send.wardforward.com', name: 'WardForward' });
+    expect(sent[0]!.to).toBe('a@example.test');
+    expect(sent[0]!.subject).toBe('S');
   });
 
   it('messages that share a subject but differ in body both go (two roles on one post)', async () => {
     await deliver(env, [msg({ html: '<p>Setup</p>' }), msg({ html: '<p>Teardown</p>' })]);
-    expect(sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(2);
+    expect(sentEmails()).toHaveLength(2);
   });
 
-  it("with key 'dev' logs instead of sending", async () => {
+  it("with EMAIL_DELIVERY 'log' prints instead of sending", async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await deliver({ ...env, RESEND_API_KEY: 'dev' }, [msg()]);
-    expect(sentFetches()).toHaveLength(0);
+    await deliver({ ...env, EMAIL_DELIVERY: 'log' }, [msg()]);
+    expect(sentEmails()).toHaveLength(0);
     const out = log.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(out).toContain('[dev email]');
     expect(out).toContain('a@example.test');
     expect(out).toContain('http://x/1');
     log.mockRestore();
   });
 
-  it('a Resend 500 does not throw', async () => {
-    mockFetch(() => jsonResponse({ error: 'boom' }, 500));
+  it('a binding error does not throw', async () => {
+    mockEmail(() => {
+      throw Object.assign(new Error('boom'), { code: 'E_DELIVERY_FAILED' });
+    });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(deliver(env, [msg()])).resolves.toBeUndefined();
     err.mockRestore();
   });
 
   it('a failed send is logged with ward, ref and kind', async () => {
-    mockFetch(() => jsonResponse({ error: 'boom' }, 500));
+    mockEmail(() => {
+      throw Object.assign(new Error('boom'), { code: 'E_DELIVERY_FAILED' });
+    });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     await deliver(env, [msg({ wardId: 'w_9', ref: 'vs_9' })]);
     const lines = err.mock.calls.map((c) => c.join(' '));
@@ -51,13 +55,23 @@ describe('deliver', () => {
     expect(lines.some((l) => l.includes('ward=w_9') && l.includes('ref=vs_9') && l.includes('kind=vol_confirmed'))).toBe(true);
   });
 
-  it('a network error does not throw', async () => {
-    mockFetch(() => {
+  it('an error without a code does not throw', async () => {
+    mockEmail(() => {
       throw new Error('offline');
     });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(deliver(env, [msg()])).resolves.toBeUndefined();
     err.mockRestore();
+  });
+
+  it('one failed recipient does not stop the next', async () => {
+    mockEmail((e) => {
+      if (e.to === 'a@example.test') throw Object.assign(new Error('x'), { code: 'E_RECIPIENT_SUPPRESSED' });
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await deliver(env, [msg(), msg({ to: 'b@example.test' })]);
+    err.mockRestore();
+    expect(sentEmails().map((e) => e.to)).toEqual(['a@example.test', 'b@example.test']);
   });
 });
 

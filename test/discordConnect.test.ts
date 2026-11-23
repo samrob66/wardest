@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { env, makeLeader, uniqueEmail, sentFetches, mockFetch, jsonResponse } from './helpers';
+import { env, makeLeader, uniqueEmail, sentFetches, sentEmails, mockFetch, jsonResponse } from './helpers';
 import { fixture, tokenFrom, type Fx, futureDate } from './volFixtures';
 import { submitSignup, verifyAddress } from '../src/lib/volSignup';
 import { makeLinkToken } from '../src/lib/volSession';
@@ -113,7 +113,7 @@ describe('deliver with Discord', () => {
     await env.DB.prepare(`UPDATE volunteers SET discord_user_id = '999888777666' WHERE id = ?`).bind(vid).run();
     await deliver(env, [reminderFor(vid, fx.wardId)]);
     const calls = sentFetches();
-    expect(calls.filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(1);
+    expect(sentEmails()).toHaveLength(1);
     const dc = calls.filter((f) => f.url.startsWith('https://discord.com'));
     expect(dc.map((f) => f.url)).toEqual([
       'https://discord.com/api/v10/users/@me/channels',
@@ -128,7 +128,7 @@ describe('deliver with Discord', () => {
     await env.DB.prepare(`UPDATE volunteers SET discord_user_id = '999888777666', approval = 'declined' WHERE id = ?`).bind(vid).run();
     await deliver(env, [reminderFor(vid, fx.wardId)]);
     expect(sentFetches().filter((f) => f.url.startsWith('https://discord.com'))).toHaveLength(0);
-    expect(sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(1);
+    expect(sentEmails()).toHaveLength(1);
   });
 
   it('Discord 50007 -> the email still goes, nothing throws', async () => {
@@ -139,7 +139,7 @@ describe('deliver with Discord', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await expect(deliver(env, [reminderFor(vid, fx.wardId)])).resolves.toBeUndefined();
     log.mockRestore();
-    expect(sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'))).toHaveLength(1);
+    expect(sentEmails()).toHaveLength(1);
   });
 
   it('messages without discordText never touch Discord', async () => {

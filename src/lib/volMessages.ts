@@ -1,9 +1,10 @@
 // Outgoing volunteer messages. Domain functions never send anything: they return
-// OutgoingMessage[] and the route (or the cron) hands them to deliver(), the only place that
-// talks to Resend (and, best-effort, Discord). Email always goes; Discord is extra.
+// OutgoingMessage[] and the route (or the cron) hands them to deliver(), which sends email
+// through src/lib/mail.ts (and, best-effort, a Discord DM). Email always goes; Discord is extra.
 import type { Env } from '../types';
 import { listEditorUserIds } from './volEditors';
 import { sendDiscordDm } from './discord';
+import { sendMail } from './mail';
 
 export interface OutgoingMessage {
   kind: string; // e.g. 'vol_verify', 'vol_confirmed', 'approver_waiting'
@@ -17,8 +18,6 @@ export interface OutgoingMessage {
 }
 
 export type Outcome<T> = { result: T; messages: OutgoingMessage[] };
-
-const FROM = 'Wardest <no-reply@send.wardest.com>';
 
 function dedupe(msgs: OutgoingMessage[]): OutgoingMessage[] {
   const seen = new Set<string>();
@@ -34,43 +33,10 @@ function dedupe(msgs: OutgoingMessage[]): OutgoingMessage[] {
   return out;
 }
 
-function devLog(m: OutgoingMessage): void {
-  const hrefs = [...m.html.matchAll(/href="([^"]+)"/g)].map((x) => (x[1] ?? '').replace(/&amp;/g, '&'));
-  const text = m.html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|li|h\d|div)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\n{2,}/g, '\n')
-    .trim();
-  console.log(
-    `[dev email] kind=${m.kind}\n  to: ${m.to}\n  subject: ${m.subject}\n` +
-      hrefs.map((h) => `  link: ${h}`).join('\n') +
-      `\n  ---\n  ${text.split('\n').join('\n  ')}\n  ---`,
-  );
-}
-
 // One log tag for a failed message: ward, what it's about, and kind (round 3: a lost
 // confirmation must be traceable to its sign-up).
 function tag(m: OutgoingMessage): string {
   return `ward=${m.wardId ?? '-'} ref=${m.ref ?? '-'} kind=${m.kind}`;
-}
-
-async function sendEmail(env: Env, m: OutgoingMessage): Promise<void> {
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ from: FROM, to: [m.to], subject: m.subject, html: m.html }),
-    });
-    if (!res.ok) console.error(`[deliver] Resend ${res.status} ${tag(m)}`);
-  } catch (e) {
-    console.error(`[deliver] Resend error ${tag(m)}: ${(e as Error).message}`);
-  }
 }
 
 // Best-effort Discord DM for a confirmation/reminder: only to a volunteer who is approved and
@@ -85,15 +51,13 @@ async function sendDiscord(env: Env, m: OutgoingMessage): Promise<void> {
   if (r !== 'sent') console.log(`[deliver] Discord DM ${r} for kind=${m.kind}; email was sent`);
 }
 
-// Sends every message; never throws. With RESEND_API_KEY empty or 'dev', prints each message
-// (recipient, subject, every link, and the text) to the console so a local tester can click
-// the links.
+// Sends every message; never throws. Email goes through sendMail (which prints instead of
+// sending under EMAIL_DELIVERY=log, so a local tester can click the links); a failed email is
+// logged there with this message's tag.
 export async function deliver(env: Env, msgs: OutgoingMessage[]): Promise<void> {
-  const key = (env.RESEND_API_KEY ?? '').trim();
   for (const m of dedupe(msgs)) {
     try {
-      if (!key || key === 'dev') devLog(m);
-      else await sendEmail(env, m);
+      await sendMail(env, { stream: 'notify', to: m.to, subject: m.subject, html: m.html, tag: tag(m) });
       if (m.discordText && m.volunteerId && m.wardId) await sendDiscord(env, m);
     } catch (e) {
       console.error(`[deliver] ${tag(m)}: ${(e as Error).message}`);
