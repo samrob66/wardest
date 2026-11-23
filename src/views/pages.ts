@@ -57,6 +57,9 @@ export function renderRequestForm(user: SessionUser, error?: string): string {
         <input name="calling" placeholder="e.g. Executive Secretary" maxlength="80">
         <label>Your email</label>
         <input value="${esc(user.email)}" readonly>
+        <label style="display:flex;gap:.5rem;align-items:flex-start;margin-top:1rem;color:#2c3a4a;font-size:.95rem">
+          <input type="checkbox" name="bishop_approved" value="1" required style="width:auto;margin-top:.25rem">
+          <span>Our bishop has approved using WardForward for our ward</span></label>
         <button class="btn" type="submit">Submit request</button>
       </form>`,
   });
@@ -88,6 +91,7 @@ export function renderOperatorConsole(
             <div class="row"><span><strong>${esc(r.ward_name ?? '(unnamed)')}</strong>
               <span class="muted">unit ${esc(r.unit_number)}</span></span></div>
             <p class="muted">${esc(r.requester_email)}${r.requester_calling ? ' · ' + esc(r.requester_calling) : ''}</p>
+            <p class="muted">Bishop approved: ${r.bishop_approved ? 'yes' : 'no'}</p>
             <form class="inline" method="post" action="/operator/requests/${esc(r.id)}/approve">
               <div><label>Assign prefix (match the ward's zippa.run prefix)</label>
                 <input name="prefix" required pattern="[a-z0-9]{2,12}" placeholder="e.g. m44" style="width:8rem"></div>

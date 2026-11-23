@@ -2,6 +2,8 @@
 //   /w/:wardId/service/*   leader pages for service categories (Google session; every handler
 //                          checks serviceAccess first, 403 otherwise)
 //   /serve/:prefix         the public Service Opportunities page (no auth, noindex, counts only)
+//   /help/:prefix[/:slug]  the public Request Help or Service page and its forms; /help/verify/*
+//   /w/:wardId/requests/*  the leaders' requests inbox (serviceAccess.canSeeRequest)
 // GET never changes data.
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -10,9 +12,22 @@ import { requireAuth } from './lib/auth';
 import { getWardById, getWardSpaces, listWardMembers, wardRole, type WardRow } from './lib/wards';
 import { notFoundPage } from './views/notfound';
 import {
-  canSeeRequestCategory, categoriesUserMayCreateIn, isBishopric, isCategoryManager,
+  canCreateInCategory, canManageRequest, canSeeRequest, canSeeRequestCategory, categoriesUserMayCreateIn, isBishopric,
+  isCategoryManager,
 } from './lib/serviceAccess';
-import { getCategory, getCategoryRow, listCategories, type CategoryFull } from './lib/serviceCategories';
+import {
+  getCategory, getCategoryBySlug, getCategoryRow, listCategories, type CategoryFull, type CategoryRow,
+} from './lib/serviceCategories';
+import {
+  RequestInputError, checkRequest, getRequest, listRequests, submitRequest, updateRequest, verifyRequest, whoSeesText,
+  type CleanRequest, type RequestInput, type RequestRow,
+} from './lib/serviceRequests';
+import { deliver } from './lib/volMessages';
+import { verifyTurnstile } from './lib/turnstile';
+import { hitLimit } from './lib/volRate';
+import { sha256Hex } from './lib/volSession';
+import { renderHelpForm, renderHelpNote, renderHelpPage, renderHelpVerify, type HelpFormValues } from './views/help';
+import { renderInbox, renderRequestPage } from './views/requests';
 import {
   ServiceInputError, addDelegate, createCategory, delegateByEmail, eligibleOwnerSpace, getWarnPref, removeDelegate,
   setCategoryArchived, setWarnPref, setWebhook, updateCategory,
@@ -248,6 +263,188 @@ serviceRoutes.get('/serve/:prefix', async (c) => {
       createHref,
     }),
   );
+});
+
+// ---------------------------------------------------------------- public: Request Help or Service
+
+function clientIp(c: Context<AppEnv>): string | null {
+  return c.req.header('cf-connecting-ip') ?? null;
+}
+
+serviceRoutes.get('/help/:prefix', async (c) => {
+  noindex(c);
+  const ward = await publicWard(c);
+  if (!ward) return c.html(notFoundPage('ward'), 404);
+  return c.html(
+    renderHelpPage({
+      wardName: ward.name,
+      prefix: ward.prefix,
+      categories: await listCategories(c.env, ward.id, { kind: 'request' }),
+      shareUrl: ward.help_short_url ?? `${c.env.APP_URL}/help/${ward.prefix}`,
+    }),
+  );
+});
+
+// The emailed confirm link (registered before /help/:prefix/:slug; 'verify' is a reserved prefix).
+serviceRoutes.get('/help/verify/:token', (c) => {
+  noindex(c);
+  return c.html(renderHelpVerify({ action: `/help/verify/${encodeURIComponent(c.req.param('token'))}` }));
+});
+
+serviceRoutes.post('/help/verify/:token', async (c) => {
+  noindex(c);
+  const out = await verifyRequest(c.env, c.req.param('token'), new Date());
+  await deliver(c.env, out.messages);
+  if (out.result === 'invalid') {
+    return c.html(
+      renderHelpNote({ title: 'Link expired', prefix: null, message: 'This link has expired or was already used. If your request didn’t go through, please send it again.' }),
+      400,
+    );
+  }
+  return c.html(
+    renderHelpNote({ title: 'Thank you', ok: true, prefix: out.prefix ?? null, message: 'Thank you, we’ve received your request. Someone will reach out to you soon.' }),
+  );
+});
+
+async function helpCategory(c: Context<AppEnv>, ward: PublicWard): Promise<CategoryRow | null> {
+  const slug = (c.req.param('slug') ?? '').toLowerCase();
+  const cat = await getCategoryBySlug(c.env, ward.id, slug);
+  return cat && cat.kind === 'request' && !cat.archived ? cat : null;
+}
+
+serviceRoutes.get('/help/:prefix/:slug', async (c) => {
+  noindex(c);
+  const ward = await publicWard(c);
+  const cat = ward ? await helpCategory(c, ward) : null;
+  if (!ward || !cat) return c.html(notFoundPage('request form'), 404);
+  return c.html(
+    renderHelpForm({
+      wardName: ward.name, prefix: ward.prefix, category: cat, whoSees: await whoSeesText(c.env, ward.id, cat),
+      siteKey: c.env.TURNSTILE_SITE_KEY ?? '',
+    }),
+  );
+});
+
+serviceRoutes.post('/help/:prefix/:slug', async (c) => {
+  noindex(c);
+  const ward = await publicWard(c);
+  const cat = ward ? await helpCategory(c, ward) : null;
+  if (!ward || !cat) return c.html(notFoundPage('request form'), 404);
+  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  // Only the fields this form has; anything else posted is ignored.
+  const values: HelpFormValues = {
+    name: str(b.name), email: str(b.email), phone: str(b.phone), note: str(b.note),
+    moving_dir: str(b.moving_dir), preferred_date: str(b.preferred_date), christmas_for: str(b.christmas_for),
+  };
+  const again = async (error: string, status: 400 | 429) =>
+    c.html(
+      renderHelpForm({
+        wardName: ward.name, prefix: ward.prefix, category: cat, whoSees: await whoSeesText(c.env, ward.id, cat),
+        siteKey: c.env.TURNSTILE_SITE_KEY ?? '', values, error,
+      }),
+      status,
+    );
+  const ip = clientIp(c);
+  // 1. Bot check (the form emails whatever address is typed in).
+  if (!(await verifyTurnstile(c.env, str(b['cf-turnstile-response']), ip))) {
+    return again("We couldn't complete the bot check. Please try again.", 400);
+  }
+  const now = new Date();
+  // 2. Per IP: 10 an hour (requests have their own buckets, apart from volunteer sign-ups).
+  if (await hitLimit(c.env, ward.id, 'req:ip:' + (ip ?? 'unknown'), 10, 60, now)) {
+    return again('Too many requests from here right now. Please try again later.', 429);
+  }
+  let clean: CleanRequest;
+  try {
+    clean = checkRequest(cat, values as RequestInput);
+  } catch (e) {
+    if (e instanceof RequestInputError) return again(e.message, 400);
+    throw e;
+  }
+  // 3. Per address: 3 a day.
+  if (await hitLimit(c.env, ward.id, 'req:email:' + (await sha256Hex(clean.email)), 3, 1440, now)) {
+    return again('We’ve already received several requests from this email today. Please try again tomorrow, or speak with one of the ward’s leaders.', 429);
+  }
+  const out = await submitRequest(c.env, { wardId: ward.id, wardName: ward.name, category: cat, input: clean, now });
+  await deliver(c.env, out.messages);
+  return c.html(
+    renderHelpNote({
+      title: 'Check your email', ok: true, prefix: ward.prefix,
+      message: 'Thanks! We’ve sent a link to the address you entered. Open it and press the button to confirm, and your request will reach the right people. If it doesn’t arrive in a few minutes, check your spam folder.',
+    }),
+  );
+});
+
+// ---------------------------------------------------------------- leaders: requests inbox
+
+// Request categories this person may see (managers and delegates; confidential: see serviceAccess).
+async function visibleRequestCategories(c: Context<AppEnv>, lc: LeaderCtx): Promise<CategoryRow[]> {
+  const out: CategoryRow[] = [];
+  for (const cat of await listCategories(c.env, lc.ward.id, { kind: 'request', includeArchived: true })) {
+    if (await canSeeRequestCategory(c.env, lc.ward.id, cat.id, lc.user.id)) out.push(cat);
+  }
+  return out;
+}
+
+serviceRoutes.get('/w/:wardId/requests', requireAuth(), async (c) => {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  const cats = await visibleRequestCategories(c, lc);
+  if (!cats.length) return c.text('Forbidden', 403);
+  const status = c.req.query('status') ?? '';
+  return c.html(
+    renderInbox({
+      user: lc.user, wardId: lc.ward.id, wardName: lc.ward.name, status,
+      rows: await listRequests(c.env, lc.ward.id, cats.map((x) => x.id), status),
+    }),
+  );
+});
+
+async function requestCtx(c: Context<AppEnv>): Promise<(LeaderCtx & { req: RequestRow }) | Response> {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  const req = await getRequest(c.env, lc.ward.id, c.req.param('requestId') ?? '');
+  if (!req || req.status === 'unverified') return c.html(notFoundPage('request'), 404);
+  if (!(await canSeeRequest(c.env, lc.ward.id, req.id, lc.user.id))) return c.text('Forbidden', 403);
+  return { ...lc, req };
+}
+
+serviceRoutes.get('/w/:wardId/requests/:requestId', requireAuth(), async (c) => {
+  const rc = await requestCtx(c);
+  if (rc instanceof Response) return rc;
+  const cat = (await getCategory(c.env, rc.ward.id, rc.req.category_id))!;
+  // "Turn into a service opportunity": non-confidential categories with a matching opportunity
+  // category the leader may create in. Nothing from the request is copied (only the date).
+  let turnIntoHref: string | null = null;
+  if (!cat.confidential && cat.opportunity_category_id && (await canCreateInCategory(c.env, rc.ward.id, cat.opportunity_category_id, rc.user.id))) {
+    turnIntoHref = `/w/${rc.ward.id}/vol/new?category=${cat.opportunity_category_id}${rc.req.preferred_date ? `&date=${rc.req.preferred_date}` : ''}`;
+  }
+  return c.html(
+    renderRequestPage({
+      user: rc.user, wardId: rc.ward.id, req: rc.req, categoryName: cat.name, categoryIcon: cat.icon, delegates: cat.delegates,
+      turnIntoHref, notice: c.req.query('ok') ? 'Saved.' : undefined, error: c.req.query('err') || undefined,
+    }),
+  );
+});
+
+serviceRoutes.post('/w/:wardId/requests/:requestId', requireAuth(), async (c) => {
+  const rc = await requestCtx(c);
+  if (rc instanceof Response) return rc;
+  if (!(await canManageRequest(c.env, rc.ward.id, rc.req.id, rc.user.id))) return c.text('Forbidden', 403);
+  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  const path = `/w/${rc.ward.id}/requests/${rc.req.id}`;
+  try {
+    const out = await updateRequest(
+      c.env, rc.ward.id, rc.req.id,
+      { status: str(b.status), privateNote: str(b.private_note), assignedUserId: str(b.assigned_user_id), closingMessage: str(b.closing_message) },
+      new Date(),
+    );
+    await deliver(c.env, out.messages);
+  } catch (e) {
+    if (e instanceof RequestInputError) return back(c, path, e.message);
+    throw e;
+  }
+  return back(c, path);
 });
 
 export default serviceRoutes;

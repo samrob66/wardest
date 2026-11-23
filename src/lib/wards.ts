@@ -134,6 +134,7 @@ export interface WorkspaceRequest {
   requester_calling: string | null;
   status: string;
   note: string | null;
+  bishop_approved?: number;
   created_at: string;
 }
 
@@ -147,12 +148,13 @@ export async function createWorkspaceRequest(
     email: string;
     name: string | null;
     calling: string | null;
+    bishopApproved?: boolean;
   },
 ): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO workspace_requests
-       (id, kind, ward_name, unit_number, target_ward_id, requester_email, requester_name, requester_calling)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, kind, ward_name, unit_number, target_ward_id, requester_email, requester_name, requester_calling, bishop_approved)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       newId('wr'),
@@ -163,6 +165,7 @@ export async function createWorkspaceRequest(
       r.email.toLowerCase(),
       r.name,
       r.calling,
+      r.bishopApproved ? 1 : 0,
     )
     .run();
 }

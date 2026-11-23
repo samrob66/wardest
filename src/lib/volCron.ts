@@ -6,7 +6,8 @@
 //  - Lapse: waiting sign-ups whose date is over (spec item 17: never before).
 //  - Fill warnings (service spec §4): a date still short at a recipient's lead time
 //    (src/lib/serviceWarnings.ts).
-//  - Cleanup: rate events older than 2 days, verify tokens expired more than 7 days ago.
+//  - Cleanup: rate events older than 2 days, verify tokens expired more than 7 days ago;
+//    members' requests 30 days after they're closed (unverified ones after 7 days).
 import type { Env } from '../types';
 import { approverEmails, deliver, type OutgoingMessage } from './volMessages';
 import * as E from './volEmails';
@@ -14,6 +15,7 @@ import { emailPost, getPost, roleLabel, roleStartTime, whenText } from './volPos
 import { accessUrl, cancelUrl } from './volSignup';
 import { addDays, localToUtc, wardHour, wardToday } from './wardTime';
 import { warningsFor } from './serviceWarnings';
+import { purgeRequests } from './serviceRequests';
 
 export interface CronCounts {
   reminders: number;
@@ -172,6 +174,12 @@ export async function runVolunteerCron(env: Env, now: Date, o: { wardIds?: strin
   }
   await env.DB.prepare(`DELETE FROM vol_rate_events WHERE created_at < ?`).bind(new Date(now.getTime() - 48 * HOUR).toISOString()).run();
   await env.DB.prepare(`DELETE FROM vol_tokens WHERE expires_at < ?`).bind(new Date(now.getTime() - 7 * 24 * HOUR).toISOString()).run();
+  // Members' requests: closed > 30 days, unverified > 7 days, expired tokens (service spec §6.2).
+  try {
+    await purgeRequests(env, now);
+  } catch (e) {
+    console.error(`[volCron] request purge: ${(e as Error).message}`);
+  }
   await deliver(env, messages);
   console.log(
     `[volCron] ${now.toISOString()} reminders=${counts.reminders} nudges=${counts.nudges} lapsed=${counts.lapsed} warnings=${counts.warnings}`,

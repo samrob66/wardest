@@ -163,6 +163,10 @@ appSite.post('/request-workspace', requireAuth(), async (c) => {
   if (!wardName || !unitNumber) {
     return c.html(renderRequestForm(user, 'Ward name and unit number are required.'));
   }
+  // General Handbook 38.8.21.2: a ward uses WardForward only with its bishop's approval.
+  if (String(body.bishop_approved ?? '') !== '1') {
+    return c.html(renderRequestForm(user, 'Please confirm that your bishop has approved using WardForward for your ward.'));
+  }
   const existing = await getWardByUnitNumber(c.env, unitNumber);
   const kind = existing ? 'join' : 'create';
   await createWorkspaceRequest(c.env, {
@@ -173,6 +177,7 @@ appSite.post('/request-workspace', requireAuth(), async (c) => {
     email: user.email,
     name: user.name,
     calling,
+    bishopApproved: true,
   });
   return c.html(renderRequestConfirmation(user, kind));
 });
