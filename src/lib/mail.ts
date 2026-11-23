@@ -49,8 +49,12 @@ export interface MailResult {
 }
 
 // Backoff before retry n (n = 1, 2) is baseMs * 2^(n-1): 250 + 500 ms by default, well under
-// two seconds in all. Tests shrink it.
-export const mailRetry = { baseMs: 250, retries: 2 };
+// two seconds in all. Every wait goes through `sleep`, so tests can skip it (or shrink baseMs).
+export const mailRetry: { baseMs: number; retries: number; sleep: (ms: number) => Promise<void> } = {
+  baseMs: 250,
+  retries: 2,
+  sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+};
 
 const RETRYABLE = new Set(['E_RATE_LIMIT_EXCEEDED', 'E_INTERNAL_SERVER_ERROR', 'E_DELIVERY_FAILED']);
 const ADDRESS = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
@@ -130,8 +134,6 @@ function check(m: MailMessage, to: string): string | null {
   return null;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
 function errorCode(e: unknown): string {
   const code = (e as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && code) return code;
@@ -175,7 +177,7 @@ export async function sendMail(env: Env, m: MailMessage): Promise<MailResult> {
       } catch (e) {
         const code = errorCode(e);
         if (RETRYABLE.has(code) && attempt < mailRetry.retries) {
-          await sleep(mailRetry.baseMs * 2 ** attempt);
+          await mailRetry.sleep(mailRetry.baseMs * 2 ** attempt);
           continue;
         }
         console.error(`[mail] send failed ${code} stream=${m.stream} ${m.tag ?? ''}`.trim());

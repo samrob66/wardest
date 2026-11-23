@@ -7,7 +7,7 @@ export function renderLanding(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WardForward — tools for ward leaders</title>
-<meta name="description" content="Self-hosted tools for LDS ward leaders: curated solutions and shareable, printable portal pages.">
+<meta name="description" content="Self-hosted tools for Latter-day Saint ward leaders: curated solutions and shareable, printable portal pages.">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Georgia,serif;color:#2c3a4a;min-height:100vh;

@@ -52,7 +52,7 @@ export function renderRequestForm(user: SessionUser, error?: string): string {
         <label>Ward name</label>
         <input name="ward_name" required placeholder="e.g. Provo 4th Ward" maxlength="80">
         <label>Unit number</label>
-        <input name="unit_number" required placeholder="LDS unit number" maxlength="40">
+        <input name="unit_number" required placeholder="Unit number" maxlength="40">
         <label>Your calling</label>
         <input name="calling" placeholder="e.g. Executive Secretary" maxlength="80">
         <label>Your email</label>

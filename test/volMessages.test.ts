@@ -1,7 +1,17 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { env, sentEmails, mockEmail } from './helpers';
 import { deliver, type OutgoingMessage } from '../src/lib/volMessages';
 import * as E from '../src/lib/volEmails';
+import { mailRetry } from '../src/lib/mail';
+
+// Retries back off through mailRetry.sleep; skip the real wait here.
+const realSleep = mailRetry.sleep;
+beforeEach(() => {
+  mailRetry.sleep = async () => {};
+});
+afterEach(() => {
+  mailRetry.sleep = realSleep;
+});
 
 const post = { orgName: 'Elders Quorum', title: 'Help the Jensens move in', publicUrl: 'http://localhost:8787/v/abc' };
 
@@ -42,6 +52,7 @@ describe('deliver', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(deliver(env, [msg()])).resolves.toBeUndefined();
     err.mockRestore();
+    expect(sentEmails()).toHaveLength(3); // the first try + 2 retries
   });
 
   it('a failed send is logged with ward, ref and kind', async () => {
@@ -52,6 +63,7 @@ describe('deliver', () => {
     await deliver(env, [msg({ wardId: 'w_9', ref: 'vs_9' })]);
     const lines = err.mock.calls.map((c) => c.join(' '));
     err.mockRestore();
+    expect(sentEmails()).toHaveLength(3);
     expect(lines.some((l) => l.includes('ward=w_9') && l.includes('ref=vs_9') && l.includes('kind=vol_confirmed'))).toBe(true);
   });
 
