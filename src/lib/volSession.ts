@@ -1,6 +1,7 @@
 // Volunteer links and session. Volunteers have no Google account: their email is their key.
 //  - Signed link tokens (stateless, HMAC with SESSION_SECRET) for emailed links:
-//      'vacc' = open My sign-ups, 'vcan' = cancel one sign-up, 'vwd' = withdraw an over-limit offer.
+//      'vacc' = open My sign-ups, 'vcan' = cancel one sign-up, 'vwd' = withdraw an over-limit offer,
+//      'unsub' = stop a ward's service invitations (id = hash of the address).
 //    Each carries its type, so a cancel token can never be used as an access token.
 //  - The email-confirmation token is different: single use, stored hashed in vol_tokens.
 import type { Context } from 'hono';
@@ -8,7 +9,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { AppEnv, Env } from '../types';
 import { signToken, verifyToken } from './session';
 
-export type LinkTyp = 'vacc' | 'vcan' | 'vwd';
+export type LinkTyp = 'vacc' | 'vcan' | 'vwd' | 'unsub';
 
 interface LinkPayload {
   typ: LinkTyp;
@@ -17,7 +18,8 @@ interface LinkPayload {
   exp: number;
 }
 
-const DEFAULT_DAYS: Record<LinkTyp, number> = { vacc: 30, vcan: 400, vwd: 400 };
+// 'unsub' (id = the address's SHA-256) must keep working from old invitations: ~10 years.
+const DEFAULT_DAYS: Record<LinkTyp, number> = { vacc: 30, vcan: 400, vwd: 400, unsub: 3650 };
 
 export async function makeLinkToken(
   env: Env,

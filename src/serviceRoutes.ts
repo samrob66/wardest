@@ -4,6 +4,8 @@
 //   /serve/:prefix         the public Service Opportunities page (no auth, noindex, counts only)
 //   /help/:prefix[/:slug]  the public Request Help or Service page and its forms; /help/verify/*
 //   /w/:wardId/requests/*  the leaders' requests inbox (serviceAccess.canSeeRequest)
+//   /w/:wardId/vol/:postId/invite/*  bulk email invitations (volAccess.canEditPost)
+//   /unsub/:token          one-click unsubscribe from a ward's invitations (RFC 8058)
 // GET never changes data.
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -28,6 +30,13 @@ import { hitLimit } from './lib/volRate';
 import { sha256Hex } from './lib/volSession';
 import { renderHelpForm, renderHelpNote, renderHelpPage, renderHelpVerify, type HelpFormValues } from './views/help';
 import { renderInbox, renderRequestPage } from './views/requests';
+import { canEditPost } from './lib/volAccess';
+import { getPost, type PostFull } from './lib/volPosts';
+import {
+  InviteInputError, KICK_LIMIT, createInviteBatch, getBatch, previewInvites, pumpInvitations, readUnsub, sendTestInvite,
+  suppressByHash,
+} from './lib/invitations';
+import { renderInviteForm, renderInvitePreview, renderInviteProgress, renderUnsubConfirm, renderUnsubNote } from './views/invite';
 import {
   ServiceInputError, addDelegate, createCategory, delegateByEmail, eligibleOwnerSpace, getWarnPref, removeDelegate,
   setCategoryArchived, setWarnPref, setWebhook, updateCategory,
@@ -445,6 +454,120 @@ serviceRoutes.post('/w/:wardId/requests/:requestId', requireAuth(), async (c) =>
     throw e;
   }
   return back(c, path);
+});
+
+// ---------------------------------------------------------------- leaders: invite people by email
+
+type PostCtx = LeaderCtx & { post: PostFull };
+
+// The post (ward-scoped) and the right to edit it (volAccess.canEditPost), else 404/403.
+async function invitePostCtx(c: Context<AppEnv>): Promise<PostCtx | Response> {
+  const lc = await leaderCtx(c);
+  if (lc instanceof Response) return lc;
+  const post = await getPost(c.env, lc.ward.id, c.req.param('postId') ?? '');
+  if (!post) return c.html(notFoundPage('post'), 404);
+  if (!(await canEditPost(c.env, lc.user.id, post))) return c.text('Forbidden', 403);
+  return { ...lc, post };
+}
+
+serviceRoutes.get('/w/:wardId/vol/:postId/invite', requireAuth(), async (c) => {
+  const pc = await invitePostCtx(c);
+  if (pc instanceof Response) return pc;
+  return c.html(renderInviteForm({ user: pc.user, post: pc.post }));
+});
+
+serviceRoutes.post('/w/:wardId/vol/:postId/invite/preview', requireAuth(), async (c) => {
+  const pc = await invitePostCtx(c);
+  if (pc instanceof Response) return pc;
+  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  const list = str(b.list);
+  const note = str(b.note).trim();
+  try {
+    if (note.length > 500) throw new InviteInputError('The note is too long (500 characters at most).');
+    const pv = await previewInvites(c.env, pc.ward.id, list);
+    return c.html(renderInvitePreview({ user: pc.user, post: pc.post, ...pv, note }));
+  } catch (e) {
+    if (e instanceof InviteInputError) return c.html(renderInviteForm({ user: pc.user, post: pc.post, list, note, error: e.message }), 400);
+    throw e;
+  }
+});
+
+serviceRoutes.post('/w/:wardId/vol/:postId/invite/test', requireAuth(), async (c) => {
+  const pc = await invitePostCtx(c);
+  if (pc instanceof Response) return pc;
+  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  const list = str(b.list);
+  const note = str(b.note).trim();
+  try {
+    const pv = await previewInvites(c.env, pc.ward.id, list);
+    const ok = await sendTestInvite(c.env, { wardId: pc.ward.id, postId: pc.post.id, to: pc.user.email, note, now: new Date() });
+    return c.html(
+      renderInvitePreview({
+        user: pc.user, post: pc.post, ...pv, note,
+        notice: ok ? `A test invitation went to ${pc.user.email}.` : 'The test invitation could not be sent.',
+      }),
+    );
+  } catch (e) {
+    if (e instanceof InviteInputError) return c.html(renderInviteForm({ user: pc.user, post: pc.post, list, note, error: e.message }), 400);
+    throw e;
+  }
+});
+
+serviceRoutes.post('/w/:wardId/vol/:postId/invite/send', requireAuth(), async (c) => {
+  const pc = await invitePostCtx(c);
+  if (pc instanceof Response) return pc;
+  const b = (await c.req.parseBody()) as Record<string, unknown>;
+  const list = str(b.list);
+  const note = str(b.note).trim();
+  let batchId: string;
+  try {
+    // Re-parsed and re-checked against the suppression list here, whatever the preview said.
+    batchId = (await createInviteBatch(c.env, { wardId: pc.ward.id, postId: pc.post.id, byUserId: pc.user.id, raw: list, note })).batchId;
+  } catch (e) {
+    if (e instanceof InviteInputError) return c.html(renderInviteForm({ user: pc.user, post: pc.post, list, note, error: e.message }), 400);
+    throw e;
+  }
+  // The first chunk goes right away; the minute cron sends the rest.
+  const env = c.env;
+  const kick = pumpInvitations(env, new Date(), { batchId, limit: KICK_LIMIT }).catch((e) =>
+    console.error(`[invitations] first chunk failed batch=${batchId}: ${(e as Error).message}`),
+  );
+  try {
+    c.executionCtx.waitUntil(kick);
+  } catch {
+    await kick;
+  }
+  return c.redirect(`/w/${pc.ward.id}/vol/${pc.post.id}/invite/${batchId}`, 302);
+});
+
+serviceRoutes.get('/w/:wardId/vol/:postId/invite/:batchId', requireAuth(), async (c) => {
+  const pc = await invitePostCtx(c);
+  if (pc instanceof Response) return pc;
+  const batch = await getBatch(c.env, pc.ward.id, c.req.param('batchId'));
+  if (!batch || batch.post_id !== pc.post.id) return c.html(notFoundPage('invitations'), 404);
+  return c.html(renderInviteProgress({ user: pc.user, post: pc.post, batch }));
+});
+
+// ---------------------------------------------------------------- public: unsubscribe
+
+// GET shows the button and changes nothing. POST (the button, or a mail client's RFC 8058
+// one-click POST with the body List-Unsubscribe=One-Click: no cookie, no token, no bot check)
+// records the suppression.
+serviceRoutes.get('/unsub/:token', async (c) => {
+  noindex(c);
+  const u = await readUnsub(c.env, c.req.param('token'));
+  if (!u) return c.html(renderUnsubNote({ title: 'Link not valid', message: 'This unsubscribe link isn’t valid. Please use the link in the most recent invitation.' }), 400);
+  return c.html(renderUnsubConfirm({ wardName: u.wardName, action: `/unsub/${encodeURIComponent(c.req.param('token'))}` }));
+});
+
+serviceRoutes.post('/unsub/:token', async (c) => {
+  noindex(c);
+  const u = await readUnsub(c.env, c.req.param('token'));
+  if (!u) return c.html(renderUnsubNote({ title: 'Link not valid', message: 'This unsubscribe link isn’t valid. Please use the link in the most recent invitation.' }), 400);
+  await suppressByHash(c.env, u.wardId, u.hash);
+  return c.html(
+    renderUnsubNote({ title: 'You’re unsubscribed', ok: true, message: `You won’t get service invitations from ${u.wardName} again.` }),
+  );
 });
 
 export default serviceRoutes;

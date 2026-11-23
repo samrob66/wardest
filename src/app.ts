@@ -13,6 +13,7 @@ import { authRoutes } from './auth-routes';
 import { volRoutes, spaceVolunteerSection } from './volRoutes';
 import { serviceRoutes } from './serviceRoutes';
 import { hasServiceRole } from './lib/serviceAccess';
+import { InviteInputError, listBatchesForOperator, setInviteCap } from './lib/invitations';
 import { getUserWards } from './lib/users';
 import {
   PREFIX_RE,
@@ -183,16 +184,36 @@ appSite.post('/request-workspace', requireAuth(), async (c) => {
 });
 
 // --- Operator console ---
+async function operatorExtras(c: Context<AppEnv>) {
+  const wards = await c.env.DB.prepare(`SELECT id, name, prefix, invite_daily_cap FROM wards ORDER BY name`).all<{
+    id: string; name: string; prefix: string; invite_daily_cap: number;
+  }>();
+  return { wards: wards.results ?? [], batches: await listBatchesForOperator(c.env) };
+}
+
 appSite.get('/operator', operatorOnly, async (c) => {
   const reqs = await listPendingCreateRequests(c.env);
-  return c.html(renderOperatorConsole(c.get('user')!, reqs));
+  return c.html(renderOperatorConsole(c.get('user')!, reqs, c.req.query('err') || undefined, await operatorExtras(c)));
+});
+
+// The per-ward daily safety ceiling on bulk invitations (spec §7).
+appSite.post('/operator/wards/:wardId/invite-cap', operatorOnly, async (c) => {
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  try {
+    await setInviteCap(c.env, ward.id, String((await c.req.parseBody()).invite_daily_cap ?? ''));
+  } catch (e) {
+    if (e instanceof InviteInputError) return c.redirect(`/operator?err=${encodeURIComponent(e.message)}`, 302);
+    throw e;
+  }
+  return c.redirect('/operator', 302);
 });
 
 appSite.post('/operator/requests/:id/approve', operatorOnly, async (c) => {
   const user = c.get('user')!;
   const req = await getWorkspaceRequest(c.env, c.req.param('id'));
   const reload = async (msg: string) =>
-    c.html(renderOperatorConsole(user, await listPendingCreateRequests(c.env), msg));
+    c.html(renderOperatorConsole(user, await listPendingCreateRequests(c.env), msg, await operatorExtras(c)));
   if (!req || req.status !== 'pending' || req.kind !== 'create') return reload('Request not found or already handled.');
 
   const prefix = String((await c.req.parseBody()).prefix ?? '').trim().toLowerCase();

@@ -301,6 +301,7 @@ export function renderPostManage(o: {
         <input readonly value="${esc(o.publicUrl)}" onclick="this.select()">
         <p class="muted" style="margin:.4rem 0 0">Anyone with the link sees counts and what's being brought, never names or private details.
           <a href="${esc(o.publicUrl)}" target="_blank" rel="noopener">Open public page</a></p>
+        ${canEdit ? `<p style="margin:.6rem 0 0"><a class="btn sm" href="${base}/invite">Invite people by email</a></p>` : ''}
         ${fillBar(totalConfirmed, totalNeeded, totalWaiting)}
         <p class="muted">Cancel cutoff: ${post.cancel_cutoff_hours} hour${post.cancel_cutoff_hours === 1 ? '' : 's'} before it starts
           (after that, cancelling still works but you get an urgent email).</p>

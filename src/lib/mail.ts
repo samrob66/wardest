@@ -60,6 +60,11 @@ const RETRYABLE = new Set(['E_RATE_LIMIT_EXCEEDED', 'E_INTERNAL_SERVER_ERROR', '
 const ADDRESS = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 const CRLF = /[\r\n]/;
 
+// The address rule every message's recipient must pass (also used to parse pasted lists).
+export function isValidAddress(s: string): boolean {
+  return ADDRESS.test(s);
+}
+
 // APP_URL points at this machine (wrangler dev), so printing a message is safe.
 function isLocalAppUrl(appUrl: string | undefined): boolean {
   try {

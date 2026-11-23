@@ -15,9 +15,10 @@ CONTACT_EMAIL = ""
 # (The secret, TURNSTILE_SECRET_KEY, goes in .dev.vars / `wrangler secret put`.)
 TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
 
-# --- Cron: hourly volunteer reminders, 48h approval nudges, lapsing (src/lib/volCron.ts) ---
+# --- Cron: hourly volunteer reminders, 48h nudges, lapsing, fill warnings, request purges
+# (src/lib/volCron.ts); every minute, the bulk invitation pump (src/lib/invitations.ts) ---
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 * * * *", "* * * * *"]
 
 # --- Email: Cloudflare Email Service (src/lib/mail.ts is the only sender) ---
 # Needs the Workers Paid plan and the sending domain onboarded (owner task:

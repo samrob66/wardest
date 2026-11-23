@@ -2,6 +2,7 @@ import type { SessionUser } from '../types';
 import type { UserWard } from '../lib/users';
 import type { WorkspaceRequest, WardRow, SpaceRow, WardMember } from '../lib/wards';
 import type { PendingInvite } from '../lib/invites';
+import type { OperatorBatch } from '../lib/invitations';
 import { esc } from '../lib/html';
 import { safeHref, displayUrl } from '../lib/urls';
 import { layout } from './layout';
@@ -79,10 +80,47 @@ export function renderRequestConfirmation(user: SessionUser, kind: 'create' | 'j
   });
 }
 
+export interface OperatorExtras {
+  wards: Array<{ id: string; name: string; prefix: string; invite_daily_cap: number }>;
+  batches: OperatorBatch[];
+}
+
+function operatorInvitations(x: OperatorExtras): string {
+  const caps = x.wards.length
+    ? x.wards
+        .map(
+          (w) => `<form class="inline card" method="post" action="/operator/wards/${esc(w.id)}/invite-cap">
+            <div style="flex:1"><strong>${esc(w.name)}</strong> <span class="muted">/p/${esc(w.prefix)}</span></div>
+            <div><label>Invitations per day</label>
+              <input name="invite_daily_cap" inputmode="numeric" value="${w.invite_daily_cap}" style="width:8rem"></div>
+            <button class="btn sm" type="submit">Save</button></form>`,
+        )
+        .join('')
+    : '<p class="muted">No wards yet.</p>';
+  const rows = x.batches.length
+    ? `<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.85rem">
+        <tr><th align="left">Ward</th><th align="left">Who</th><th align="left">When</th><th align="left">Post</th>
+          <th align="right">Total</th><th align="right">Sent</th><th align="right">Failed</th><th align="right">Skipped</th><th align="left">Status</th></tr>
+        ${x.batches
+          .map(
+            (b) => `<tr><td>${esc(b.ward_name)}</td><td>${esc(b.creator_email ?? '')}</td><td>${esc(b.created_at.slice(0, 16).replace('T', ' '))}</td>
+              <td>${esc(b.post_title ?? '')}</td><td align="right">${b.total}</td><td align="right">${b.sent}</td>
+              <td align="right">${b.failed}</td><td align="right">${b.suppressed_count + b.invalid_count}</td><td>${esc(b.status)}</td></tr>`,
+          )
+          .join('')}
+      </table></div>`
+    : '<p class="muted">No invitation batches yet.</p>';
+  return `<h2>Invitation limits</h2>
+    <p class="muted">The safety ceiling on bulk invitations per ward per (ward-local) day. Past it, the rest wait for the next day.</p>
+    ${caps}
+    <h2>Invitation batches</h2>${rows}`;
+}
+
 export function renderOperatorConsole(
   user: SessionUser,
   requests: WorkspaceRequest[],
   error?: string,
+  extras?: OperatorExtras,
 ): string {
   const rows = requests.length
     ? requests
@@ -111,6 +149,7 @@ export function renderOperatorConsole(
       <p><a class="btn ghost" href="/operator/solutions">Manage solutions catalog</a></p>
       ${error ? `<div class="err">${esc(error)}</div>` : ''}
       <h2>Pending workspace requests</h2>${rows}
+      ${extras ? operatorInvitations(extras) : ''}
       <p style="margin-top:1rem"><a href="/">Back to home</a></p>`,
   });
 }

@@ -2,6 +2,7 @@ import type { Env } from './types';
 import { appSite } from './app';
 import { landing } from './landing';
 import { runVolunteerCron } from './lib/volCron';
+import { CRON_LIMIT, pumpInvitations } from './lib/invitations';
 
 // One Worker, two surfaces, routed by Host header (works in prod and via
 // `curl -H "Host: wardforward.com"` in local dev). localhost defaults to the app surface so the
@@ -18,8 +19,14 @@ export default {
     return appSite.fetch(req, env, ctx);
   },
 
-  // Hourly (wrangler.toml [triggers]): volunteer reminders, 48h approval nudges, lapsing.
+  // wrangler.toml [triggers]: every minute, the bulk invitation pump; hourly, volunteer
+  // reminders, 48h approval nudges, lapsing, fill warnings and request purges.
   scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
-    ctx.waitUntil(runVolunteerCron(env, new Date(controller.scheduledTime)));
+    const now = new Date(controller.scheduledTime);
+    if (controller.cron === '* * * * *') {
+      ctx.waitUntil(pumpInvitations(env, now, { limit: CRON_LIMIT }).then(() => undefined));
+      return;
+    }
+    ctx.waitUntil(runVolunteerCron(env, now));
   },
 } satisfies ExportedHandler<Env>;
