@@ -1,4 +1,4 @@
-import type { PortalData, PortalCard } from '../types';
+import type { PortalData, PortalCard, PortalSection } from '../types';
 import { siteFooter } from './footer';
 import { esc } from '../lib/html';
 import { safeHref, displayUrl } from '../lib/urls';
@@ -43,12 +43,35 @@ function cardHtml(card: PortalCard, i: number): string {
     </div>`;
 }
 
+// Service sections first (sharing the first row on wide screens), then the ward's own sections
+// two to a row, then the default "Links" section. Card/QR-modal ids are unique across sections.
+export function portalSectionGroups(data: PortalData): { service: PortalSection[]; ward: PortalSection[] } {
+  const service: PortalSection[] = [];
+  if (data.service?.serve) service.push({ id: 'serve', title: 'Service Opportunities', cards: [data.service.serve] });
+  if (data.service?.help) service.push({ id: 'help', title: 'Service Requests', cards: [data.service.help] });
+  const ward = data.sections ?? [{ id: null, title: '', cards: data.cards }];
+  return { service, ward };
+}
+
+function sectionsHtml(list: PortalSection[], next: () => number): string {
+  if (!list.length) return '';
+  return `<div class="sections${list.length > 1 ? ' pair' : ''}">${list
+    .map(
+      (s) => `<section class="psection">${s.title ? `<h2 class="section-heading">${esc(s.title)}</h2>` : ''}
+        <div class="links">${s.cards.map((c) => cardHtml(c, next())).join('')}</div></section>`,
+    )
+    .join('')}</div>`;
+}
+
 export function renderPortal(data: PortalData): string {
   const title = data.portalTitle ?? `${data.wardName} Links`;
   const masterUrl = safeHref(data.shareUrl ?? data.portalUrl);
   const masterText = displayUrl(data.shareUrl ?? data.portalUrl);
   const masterQr = qrSvg(masterUrl);
-  const cards = data.cards.map(cardHtml).join('');
+  let n = 0;
+  const next = () => n++;
+  const groups = portalSectionGroups(data);
+  const cards = sectionsHtml(groups.service, next) + sectionsHtml(groups.ward, next);
 
   return `<!doctype html>
 <html lang="en">
@@ -66,6 +89,13 @@ export function renderPortal(data: PortalData): string {
   .ward-name{font-size:1.5rem;font-weight:700;letter-spacing:.02em;color:#1d3557}
   .ward-sub{font-size:.68rem;color:#6b7a8d;letter-spacing:.06em;text-transform:uppercase;margin-top:.5rem}
   .divider{width:60px;height:3px;background:#c9b882;border-radius:2px;margin:1rem auto 0}
+  .portal{width:100%;max-width:1000px;display:flex;flex-direction:column;align-items:center}
+  .sections{display:grid;grid-template-columns:1fr;gap:1.8rem 2rem;width:100%;justify-items:center;margin-bottom:1.8rem}
+  @media (min-width:900px){.sections.pair{grid-template-columns:1fr 1fr;align-items:start}}
+  .psection{width:100%;max-width:480px}
+  /* The M44 hub's column heading, with the portal's gold line underneath. */
+  .section-heading{font-size:1rem;font-weight:700;color:#1d3557;letter-spacing:.05em;text-transform:uppercase;
+    text-align:center;padding-bottom:.35rem;border-bottom:2px solid #c9b882;margin-bottom:.9rem}
   .links{display:flex;flex-direction:column;gap:.9rem;width:100%;max-width:480px}
   .card{background:#fff;border:1px solid #dde3ed;border-radius:14px;
     box-shadow:0 2px 10px rgba(29,53,87,.07);overflow:hidden;transition:box-shadow .2s,transform .15s}
@@ -118,7 +148,7 @@ export function renderPortal(data: PortalData): string {
     <div class="ward-sub">${DISCLAIMER}</div>
     <div class="divider"></div>
   </header>
-  <main class="links">${cards}</main>
+  <main class="portal">${cards}</main>
   <section class="master">
     <div class="master-label">Scan to share this page</div>
     <div class="master-title">${esc(title)}</div>

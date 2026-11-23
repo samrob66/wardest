@@ -168,6 +168,7 @@ export function renderWardPage(o: {
   notice?: string;
   error?: string;
   showService?: boolean; // manages, coordinates or may create in a service category
+  serviceSettings?: { serve_short_url: string | null; help_short_url: string | null; serve_section_on: number; help_section_on: number };
 }): string {
   const { user, ward, role, joins, spaces, invites, members, portals, publicPortal, appUrl, notice, error } = o;
   const isSuper = role === 'superadmin';
@@ -271,6 +272,25 @@ export function renderWardPage(o: {
        </form>`
     : '';
 
+  const ss = o.serviceSettings;
+  const serviceSettingsHtml =
+    isSuper && ss
+      ? `<h2>Portal service sections</h2>
+       <form method="post" action="/w/${esc(ward.id)}/service-links" class="card">
+         <p class="muted" style="margin-top:0">The two sections at the top of the public portal. Paste a short link you made
+           on zippa.run for each (the QR codes use it), or leave it blank to use the direct address.</p>
+         <label>Service Opportunities link</label>
+         <input name="serve_short_url" value="${esc(ss.serve_short_url ?? '')}" placeholder="e.g. zippa.run/${esc(ward.prefix)}Serve">
+         <p class="muted" style="margin:.2rem 0">Direct address: <code>${esc(appUrl)}/serve/${esc(ward.prefix)}</code></p>
+         <label>Service Requests link</label>
+         <input name="help_short_url" value="${esc(ss.help_short_url ?? '')}" placeholder="e.g. zippa.run/${esc(ward.prefix)}Help">
+         <p class="muted" style="margin:.2rem 0">Direct address: <code>${esc(appUrl)}/help/${esc(ward.prefix)}</code></p>
+         <label style="display:flex;gap:.4rem;align-items:center;color:#2c3a4a"><input type="checkbox" name="serve_section_on" value="1" style="width:auto"${ss.serve_section_on ? ' checked' : ''}> Show "Service Opportunities" on the portal</label>
+         <label style="display:flex;gap:.4rem;align-items:center;color:#2c3a4a"><input type="checkbox" name="help_section_on" value="1" style="width:auto"${ss.help_section_on ? ' checked' : ''}> Show "Service Requests" on the portal</label>
+         <button class="btn sm" type="submit">Save</button>
+       </form>`
+      : '';
+
   return layout({
     title: ward.name,
     userEmail: user.email,
@@ -297,6 +317,7 @@ export function renderWardPage(o: {
       ${joinsHtml}
       ${membersHtml}
       ${timezoneHtml}
+      ${serviceSettingsHtml}
       ${inviteForm}
       ${invitesHtml}
       <p style="margin-top:1rem"><a href="/">Back to home</a></p>`,

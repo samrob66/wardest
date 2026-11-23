@@ -46,3 +46,16 @@ INSERT OR IGNORE INTO deliverable_spaces (id, ward_id, deliverable_id, space_id,
   ('dsp_m44_interview', 'wrd_m44', 'dlv_m44_interview', 'spc_m44_public', 1, 3),
   ('dsp_m44_setapart',  'wrd_m44', 'dlv_m44_setapart',  'spc_m44_public', 1, 4),
   ('dsp_m44_stake',     'wrd_m44', 'dlv_m44_stake',     'spc_m44_public', 1, 5);
+
+-- Portal sections (service spec section 8), like the M44 hub's two columns: "Ward Links" and
+-- "Interviews". The "Service Opportunities" and "Service Requests" sections above them come from
+-- ward settings (on by default), not from rows here. Retargeting zippa.run/m44Links to this
+-- portal is Sam's owner step; the GitHub Pages hub stays until this page is proven.
+INSERT OR IGNORE INTO portal_sections (id, ward_id, space_id, title, position) VALUES
+  ('psec_m44_links',      'wrd_m44', 'spc_m44_public', 'Ward Links', 0),
+  ('psec_m44_interviews', 'wrd_m44', 'spc_m44_public', 'Interviews', 1);
+
+UPDATE deliverable_spaces SET section_id = 'psec_m44_interviews'
+ WHERE ward_id = 'wrd_m44' AND id IN ('dsp_m44_interview', 'dsp_m44_setapart');
+UPDATE deliverable_spaces SET section_id = 'psec_m44_links'
+ WHERE ward_id = 'wrd_m44' AND id IN ('dsp_m44_bulletin', 'dsp_m44_welcome', 'dsp_m44_discord', 'dsp_m44_stake');

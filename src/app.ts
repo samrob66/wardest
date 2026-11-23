@@ -14,6 +14,9 @@ import { volRoutes, spaceVolunteerSection } from './volRoutes';
 import { serviceRoutes } from './serviceRoutes';
 import { hasServiceRole } from './lib/serviceAccess';
 import { InviteInputError, listBatchesForOperator, setInviteCap } from './lib/invitations';
+import {
+  createSection, deleteSection, getPortalSections, listSections, moveSection, renameSection, setCardSection,
+} from './lib/portalSections';
 import { getUserWards } from './lib/users';
 import {
   PREFIX_RE,
@@ -259,6 +262,11 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
   const members = isSuper ? await listWardMembers(c.env, ward.id) : [];
   const spaces = isSuper ? allSpaces : [];
   const publicPortal = await getPublicSpace(c.env, ward.id);
+  const serviceSettings = isSuper
+    ? await c.env.DB.prepare(`SELECT serve_short_url, help_short_url, serve_section_on, help_section_on FROM wards WHERE id = ?`)
+        .bind(ward.id)
+        .first<{ serve_short_url: string | null; help_short_url: string | null; serve_section_on: number; help_section_on: number }>()
+    : null;
   const notice = c.req.query('joined')
     ? `Welcome to ${ward.name}!`
     : c.req.query('ok')
@@ -269,6 +277,7 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
     renderWardPage({
       user, ward, role, joins, spaces, invites, members, portals, publicPortal,
       appUrl: c.env.APP_URL, notice, error, showService: await hasServiceRole(c.env, ward.id, user.id),
+      serviceSettings: serviceSettings ?? undefined,
     }),
   );
 });
@@ -296,6 +305,93 @@ appSite.post('/w/:wardId/timezone', requireAuth(), async (c) => {
   }
   await setWardTimezone(c.env, ward.id, tz);
   return c.redirect(`/w/${ward.id}?ok=1`, 302);
+});
+
+// Portal service sections (spec §8): the pasted short links for the serve and help pages
+// (http(s) only) and whether each section shows. Superadmin only.
+appSite.post('/w/:wardId/service-links', requireAuth(), async (c) => {
+  const user = c.get('user')!;
+  const ward = await getWardById(c.env, c.req.param('wardId'));
+  if (!ward) return c.text('Not found', 404);
+  if ((await wardRole(c.env, ward.id, user.id)) !== 'superadmin') return c.text('Forbidden', 403);
+  const b = await c.req.parseBody();
+  const link = (name: string): { ok: boolean; url: string | null } => {
+    const raw = String(b[name] ?? '').trim();
+    if (!raw) return { ok: true, url: null };
+    const url = normalizeHttpUrl(raw);
+    return { ok: !!url, url };
+  };
+  const serve = link('serve_short_url');
+  const help = link('help_short_url');
+  if (!serve.ok || !help.ok) {
+    return c.redirect(`/w/${ward.id}?err=${encodeURIComponent('That short link is not a valid web address.')}`, 302);
+  }
+  await c.env.DB.prepare(
+    `UPDATE wards SET serve_short_url = ?, help_short_url = ?, serve_section_on = ?, help_section_on = ?, updated_at = datetime('now') WHERE id = ?`,
+  )
+    .bind(serve.url, help.url, String(b.serve_section_on ?? '') === '1' ? 1 : 0, String(b.help_section_on ?? '') === '1' ? 1 : 0, ward.id)
+    .run();
+  return c.redirect(`/w/${ward.id}?ok=1`, 302);
+});
+
+// --- Portal sections (spec §8): whoever manages the public portal arranges its sections ---
+async function sectionCtx(c: Context<AppEnv>) {
+  const ctx = await loadSpaceCtx(c);
+  if (ctx instanceof Response) return ctx;
+  if (!ctx.canManage) return c.text('Forbidden', 403);
+  if (ctx.space.kind !== 'public') return c.html(notFoundPage('portal sections'), 404);
+  return ctx;
+}
+
+function sectionsBack(c: Context<AppEnv>, wardId: string, spaceId: string, err?: string): Response {
+  const p = `/w/${wardId}/space/${spaceId}`;
+  return c.redirect(err ? `${p}?err=${encodeURIComponent(err)}` : `${p}?ok=1`, 302);
+}
+
+appSite.post('/w/:wardId/space/:spaceId/sections', requireAuth(), async (c) => {
+  const ctx = await sectionCtx(c);
+  if (ctx instanceof Response) return ctx;
+  try {
+    await createSection(c.env, ctx.ward.id, ctx.space.id, String((await c.req.parseBody()).title ?? ''));
+  } catch (e) {
+    return sectionsBack(c, ctx.ward.id, ctx.space.id, (e as Error).message);
+  }
+  return sectionsBack(c, ctx.ward.id, ctx.space.id);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/sections/:sectionId', requireAuth(), async (c) => {
+  const ctx = await sectionCtx(c);
+  if (ctx instanceof Response) return ctx;
+  try {
+    await renameSection(c.env, ctx.ward.id, ctx.space.id, c.req.param('sectionId'), String((await c.req.parseBody()).title ?? ''));
+  } catch (e) {
+    return sectionsBack(c, ctx.ward.id, ctx.space.id, (e as Error).message);
+  }
+  return sectionsBack(c, ctx.ward.id, ctx.space.id);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/sections/:sectionId/move', requireAuth(), async (c) => {
+  const ctx = await sectionCtx(c);
+  if (ctx instanceof Response) return ctx;
+  const dir = (await c.req.parseBody()).dir === 'up' ? 'up' : 'down';
+  await moveSection(c.env, ctx.ward.id, ctx.space.id, c.req.param('sectionId'), dir);
+  return sectionsBack(c, ctx.ward.id, ctx.space.id);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/sections/:sectionId/delete', requireAuth(), async (c) => {
+  const ctx = await sectionCtx(c);
+  if (ctx instanceof Response) return ctx;
+  await deleteSection(c.env, ctx.ward.id, ctx.space.id, c.req.param('sectionId'));
+  return sectionsBack(c, ctx.ward.id, ctx.space.id);
+});
+
+appSite.post('/w/:wardId/space/:spaceId/cards/:deliverableId/section', requireAuth(), async (c) => {
+  const ctx = await sectionCtx(c);
+  if (ctx instanceof Response) return ctx;
+  const ok = await setCardSection(
+    c.env, ctx.ward.id, ctx.space.id, c.req.param('deliverableId'), String((await c.req.parseBody()).section_id ?? ''),
+  );
+  return sectionsBack(c, ctx.ward.id, ctx.space.id, ok ? undefined : 'Pick one of this portal’s sections.');
 });
 
 // ===== Phase 3: per-space portals =====
@@ -333,11 +429,16 @@ appSite.get('/w/:wardId/space/:spaceId', requireAuth(), async (c) => {
   const notice = c.req.query('ok') ? 'Saved.' : undefined;
   const error = c.req.query('err') || undefined;
   const volunteerHtml = await spaceVolunteerSection(c.env, ward, space, user.id);
+  // The public portal's managers arrange its named sections (spec §8).
+  const sections =
+    canManage && space.kind === 'public'
+      ? { list: await listSections(c.env, ward.id, space.id), groups: await getPortalSections(c.env, ward.id, space.id) }
+      : undefined;
   return c.html(
     renderSpacePortal({
       user, ward, space, canManage, canParticipate, blocks, cards, tasks, members,
       shares, shareTargets, portalUrl: portalUrl(c.env.APP_URL, ward, space), notice, error,
-      volunteerHtml,
+      volunteerHtml, sections,
     }),
   );
 });
@@ -980,6 +1081,19 @@ async function loadPortal(
   const space = await getPublicSpace(c.env, ward.id);
   if (!space || space.portal_published === 0) return null;
   const cards = await getPortalCards(c.env, space.id);
+  // Spec §8: "Service Opportunities" and "Service Requests" at the very top (each can be turned
+  // off), then the ward's sections, then the default "Links" section.
+  const s = await c.env.DB.prepare(
+    `SELECT serve_short_url, help_short_url, serve_section_on, help_section_on FROM wards WHERE id = ?`,
+  )
+    .bind(ward.id)
+    .first<{ serve_short_url: string | null; help_short_url: string | null; serve_section_on: number; help_section_on: number }>();
+  const card = (title: string, direct: string, short: string | null) => ({
+    title, description: null, type: 'url', destination: direct, short_url: short,
+  });
+  const service: NonNullable<PortalData['service']> = {};
+  if (s?.serve_section_on) service.serve = card('Sign up for Service Opportunities', `${c.env.APP_URL}/serve/${ward.prefix}`, s.serve_short_url);
+  if (s?.help_section_on) service.help = card('Request Help or Service', `${c.env.APP_URL}/help/${ward.prefix}`, s.help_short_url);
   return {
     wardName: ward.name,
     prefix: ward.prefix,
@@ -987,6 +1101,8 @@ async function loadPortal(
     cards,
     portalUrl: portalUrl(c.env.APP_URL, ward, { id: space.id, kind: 'public' }),
     shareUrl: space.share_url,
+    sections: await getPortalSections(c.env, ward.id, space.id),
+    service,
   };
 }
 

@@ -1,4 +1,5 @@
-import type { SessionUser, PortalCard } from '../types';
+import type { SessionUser, PortalCard, PortalSection } from '../types';
+import type { SectionRow } from '../lib/portalSections';
 import type { WardRow, SpaceFull, SpaceMember, SpaceRow } from '../lib/wards';
 import type { PortalBlock } from '../lib/portalBlocks';
 import type { TaskRow } from '../lib/tasks';
@@ -33,6 +34,7 @@ export function renderSpacePortal(o: {
   notice?: string;
   error?: string;
   volunteerHtml?: string; // volunteer posts + "who can manage" (built in volRoutes.ts, already escaped)
+  sections?: { list: SectionRow[]; groups: PortalSection[] }; // the public portal's managers only
 }): string {
   const { user, ward, space, canManage, canParticipate, blocks, cards, tasks, members, shares, shareTargets, portalUrl, notice, error } = o;
   const base = `/w/${esc(ward.id)}/space/${esc(space.id)}`;
@@ -141,10 +143,54 @@ export function renderSpacePortal(o: {
       ${addBlock}
       <h2>Deliverables</h2>
       ${cardsHtml}
+      ${o.sections ? sectionsCard(base, o.sections) : ''}
       ${tasksSection}
       ${o.volunteerHtml ?? ''}
       ${sharingHtml}`,
   });
+}
+
+// Arranging the public portal's sections (spec §8): add / rename / move / delete, and a
+// "Section" select per published card. Deleting a section returns its cards to "Links".
+function sectionsCard(base: string, s: { list: SectionRow[]; groups: PortalSection[] }): string {
+  const rows = s.list.length
+    ? s.list
+        .map(
+          (sec, i) => `<div class="row" style="padding:.3rem 0;flex-wrap:wrap">
+            <form method="post" action="${base}/sections/${esc(sec.id)}" class="inline">
+              <input name="title" value="${esc(sec.title)}" maxlength="60" style="width:14rem">
+              <button class="btn sm ghost" type="submit">Rename</button></form>
+            <span>
+              ${i > 0 ? `<form method="post" action="${base}/sections/${esc(sec.id)}/move" style="display:inline"><input type="hidden" name="dir" value="up"><button class="btn sm ghost" type="submit">↑</button></form>` : ''}
+              ${i < s.list.length - 1 ? `<form method="post" action="${base}/sections/${esc(sec.id)}/move" style="display:inline"><input type="hidden" name="dir" value="down"><button class="btn sm ghost" type="submit">↓</button></form>` : ''}
+              <form method="post" action="${base}/sections/${esc(sec.id)}/delete" style="display:inline"><button class="btn sm ghost danger" type="submit">Delete</button></form>
+            </span></div>`,
+        )
+        .join('')
+    : '<p class="muted">No sections yet: every link shows under "Links".</p>';
+  const cards = s.groups.flatMap((g) => g.cards);
+  const assign = cards.length
+    ? `<h3 style="margin-top:1rem">Which section each link is in</h3>${cards
+        .map(
+          (c) => `<form method="post" action="${base}/cards/${esc(c.deliverable_id ?? '')}/section" class="inline" style="margin:.3rem 0">
+            <div style="flex:1">${esc(c.title)}</div>
+            <select name="section_id" style="width:auto"><option value="">Links (default)</option>${s.list
+              .map((sec) => `<option value="${esc(sec.id)}"${sec.id === c.section_id ? ' selected' : ''}>${esc(sec.title)}</option>`)
+              .join('')}</select>
+            <button class="btn sm ghost" type="submit">Move</button></form>`,
+        )
+        .join('')}`
+    : '';
+  return `<h2>Portal sections</h2>
+    <div class="card">
+      <p class="muted" style="margin-top:0">"Service Opportunities" and "Service Requests" always come first (turn them off in
+        ward settings); then these sections in this order, two to a row on wide screens; then "Links".</p>
+      ${rows}
+      <form method="post" action="${base}/sections" class="inline" style="margin-top:.6rem">
+        <div style="flex:1"><label>New section</label><input name="title" maxlength="60" required placeholder="e.g. Interviews"></div>
+        <button class="btn sm" type="submit">Add section</button></form>
+      ${assign}
+    </div>`;
 }
 
 export function renderArchivedTasks(

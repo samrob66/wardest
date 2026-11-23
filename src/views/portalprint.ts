@@ -1,4 +1,5 @@
 import type { PortalData, PortalCard } from '../types';
+import { portalSectionGroups } from './portal';
 import { siteFooter } from './footer';
 import { esc } from '../lib/html';
 import { safeHref, displayUrl } from '../lib/urls';
@@ -38,7 +39,11 @@ export function renderPortalPrint(data: PortalData, size: PrintSize): string {
   const title = data.portalTitle ?? `${data.wardName} Links`;
   const masterUrl = safeHref(data.shareUrl ?? data.portalUrl);
   const masterText = displayUrl(data.shareUrl ?? data.portalUrl);
-  const rows = data.cards.map(rowHtml).join('');
+  // The same headings and order as the portal (spec §8).
+  const groups = portalSectionGroups(data);
+  const rows = [...groups.service, ...groups.ward]
+    .map((s) => `${s.title ? `<h2 class="psec">${esc(s.title)}</h2>` : ''}${s.cards.map(rowHtml).join('')}`)
+    .join('');
 
   return `<!doctype html>
 <html lang="en">
@@ -58,6 +63,8 @@ export function renderPortalPrint(data: PortalData, size: PrintSize): string {
   .ward-sub{font-size:.62em;color:#6b7a8d;letter-spacing:.08em;text-transform:uppercase;text-align:center;margin-top:.5em}
   .divider{width:8em;height:.18em;background:#c9b882;border-radius:.1em;margin:.7em auto 1.1em}
   .links{width:100%;max-width:44em;display:flex;flex-direction:column;gap:.55em}
+  .psec{font-size:.95em;font-weight:700;color:#1d3557;letter-spacing:.05em;text-transform:uppercase;text-align:center;
+    padding-bottom:.25em;border-bottom:.12em solid #c9b882;margin:.6em 0 .2em}
   .plink{display:flex;align-items:center;gap:.9em;background:rgba(255,255,255,.97);
     border:1px solid #dde3ed;border-radius:.7em;padding:.55em .8em}
   .plink .qr{width:5em;height:5em;flex-shrink:0;background:#fff;border:1px solid #eee;border-radius:.3em;padding:.18em}

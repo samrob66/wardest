@@ -43,6 +43,15 @@ export interface PortalCard {
   type: string;
   destination: string; // where the item lives: its URL, or the /f/<id> serving URL for a file
   short_url: string | null; // pasted short link (e.g. zippa.run/m44Bulletin), if any
+  deliverable_id?: string; // published deliverables (not the service cards)
+  section_id?: string | null;
+}
+
+// A named portal section ("Ward Links"); id null = the default "Links" section.
+export interface PortalSection {
+  id: string | null;
+  title: string;
+  cards: PortalCard[];
 }
 
 export interface PortalData {
@@ -52,4 +61,8 @@ export interface PortalData {
   cards: PortalCard[];
   portalUrl: string; // this portal's own address
   shareUrl: string | null; // pasted short link pointing at this portal, if any
+  // Public portal (spec §8): the ward's sections, and the two service cards at the very top
+  // (each absent when turned off in ward settings). Without sections, cards render as one list.
+  sections?: PortalSection[];
+  service?: { serve?: PortalCard; help?: PortalCard };
 }
