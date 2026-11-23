@@ -1,8 +1,8 @@
 // Review round 4 follow-ups (2026-11-22): each pins one failure mode of the sign-up engine.
 import { describe, it, expect, vi } from 'vitest';
 import { env, makeLeader, uniqueEmail, sentFetches, barrierDb, interceptDb, gate } from './helpers';
-import { NOW, fixture, signupRows, volunteerRow } from './volFixtures';
-import { submitSignup } from '../src/lib/volSignup';
+import { NOW, fixture, signupRows, volunteerRow, tokenFrom } from './volFixtures';
+import { submitSignup, verifyAddress, approveVolunteer } from '../src/lib/volSignup';
 import { deliver } from '../src/lib/volMessages';
 import type { Env } from '../src/types';
 
@@ -44,6 +44,44 @@ describe('follow-up 1: a failed "fully filled" build never costs the volunteer t
     await deliver(env, out.messages);
     const sent = sentFetches().filter((f) => f.url.startsWith('https://api.resend.com'));
     expect(sent.some((f) => (f.body as { to: string[]; subject: string }).to[0] === last.toLowerCase())).toBe(true);
+  });
+});
+
+describe('follow-up 1b: a failure AFTER the "notified" mark clears it, so a later sign-up retries', () => {
+  it('confirmation still goes, the mark is cleared, and a later (late-approved) sign-up sends "fully filled"', async () => {
+    const fx = await fixture();
+    // Someone confirms their address while the 5-person role is open (waiting doesn't count).
+    const waiter = uniqueEmail('waiter');
+    const w = await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'W', email: waiter, bringing: null, now: NOW });
+    await verifyAddress(env, tokenFrom(w.messages[0], '/vol/verify/'), NOW);
+    for (let i = 0; i < 5; i++) {
+      const e = uniqueEmail(`fillb${i}`);
+      await makeLeader(env, fx.wardId, { email: e });
+      await submitSignup(env, { wardId: fx.wardId, postId: fx.postId, roleId: fx.bigRoleId, name: 'F', email: e, bringing: null, now: later(i) });
+    }
+    // The sign-up that fills the post: reading the leaders' addresses fails AFTER the mark is set.
+    const last = uniqueEmail('lastb');
+    await makeLeader(env, fx.wardId, { email: last });
+    const broken: Env = { ...env, DB: interceptDb(env.DB, 'SELECT LOWER(u.email) AS email FROM users u', { fail: true }) };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const out = await submitSignup(broken, {
+      wardId: fx.wardId, postId: fx.postId, roleId: fx.roleId, name: 'Last', email: last, bringing: null, now: later(10),
+    });
+    const lines = err.mock.calls.map((c) => c.join(' '));
+    err.mockRestore();
+    expect(out.result).toBe('confirmed');
+    expect(out.messages.filter((m) => m.kind === 'vol_confirmed').map((m) => m.to)).toEqual([last.toLowerCase()]);
+    expect(out.messages.filter((m) => m.kind === 'approver_filled')).toHaveLength(0);
+    expect(lines.some((l) => l.includes('fully filled') && l.includes(`ward=${fx.wardId}`) && l.includes('kind=approver_filled'))).toBe(true);
+    // The mark is cleared, so it can be retried.
+    const mark = await env.DB.prepare(`SELECT full_notified_at FROM vol_posts WHERE id = ?`).bind(fx.postId).first<{ full_notified_at: string | null }>();
+    expect(mark!.full_notified_at).toBeNull();
+    // A later sign-up that keeps the post full (the waiter, approved late, lands over the limit)
+    // sends the leaders' "fully filled" email.
+    const v = (await volunteerRow(fx.wardId, waiter))!;
+    const a = await approveVolunteer(env, fx.wardId, v.id, fx.eqPres, later(20));
+    const filled = a.messages.filter((m) => m.kind === 'approver_filled');
+    expect(filled.map((m) => m.to).sort()).toEqual([fx.eqPresEmail, fx.counselorEmail].sort());
   });
 });
 

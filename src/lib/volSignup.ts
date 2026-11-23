@@ -175,24 +175,39 @@ async function stampConfirmed(
 }
 
 // "Fully filled" email to the post's approvers, at most once per time it fills (rule 14 resets).
+// The post is marked notified first (so only one request sends it); if building the email fails
+// after that, our mark is cleared again (ward- and post-scoped, and only if it's still ours) so
+// the next sign-up that keeps the post full retries instead of the email being lost for good.
 async function filledMessages(env: Env, wardId: string, postId: string, now: Date): Promise<OutgoingMessage[]> {
   const post = await getPost(env, wardId, postId);
   if (!post || !postIsFull(post)) return [];
+  const stamp = now.toISOString();
   const claim = await env.DB.prepare(
     `UPDATE vol_posts SET full_notified_at = ? WHERE id = ? AND ward_id = ? AND full_notified_at IS NULL`,
   )
-    .bind(now.toISOString(), postId, wardId)
+    .bind(stamp, postId, wardId)
     .run();
   if (!claim.meta.changes) return [];
-  const ep = emailPost(post, env.APP_URL);
-  return (await approverEmails(env, wardId, postId)).map((to) =>
-    E.approverFilled({ to, post: ep, manageUrl: manageUrl(env, wardId, postId) }),
-  );
+  try {
+    const ep = emailPost(post, env.APP_URL);
+    return (await approverEmails(env, wardId, postId)).map((to) =>
+      E.approverFilled({ to, post: ep, manageUrl: manageUrl(env, wardId, postId) }),
+    );
+  } catch (e) {
+    await env.DB.prepare(
+      `UPDATE vol_posts SET full_notified_at = NULL WHERE id = ? AND ward_id = ? AND full_notified_at = ?`,
+    )
+      .bind(postId, wardId, stamp)
+      .run();
+    throw e;
+  }
 }
 
 // filledMessages, but a failure is logged (ward, the sign-up or post it's about, kind) instead of
-// thrown, so it can't take other emails down with it. The post is then simply not marked as
-// notified, so the next sign-up that keeps it full can try again.
+// thrown, so it can't take other emails down with it. Whether it fails before the "notified"
+// mark or after it (filledMessages then clears the mark), the post is left unmarked, so the
+// next sign-up that keeps it full tries again. (If clearing the mark itself fails, this one
+// "fully filled" email is lost; the log line still says so.)
 async function filledOrLog(env: Env, wardId: string, postId: string, now: Date, signupId?: string): Promise<OutgoingMessage[]> {
   try {
     return await filledMessages(env, wardId, postId, now);
