@@ -221,3 +221,77 @@ describe('operator: invitation limits and batches', () => {
     }
   });
 });
+
+describe('bulk invitations: send errors', () => {
+  async function recipient(batchId: string, email: string) {
+    return env.DB.prepare(`SELECT * FROM invite_recipients WHERE batch_id = ? AND email = ?`).bind(batchId, email).first<{
+      claim_id: string | null; sent_at: string | null; failed: number; attempts: number;
+    }>();
+  }
+
+  it('a retryable error releases the claim and retries in later runs, failing after 3 attempts', async () => {
+    const { mailRetry } = await import('../src/lib/mail');
+    const { mockEmail } = await import('./helpers');
+    const real = mailRetry.sleep;
+    mailRetry.sleep = async () => {};
+    try {
+      const fx = await fixture({ date: futureDate(20) });
+      const [ok, flaky] = addresses(2, 'retry');
+      const batchId = await newBatch(fx, [ok!, flaky!]);
+      mockEmail((e) => {
+        if (e.to === flaky) throw Object.assign(new Error('slow down'), { code: 'E_RATE_LIMIT_EXCEEDED' });
+      });
+      await pumpInvitations(env, new Date(), { batchId, limit: 100 });
+      let r = (await recipient(batchId, flaky!))!;
+      expect(r).toMatchObject({ claim_id: null, sent_at: null, failed: 0, attempts: 1 });
+      expect((await batchRow(batchId))!.status).toBe('sending');
+      expect((await batchRow(batchId))!.failed).toBe(0);
+      await pumpInvitations(env, new Date(), { batchId, limit: 100 });
+      r = (await recipient(batchId, flaky!))!;
+      expect(r.attempts).toBe(2);
+      expect(r.failed).toBe(0);
+      await pumpInvitations(env, new Date(), { batchId, limit: 100 });
+      const b = (await batchRow(batchId))!;
+      expect(b.status).toBe('done');
+      expect(b.sent).toBe(1);
+      expect(b.failed).toBe(1);
+    } finally {
+      mailRetry.sleep = real;
+    }
+  });
+
+  it('a non-retryable error fails at once', async () => {
+    const { mockEmail } = await import('./helpers');
+    const fx = await fixture({ date: futureDate(20) });
+    const [bad] = addresses(1, 'perm');
+    const batchId = await newBatch(fx, [bad!]);
+    mockEmail(() => {
+      throw Object.assign(new Error('suppressed'), { code: 'E_RECIPIENT_SUPPRESSED' });
+    });
+    await pumpInvitations(env, new Date(), { batchId, limit: 100 });
+    const b = (await batchRow(batchId))!;
+    expect(b.status).toBe('done');
+    expect(b.failed).toBe(1);
+  });
+
+  it('results are written back per group, so a cut-off run never re-sends what already went', async () => {
+    const { mockEmail } = await import('./helpers');
+    const fx = await fixture({ date: futureDate(20) });
+    const batchId = await newBatch(fx, addresses(30, 'grp'));
+    const seenSentWhenSending: number[] = [];
+    let n = 0;
+    mockEmail(async () => {
+      n++;
+      if (n === 25) {
+        const row = await env.DB.prepare(`SELECT COUNT(*) AS k FROM invite_recipients WHERE batch_id = ? AND sent_at IS NOT NULL`)
+          .bind(batchId)
+          .first<{ k: number }>();
+        seenSentWhenSending.push(row!.k);
+      }
+    });
+    await pumpInvitations(env, new Date(), { batchId, limit: 100 });
+    // By the 25th send, the first two groups of 10 were already recorded as sent.
+    expect(seenSentWhenSending[0]).toBeGreaterThanOrEqual(20);
+    expect((await batchRow(batchId))!.sent).toBe(30);
+  });
+});

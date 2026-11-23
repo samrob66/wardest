@@ -57,6 +57,11 @@ export const mailRetry: { baseMs: number; retries: number; sleep: (ms: number) =
 };
 
 const RETRYABLE = new Set(['E_RATE_LIMIT_EXCEEDED', 'E_INTERNAL_SERVER_ERROR', 'E_DELIVERY_FAILED']);
+
+// A transient binding error worth trying again later (callers such as the invitation pump).
+export function isRetryableMailError(code: string | undefined): boolean {
+  return !!code && RETRYABLE.has(code);
+}
 const ADDRESS = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 const CRLF = /[\r\n]/;
 

@@ -12,8 +12,8 @@
 //    (https://developers.cloudflare.com/workers/platform/limits/); Email Service allows up to 50
 //    recipients per message and gives new accounts a conservative daily quota with no published
 //    per-second rate (https://developers.cloudflare.com/email-service/platform/limits/). A run of
-//    400 is ~400 send_email calls plus ~15 D1 calls (suppression lookups in chunks of 90, batched
-//    updates), far under 10,000; at concurrency 10 it finishes in well under a minute, so runs
+//    400 is ~400 send_email calls plus ~50 D1 calls (suppression lookups in chunks of 90, one batched
+//    write-back per group of 10), far under 10,000; at concurrency 10 it finishes in well under a minute, so runs
 //    rarely overlap. 2,000 invitations take about five minutes.
 //  - Daily safety ceiling per ward (wards.invite_daily_cap, default 5000, ward-local day): each
 //    run first RESERVES its allowance in invite_daily_counts inside one transaction (so two runs
@@ -25,7 +25,7 @@
 import type { Env } from '../types';
 import { esc } from './html';
 import { newId } from './ids';
-import { sendMail, sendMailBatch, type MailMessage } from './mail';
+import { isRetryableMailError, sendMail, sendMailBatch, type MailMessage } from './mail';
 import { MAX_RECIPIENTS, parseRecipients } from './recipients';
 import { deliver } from './volMessages';
 import { getPost, isDateOver, whenText, type PostFull } from './volPosts';
@@ -39,6 +39,7 @@ export const KICK_LIMIT = 100; // the send route's immediate first chunk
 export const CRON_LIMIT = 400; // each minute-cron run
 const CONCURRENCY = 10;
 const STALE_CLAIM_MS = 10 * 60_000;
+const MAX_ATTEMPTS = 3; // pump runs per address before a retryable error counts as failed
 const IN_CHUNK = 90; // D1 allows 100 bound parameters per statement
 
 function chunks<T>(list: T[], n: number): T[][] {
@@ -319,7 +320,9 @@ async function pumpBatch(env: Env, b: BatchRow, now: Date, budget: number): Prom
     .bind(claimId, now.toISOString(), b.id, b.ward_id, new Date(now.getTime() - STALE_CLAIM_MS).toISOString(), granted)
     .run();
   const rows = (
-    await env.DB.prepare(`SELECT id, email FROM invite_recipients WHERE claim_id = ? AND ward_id = ?`).bind(claimId, b.ward_id).all<{ id: string; email: string }>()
+    await env.DB.prepare(`SELECT id, email, attempts FROM invite_recipients WHERE claim_id = ? AND ward_id = ?`)
+      .bind(claimId, b.ward_id)
+      .all<{ id: string; email: string; attempts: number }>()
   ).results ?? [];
   if (!rows.length) {
     await refund(env, b.ward_id, day, granted);
@@ -332,33 +335,50 @@ async function pumpBatch(env: Env, b: BatchRow, now: Date, budget: number): Prom
   // Unsubscribed since the batch was made: skipped (failed = 2), never sent.
   const sup = await suppressedSet(env, b.ward_id, rows.map((r) => r.email));
   const toSend = rows.filter((r) => !sup.has(r.email));
-  const msgs: MailMessage[] = [];
-  for (const r of toSend) {
-    msgs.push(invitationMessage(env, { post, note: b.note, to: r.email, unsubUrl: await unsubUrl(env, b.ward_id, r.email), now }));
+  const skipped = rows.filter((r) => sup.has(r.email));
+  if (skipped.length) {
+    await env.DB.batch([
+      ...skipped.map((r) => env.DB.prepare(`UPDATE invite_recipients SET failed = 2 WHERE id = ? AND claim_id = ?`).bind(r.id, claimId)),
+      env.DB.prepare(`UPDATE invite_batches SET suppressed_count = suppressed_count + ? WHERE id = ?`).bind(skipped.length, b.id),
+    ]);
   }
-  const results = await sendMailBatch(env, msgs, { concurrency: CONCURRENCY });
-  const at = now.toISOString();
-  const stmts: D1PreparedStatement[] = [];
+  // Send one concurrency-sized group at a time and record its results before the next, so a
+  // run that is cut off (a waitUntil kick past its time) leaves at most one group unrecorded
+  // (its claim goes stale and those few may be retried; nothing earlier is re-sent).
+  // A retryable error (rate limit, service error, failed delivery: mail.ts already retried it
+  // twice) releases the claim for a later run, up to MAX_ATTEMPTS runs; anything else, or the
+  // last attempt, marks it failed.
   let sent = 0;
   let failed = 0;
-  toSend.forEach((r, i) => {
-    if (results[i]?.ok) {
-      sent++;
-      stmts.push(env.DB.prepare(`UPDATE invite_recipients SET sent_at = ? WHERE id = ? AND claim_id = ?`).bind(at, r.id, claimId));
-    } else {
-      failed++;
-      stmts.push(env.DB.prepare(`UPDATE invite_recipients SET failed = 1 WHERE id = ? AND claim_id = ?`).bind(r.id, claimId));
+  for (const group of chunks(toSend, CONCURRENCY)) {
+    const msgs: MailMessage[] = [];
+    for (const r of group) {
+      msgs.push(invitationMessage(env, { post, note: b.note, to: r.email, unsubUrl: await unsubUrl(env, b.ward_id, r.email), now }));
     }
-  });
-  for (const r of rows) {
-    if (sup.has(r.email)) stmts.push(env.DB.prepare(`UPDATE invite_recipients SET failed = 2 WHERE id = ? AND claim_id = ?`).bind(r.id, claimId));
+    const results = await sendMailBatch(env, msgs, { concurrency: CONCURRENCY });
+    const at = new Date().toISOString();
+    const stmts: D1PreparedStatement[] = [];
+    let gSent = 0;
+    let gFailed = 0;
+    group.forEach((r, i) => {
+      const res = results[i];
+      if (res?.ok) {
+        gSent++;
+        stmts.push(env.DB.prepare(`UPDATE invite_recipients SET sent_at = ?, attempts = attempts + 1 WHERE id = ? AND claim_id = ?`).bind(at, r.id, claimId));
+      } else if (isRetryableMailError(res?.error) && r.attempts + 1 < MAX_ATTEMPTS) {
+        stmts.push(
+          env.DB.prepare(`UPDATE invite_recipients SET attempts = attempts + 1, claim_id = NULL, claimed_at = NULL WHERE id = ? AND claim_id = ?`).bind(r.id, claimId),
+        );
+      } else {
+        gFailed++;
+        stmts.push(env.DB.prepare(`UPDATE invite_recipients SET failed = 1, attempts = attempts + 1 WHERE id = ? AND claim_id = ?`).bind(r.id, claimId));
+      }
+    });
+    stmts.push(env.DB.prepare(`UPDATE invite_batches SET sent = sent + ?, failed = failed + ? WHERE id = ?`).bind(gSent, gFailed, b.id));
+    await env.DB.batch(stmts);
+    sent += gSent;
+    failed += gFailed;
   }
-  stmts.push(
-    env.DB.prepare(`UPDATE invite_batches SET sent = sent + ?, failed = failed + ?, suppressed_count = suppressed_count + ? WHERE id = ?`).bind(
-      sent, failed, sup.size, b.id,
-    ),
-  );
-  for (const group of chunks(stmts, 100)) await env.DB.batch(group);
   await refund(env, b.ward_id, day, granted - sent);
   if (await hasPending(env, b)) {
     const today = await env.DB.prepare(`SELECT sent FROM invite_daily_counts WHERE ward_id = ? AND day = ?`).bind(b.ward_id, day).first<{ sent: number }>();

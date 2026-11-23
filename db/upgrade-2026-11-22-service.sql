@@ -195,7 +195,8 @@ CREATE TABLE IF NOT EXISTS invite_recipients (
   claim_id   TEXT,
   claimed_at TEXT,
   sent_at    TEXT,
-  failed     INTEGER NOT NULL DEFAULT 0,
+  failed     INTEGER NOT NULL DEFAULT 0,          -- 1 = failed, 2 = skipped (unsubscribed since the paste)
+  attempts   INTEGER NOT NULL DEFAULT 0,          -- pump runs that tried it (a retryable error retries, up to 3)
   UNIQUE (batch_id, email)
 );
 CREATE INDEX IF NOT EXISTS idx_invite_recipients_ward ON invite_recipients(ward_id);
