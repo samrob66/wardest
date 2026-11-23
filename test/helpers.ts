@@ -381,3 +381,66 @@ export function gate(): { promise: Promise<void>; open: () => void } {
   const promise = new Promise<void>((r) => (open = r));
   return { promise, open };
 }
+
+// A D1 wrapper that counts the statements executed through it: each run(), first(), all() or
+// raw() of a prepared statement is one, and a batch() counts every statement in it. Statements
+// handed to batch() are unwrapped first (batch needs the real ones).
+export function countingDb(db: D1Database): { db: D1Database; count: () => number } {
+  let n = 0;
+  const real = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (st: D1PreparedStatement): D1PreparedStatement => {
+    const p = new Proxy(st, {
+      get(target, prop) {
+        if (prop === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
+        if (prop === 'run' || prop === 'first' || prop === 'all' || prop === 'raw') {
+          const fn = Reflect.get(target, prop, target) as (...a: unknown[]) => unknown;
+          return (...a: unknown[]) => {
+            n++;
+            return fn.apply(target, a);
+          };
+        }
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    real.set(p, st);
+    return p;
+  };
+  const wrapped = new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'prepare') return (sql: string) => wrap(target.prepare(sql));
+      if (prop === 'batch') {
+        return (stmts: D1PreparedStatement[]) => {
+          n += stmts.length;
+          return target.batch(stmts.map((s) => real.get(s) ?? s));
+        };
+      }
+      if (prop === 'exec') {
+        return (sql: string) => {
+          n++;
+          return target.exec(sql);
+        };
+      }
+      const v = Reflect.get(target, prop, target);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+  return { db: wrapped, count: () => n };
+}
+
+// Runs `fn` with the DB binding (the one the worker under SELF reads too) swapped for a counting
+// wrapper, waits for its waitUntil work, puts the real binding back and returns how many D1
+// statements ran meanwhile.
+export async function countQueries(fn: () => Promise<unknown>): Promise<number> {
+  const e = testEnv as unknown as { DB: D1Database };
+  const original = e.DB;
+  const counter = countingDb(original);
+  e.DB = counter.db;
+  try {
+    await fn();
+    await settle();
+  } finally {
+    e.DB = original;
+  }
+  return counter.count();
+}
