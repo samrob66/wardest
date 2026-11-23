@@ -1,4 +1,5 @@
 import { esc } from '../lib/html';
+import { siteFooter } from './footer';
 
 // Branded 404 for an unknown/unpublished portal prefix, file, or space.
 export function notFoundPage(what: string): string {
@@ -27,6 +28,7 @@ export function notFoundPage(what: string): string {
   <div class="divider"></div>
   <p>We couldn't find <code>${esc(what)}</code>. It may have been removed or mistyped.</p>
   <p><a href="https://wardforward.com">Go to WardForward</a></p>
+  ${siteFooter()}
 </body>
 </html>`;
 }

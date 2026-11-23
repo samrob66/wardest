@@ -11,6 +11,9 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   // Non-secret config ([vars] in wrangler.toml)
   OPERATOR_EMAILS: string; // comma-separated
+  // Contact address shown under the independence disclaimer on every page and email
+  // (General Handbook 38.8.21.2). "" hides the contact line.
+  CONTACT_EMAIL?: string;
   APP_URL: string; // e.g. https://app.wardforward.com (or http://localhost:8787 in dev)
   // Dev-only: when "1", enables /auth/dev-login. NEVER set in production.
   DEV_LOGIN?: string;

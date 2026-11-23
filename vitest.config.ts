@@ -21,6 +21,7 @@ export default defineConfig({
           DISCORD_CLIENT_ID: 'test-client',
           DISCORD_CLIENT_SECRET: 'test-secret',
           OPERATOR_EMAILS: '',
+          CONTACT_EMAIL: '',
           DEV_LOGIN: '0',
         },
       },

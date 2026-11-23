@@ -1,4 +1,5 @@
 import type { PortalData, PortalCard } from '../types';
+import { siteFooter } from './footer';
 import { esc } from '../lib/html';
 import { safeHref, displayUrl } from '../lib/urls';
 import { qrSvg } from '../lib/qr';
@@ -127,6 +128,7 @@ export function renderPortal(data: PortalData): string {
   <footer class="footer">
     Powered by WardForward · <a href="/p/${esc(data.prefix)}/print">Printable version</a>
   </footer>
+  ${siteFooter()}
 </body>
 </html>`;
 }

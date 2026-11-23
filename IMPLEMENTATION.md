@@ -34,6 +34,9 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
   `GOOGLE_CLIENT_SECRET` (plus the Turnstile and Discord secrets in §10 item 9). Email needs no
   secret: it goes through the `EMAIL` binding.
 - **O6.** Choose the donate link (Stripe Payment Link / Ko-fi / PayPal) for the landing page.
+- **O6b.** Set `CONTACT_EMAIL` in `wrangler.toml` `[vars]` to the address shown under the
+  "not an official Church product" disclaimer on every page and email (General Handbook
+  38.8.21.2 asks for contact information). Empty hides the contact line.
 - ~~**O7.** Confirm cutover timing for the old `M44 Link in Bio` page.~~ **Obsolete** — the M44
   site is the ward's property, already on zippa.run, and is never migrated (see §9).
 - **O8.** Put the Cloudflare account on the **Workers Paid** plan (Email Sending is not

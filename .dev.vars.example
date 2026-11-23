@@ -5,6 +5,7 @@ GOOGLE_CLIENT_ID=          # Google Cloud OAuth web client id (owner task O4)
 GOOGLE_CLIENT_SECRET=      # Google Cloud OAuth web client secret (O4)
 APP_URL=http://localhost:8787
 OPERATOR_EMAILS=you@example.com   # comma-separated operator (super-operator) emails
+CONTACT_EMAIL=                    # contact under the disclaimer footer (pages + emails); empty hides it
 DEV_LOGIN=1                # DEV ONLY: enables /auth/dev-login. Do not set in production.
 EMAIL_DELIVERY=log         # local only: print every email (with its links) to the console instead of sending
 # --- Volunteer sign-ups ---

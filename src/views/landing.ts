@@ -1,3 +1,4 @@
+import { siteFooter } from './footer';
 // wardforward.com static landing. Donate link is a placeholder pending owner choice (O6).
 export function renderLanding(): string {
   return `<!doctype html>
@@ -33,6 +34,7 @@ export function renderLanding(): string {
     <a class="btn btn-ghost" href="#">Donate</a>
   </div>
   <p class="muted">Not an official website of The Church of Jesus Christ of Latter-day Saints.</p>
+  ${siteFooter()}
 </body>
 </html>`;
 }

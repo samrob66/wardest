@@ -1,4 +1,5 @@
 import type { PortalData, PortalCard } from '../types';
+import { siteFooter } from './footer';
 import { esc } from '../lib/html';
 import { safeHref, displayUrl } from '../lib/urls';
 import { qrSvg } from '../lib/qr';
@@ -83,6 +84,7 @@ export function renderPortalPrint(data: PortalData, size: PrintSize): string {
     <div class="qr">${qrSvg(masterUrl)}</div>
     <div class="pmaster-url">${esc(masterText)}</div>
   </div>
+  ${siteFooter({ print: true })}
 </body>
 </html>`;
 }

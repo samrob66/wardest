@@ -220,7 +220,39 @@ decided" passage stays; the doc's current-state text changes).
   Stop the dev server.
 - [ ] **Step 8: Commit.**
 
+### Task 5: Independence disclaimer and contact line (General Handbook 38.8.21.2)
+
+Added by the coordinator on 2026-11-22, after Task 4. Why: the Church's General Handbook
+38.8.21.2 says an online resource made to help with callings must include a disclaimer that it
+is not an official, Church-sponsored product, should include contact information, and may not
+use the Church's official name, wordmark or symbol.
+
+**Files:**
+- Create: `src/views/footer.ts` (`DISCLAIMER`, `contactEmail()`, `siteFooter({ print? })`),
+  `test/footer.test.ts`
+- Modify: `src/views/landing.ts`, `layout.ts`, `portal.ts`, `portalprint.ts`, `notfound.ts`
+  (render `siteFooter()`), `src/lib/mail.ts` (append it to html + text of every message),
+  `src/types.ts` (`CONTACT_EMAIL?: string`), `wrangler.toml` (`[vars] CONTACT_EMAIL = ""`),
+  `.dev.vars.example`, `vitest.config.ts`, `test/mail.test.ts`, `CLAUDE.md`, `IMPLEMENTATION.md`
+
+- [ ] **Step 1:** Footer on every page (landing, app layout, public portal and its print layouts,
+  `/v/` public post pages, `/vol/*` volunteer pages, error/not-found pages) and in every email
+  (in `src/lib/mail.ts`, html and text), exact text: "WardForward is an independent tool made by
+  Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ
+  of Latter-day Saints." Plus `Contact: <a href="mailto:X">X</a>` from `CONTACT_EMAIL`
+  (default `""` hides the line; HTML-escaped). One shared footer helper, not copies.
+- [ ] **Step 2: Tests.** A page test per surface family (landing, app layout page, `/p/<prefix>`
+  portal and print, a `/v/` page, a `/vol/` page, not-found) asserts the disclaimer; one asserts
+  the contact line is absent with `CONTACT_EMAIL=""` and present (escaped mailto) when set;
+  `test/mail.test.ts` asserts the disclaimer in the html and text of a sent message.
+- [ ] **Step 3: Audit** UI, landing copy, seeds and assets for the Church's name ("The Church of
+  Jesus Christ of Latter-day Saints", "LDS", "Mormon"), wordmark or symbol. Change nothing beyond
+  the footer; list every hit (file:line, text) in the report for the coordinator to decide.
+- [ ] **Step 4:** `CLAUDE.md` architecture mentions the footer + `CONTACT_EMAIL`;
+  `IMPLEMENTATION.md` gets the `CONTACT_EMAIL` owner step.
+- [ ] **Step 5:** `npm test && npm run typecheck`; commit.
+
 ---
 
-Done when: Tasks 1–4 committed on `claude/wardforward-rename-573103`, tests + typecheck green, the
+Done when: Tasks 1–5 committed on `claude/wardforward-rename-573103`, tests + typecheck green, the
 grep clean, the local run checked, and the report lists the owner steps from spec §5.

@@ -1,4 +1,5 @@
 import { esc } from '../lib/html';
+import { siteFooter } from './footer';
 
 // Shared shell for authenticated / app pages.
 // `head`: extra trusted markup for <head> (built by our own views, e.g. Open Graph tags).
@@ -54,6 +55,7 @@ ${o.head ?? ''}
 <body>
   <div class="nav"><a class="brand" href="/">WardForward</a><span>${nav}</span></div>
   <main>${o.body}</main>
+  ${siteFooter()}
 </body>
 </html>`;
 }

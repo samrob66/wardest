@@ -67,6 +67,13 @@ implementation tracker) and **Publish & Share** (portals).
   secret; test keys locally) plus D1 rate limits. **Discord** DMs use one WardForward application
   (`DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` secrets). Emailed links open
   a page whose button POSTs (mail scanners prefetch links).
+- **Independence disclaimer** (General Handbook 38.8.21.2). Every page shell (landing, `layout()`,
+  portal, print, not-found) renders `siteFooter()` from `src/views/footer.ts`: "WardForward is an
+  independent tool made by Church members. It is not an official product of, or sponsored by, The
+  Church of Jesus Christ of Latter-day Saints." plus `Contact: <mailto>` when the `CONTACT_EMAIL`
+  var is set (`""` hides it). `src/lib/mail.ts` appends the same text (and contact) to the html
+  and text of every email. New page shells must render `siteFooter()` too. Never use the Church's
+  official name as our branding, or its wordmark or symbol.
 
 Key invariants: **ward = visibility boundary**, **individual = edit/ownership boundary**. Spaces are
 opt-in shared audiences with **no automatic top-down visibility**. Public portals are `noindex` but

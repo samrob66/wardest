@@ -81,7 +81,27 @@ describe('sendMail: send mode', () => {
     expect(e.from).toEqual({ email: 'invite@send.wardforward.com', name: 'WardForward invitations' });
     expect(e.headers).toEqual(headers);
     expect(e.replyTo).toBe('leader@y.org');
-    expect(e.text).toBe('plain');
+    expect(e.text!.startsWith('plain\n\n--\n')).toBe(true);
+  });
+
+  it('every message carries the independence disclaimer in html and text', async () => {
+    const disclaimer =
+      'WardForward is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.';
+    await sendMail(env, msg());
+    await sendMail(env, msg({ stream: 'invitations', text: 'plain' }));
+    for (const e of sentEmails()) {
+      expect(e.html).toContain(disclaimer);
+      expect(e.text).toContain(disclaimer);
+      expect(e.html).not.toContain('mailto:');
+    }
+    expect(sentEmails()[1]!.text!.startsWith('plain')).toBe(true);
+  });
+
+  it('adds the contact line when CONTACT_EMAIL is set', async () => {
+    await sendMail({ ...env, CONTACT_EMAIL: 'help<x>@example.test' }, msg());
+    const e = sentEmails()[0]!;
+    expect(e.html).toContain('<a href="mailto:help&lt;x&gt;@example.test">help&lt;x&gt;@example.test</a>');
+    expect(e.text).toContain('Contact: help<x>@example.test');
   });
 
   it('refuses a multi-address to', async () => {

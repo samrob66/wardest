@@ -13,7 +13,11 @@
 // - Log mode: with EMAIL_DELIVERY=log (local .dev.vars) or no binding at all, each message is
 //   printed (recipient, subject, every link, and the text) instead of sent, so a local tester
 //   can click the links.
+// - Every message ends with the independence disclaimer (General Handbook 38.8.21.2) and, when
+//   CONTACT_EMAIL is set, a contact line, in both the html and the text part.
 import type { Env } from '../types';
+import { esc } from './html';
+import { DISCLAIMER, contactEmail } from '../views/footer';
 
 export type MailStream = 'notify' | 'invitations';
 
@@ -75,6 +79,18 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
+// Appends the disclaimer (and contact line) to both parts of one message.
+function withFooter(env: Env, html: string, text: string): { html: string; text: string } {
+  const contact = contactEmail(env);
+  const htmlFoot =
+    `<hr style="border:none;border-top:1px solid #ddd;margin:24px 0 8px">` +
+    `<p style="color:#888;font-size:12px;line-height:1.4">${esc(DISCLAIMER)}` +
+    (contact ? `<br>Contact: <a href="mailto:${esc(contact)}">${esc(contact)}</a>` : '') +
+    `</p>`;
+  const textFoot = `\n\n--\n${DISCLAIMER}` + (contact ? `\nContact: ${contact}` : '');
+  return { html: html + htmlFoot, text: text + textFoot };
+}
+
 function logMessage(m: MailMessage, to: string, text: string): void {
   const hrefs = [...m.html.matchAll(/href="([^"]+)"/g)].map((x) => (x[1] ?? '').replace(/&amp;/g, '&'));
   console.log(
@@ -114,11 +130,12 @@ export async function sendMail(env: Env, m: MailMessage): Promise<MailResult> {
   try {
     const refused = check(m, to);
     if (refused) return refuse(m, to, refused);
-    const text = m.text ?? htmlToText(m.html);
+    const body = withFooter(env, m.html, m.text ?? htmlToText(m.html));
+    const text = body.text;
 
     const binding = env.EMAIL;
     if (env.EMAIL_DELIVERY === 'log' || !binding) {
-      logMessage(m, to, text);
+      logMessage({ ...m, html: body.html }, to, text);
       return { to, ok: true, logged: true };
     }
 
@@ -126,7 +143,7 @@ export async function sendMail(env: Env, m: MailMessage): Promise<MailResult> {
       to,
       from: STREAM_FROM[m.stream],
       subject: m.subject,
-      html: m.html,
+      html: body.html,
       text,
     };
     if (m.headers && Object.keys(m.headers).length) payload.headers = { ...m.headers };
