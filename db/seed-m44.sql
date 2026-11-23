@@ -10,7 +10,7 @@
 
 -- System user (owns seed rows; deliverables.created_by is NOT NULL). Real users arrive in Phase 1.
 INSERT OR IGNORE INTO users (id, google_sub, email, name)
-VALUES ('usr_system', 'system', 'system@wardest.com', 'Wardest System');
+VALUES ('usr_system', 'system', 'system@wardforward.com', 'WardForward System');
 
 INSERT OR IGNORE INTO wards (id, name, unit_number, prefix, status, created_by_user_id)
 VALUES ('wrd_m44', 'Mapleton 44th Ward', 'TBD-M44', 'm44', 'active', 'usr_system');

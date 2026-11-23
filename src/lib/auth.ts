@@ -4,7 +4,7 @@ import type { AppEnv, Env, SessionUser } from '../types';
 import { signToken, verifyToken } from './session';
 import { getUserById } from './users';
 
-const SESSION_COOKIE = 'wardest_session';
+const SESSION_COOKIE = 'wardforward_session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 interface SessionPayload {

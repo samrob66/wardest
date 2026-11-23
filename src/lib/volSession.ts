@@ -50,10 +50,10 @@ export async function sha256Hex(s: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------- volunteer session cookie
-// `wardest_vol` is separate from the leaders' `wardest_session` and scoped to /vol, so it's
+// `wardforward_vol` is separate from the leaders' `wardforward_session` and scoped to /vol, so it's
 // never even sent to /w/* (and loadUser never reads it). It names one volunteer in one ward.
 
-export const VOL_COOKIE = 'wardest_vol';
+export const VOL_COOKIE = 'wardforward_vol';
 const VOL_MAX_AGE = 14 * 86_400;
 
 interface VolSessionPayload {

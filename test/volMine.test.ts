@@ -24,17 +24,17 @@ async function pendingVolunteer(fx: Fx, name: string, roleId: string) {
   return { email: email.toLowerCase(), id: v!.id };
 }
 
-// Follow an access link; return the wardest_vol cookie.
+// Follow an access link; return the wardforward_vol cookie.
 async function signIn(fx: Fx, volunteerId: string): Promise<string> {
   const tok = await makeLinkToken(env, { typ: 'vacc', wardId: fx.wardId, id: volunteerId });
   const res = await SELF.fetch(`http://localhost/vol/access/${tok}`, { redirect: 'manual' });
   expect(res.status).toBe(302);
   expect(res.headers.get('location')).toBe(`/vol/${fx.prefix}/me`);
   const set = res.headers.get('set-cookie') ?? '';
-  const m = set.match(/wardest_vol=([^;]+)/);
+  const m = set.match(/wardforward_vol=([^;]+)/);
   expect(m).not.toBeNull();
   expect(set.toLowerCase()).toContain('httponly');
-  return `wardest_vol=${m![1]}`;
+  return `wardforward_vol=${m![1]}`;
 }
 
 async function mine(fx: Fx, cookie?: string) {
@@ -119,7 +119,7 @@ describe('My sign-ups', () => {
     expect(mails[0]!.to).toBe(a.email);
   });
 
-  it('a wardest_vol cookie grants nothing on leader pages', async () => {
+  it('a wardforward_vol cookie grants nothing on leader pages', async () => {
     const fx = await fixture({ date: FUTURE });
     const a = await memberVolunteer(fx, 'Alice Able', fx.bigRoleId);
     const cookie = await signIn(fx, a.id);

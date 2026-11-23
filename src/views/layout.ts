@@ -13,7 +13,7 @@ export function layout(o: { title: string; body: string; userEmail?: string | nu
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${esc(o.title)} — Wardest</title>
+<title>${esc(o.title)} — WardForward</title>
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Georgia,serif;color:#2c3a4a;background:linear-gradient(160deg,#eef2f8,#dbe3ef);
@@ -52,7 +52,7 @@ export function layout(o: { title: string; body: string; userEmail?: string | nu
 ${o.head ?? ''}
 </head>
 <body>
-  <div class="nav"><a class="brand" href="/">Wardest</a><span>${nav}</span></div>
+  <div class="nav"><a class="brand" href="/">WardForward</a><span>${nav}</span></div>
   <main>${o.body}</main>
 </body>
 </html>`;

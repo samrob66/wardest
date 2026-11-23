@@ -10,7 +10,7 @@ export const SLUG_RE = /^[a-z0-9-]{2,64}$/;
 const RESERVED = new Set([
   'api', 'app', 'admin', 'www', 'p', 'qr', 'auth', 'static',
   'robots.txt', 'favicon.ico', 'sign-in', 'signin', 'login', 'logout',
-  'dashboard', 'operator', 'wardest', 'help', 'about',
+  'dashboard', 'operator', 'wardforward', 'help', 'about',
 ]);
 
 export function isReservedSlug(s: string): boolean {

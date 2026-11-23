@@ -5,7 +5,7 @@ import type { Env } from '../types';
 // shares of shares grant nothing). Used by Phase 2/3 content reads.
 //
 // BREAK-GLASS: a ward superadmin CAN view (and manage) everything within their ward, including
-// org spaces they don't belong to. This only covers what Wardest stores — the destination of a
+// org spaces they don't belong to. This only covers what WardForward stores — the destination of a
 // link (e.g. a Google Doc) is still governed by that system's own permissions.
 
 // Can `userId` view space `spaceId`'s content?

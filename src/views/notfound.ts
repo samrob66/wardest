@@ -8,7 +8,7 @@ export function notFoundPage(what: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Not found — Wardest</title>
+<title>Not found — WardForward</title>
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Georgia,serif;color:#2c3a4a;min-height:100vh;
@@ -26,7 +26,7 @@ export function notFoundPage(what: string): string {
   <h1>This link doesn't exist</h1>
   <div class="divider"></div>
   <p>We couldn't find <code>${esc(what)}</code>. It may have been removed or mistyped.</p>
-  <p><a href="https://wardest.com">Go to Wardest</a></p>
+  <p><a href="https://wardforward.com">Go to WardForward</a></p>
 </body>
 </html>`;
 }

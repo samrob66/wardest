@@ -10,7 +10,7 @@ import { COMMON_TIMEZONES } from '../lib/wardTime';
 export function renderSignedOut(): string {
   return layout({
     title: 'Sign in',
-    body: `<h1>Welcome to Wardest</h1>
+    body: `<h1>Welcome to WardForward</h1>
       <p>Tools for ward leaders. Sign in with your Google account to continue.</p>
       <p><a class="btn" href="/auth/login">Sign in with Google</a></p>`,
   });

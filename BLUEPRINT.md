@@ -1,10 +1,10 @@
-# Wardest.com — Product Blueprint
+# WardForward — Product Blueprint
 
-> **Thesis:** Wardest teaches ward leaders how to stand up a curated set of (mostly Google-based)
+> **Thesis:** WardForward teaches ward leaders how to stand up a curated set of (mostly Google-based)
 > digital solutions, tracks which they've implemented, and assembles the resulting links / files /
 > QR codes into shareable, printable **portal** pages scoped to the right audience.
 
-This is the single source of truth for *what Wardest is*. `HANDOFF.md` is the original (shortener-only)
+This is the single source of truth for *what WardForward is*. `HANDOFF.md` is the original (shortener-only)
 spec and is now historical. Where they disagree, this file wins. The phase plan at the bottom is how
 we build it.
 
@@ -23,11 +23,11 @@ we build it.
 
 | Domain | Role |
 |---|---|
-| `wardest.com` | Static marketing / landing + "Sign in with Google" + Donate. Cloudflare Pages. |
-| `app.wardest.com` | The authenticated app (catalog, tracker, portal builder, dashboards). |
+| `wardforward.com` | Static marketing / landing + "Sign in with Google" + Donate. Cloudflare Pages. |
+| `app.wardforward.com` | The authenticated app (catalog, tracker, portal builder, dashboards). |
 | `zippa.run` | Short links for deliverables **and** portals, e.g. `zippa.run/m44Links`. A separate, live project (`../zipa.run`) — see §7. |
 
-Per-ward subdomains (`provo4th.wardest.com`) are **deferred** — `zippa.run` links + login-based
+Per-ward subdomains (`provo4th.wardforward.com`) are **deferred** — `zippa.run` links + login-based
 tenant resolution make them unnecessary early, and they add wildcard-TLS/routing complexity.
 
 ## 3. Core concepts (conceptual model)
@@ -46,7 +46,7 @@ tenant resolution make them unnecessary early, and they add wildcard-TLS/routing
   ("Add link/URL/QR") can exist without a catalog solution.
 - **Portal** — the rendered page for a space: included deliverables + rich-text blocks + task list.
 - **Short link** — a `zippa.run` slug → destination, made on zippa.run under the ward's prefix.
-  Wardest stores the link and derives an SVG QR from it.
+  WardForward stores the link and derives an SVG QR from it.
 - **Task** — lightweight item on a portal: text + status, self-archives when done (archived items
   stay viewable). *(Open: assignee? per-space vs per-portal — decide in data-model step.)*
 
@@ -58,7 +58,7 @@ tenant resolution make them unnecessary early, and they add wildcard-TLS/routing
   members (hand it to the Bishop, as ward head, and the Exec Secretary, who does most setup); the
   app refuses to remove the **last** superadmin. Fills the **chart of callings**, which
   auto-provisions each org's president + secretary as **owners** of that org's space.
-  Break-glass is bounded to Wardest's own data — it does **not** grant access to a link's
+  Break-glass is bounded to WardForward's own data — it does **not** grant access to a link's
   destination (a linked Google Doc keeps its own sharing).
 - **Owner** (multiple per space) — can edit that space's shared portal content (rich-text, ordering,
   which deliverables show).
@@ -84,7 +84,7 @@ links/portals are secret. The Public portal is `noindex` (unlisted, not hidden b
 - **Submission → review:** wards can submit new solutions; if valuable, we add them to the global
   catalog in that category.
 - **Ad-hoc:** an **"Add link/URL/QR"** option lets a ward create a deliverable that didn't originate
-  in Wardest.
+  in WardForward.
 
 ## 6. Spaces & portals
 
@@ -110,20 +110,20 @@ links/portals are secret. The Public portal is `noindex` (unlisted, not hidden b
 
 *Changed 2026-10:* the planned `go4.cc` domain was never transferred (refunded). The shortener was
 built instead as **zippa.run**, its own live project (`../zipa.run`, with its own decision
-records). Facts that shape Wardest:
+records). Facts that shape WardForward:
 - **Ward prefixes.** Each ward has a short prefix (`m44` = Mapleton 44th) so its links read as a
   set. Slugs are custom, case-folded, and **never reused** — a deleted link stays burned.
 - **Multi-user, ward by ward** (zippa.run decision 0019). A ward's Exec Sec asks to join on
   `app.zippa.run` (Cloudflare Access + Google). The operator approves and binds them to the ward's
   prefix, after which they create that prefix's links themselves. A slug outside the prefix is a
   second request the operator approves. The abuse controls (join approval, Web Risk destination
-  scanning) live there, so Wardest doesn't need its own. "Get your zippa.run creator access" is
+  scanning) live there, so WardForward doesn't need its own. "Get your zippa.run creator access" is
   a step in the Exec Sec setup track.
-- **No API, by design** (zippa.run decision 0008). Wardest therefore cannot mint links
-  automatically: a leader creates the link on zippa.run and pastes it into Wardest, which stores
+- **No API, by design** (zippa.run decision 0008). WardForward therefore cannot mint links
+  automatically: a leader creates the link on zippa.run and pastes it into WardForward, which stores
   it and derives the QR. (Adding a scripted surface would reverse a zippa.run decision — that
   belongs in that project, not here.)
-- Wardest stores the pasted links: a deliverable's optional **short link** and a portal's optional
+- WardForward stores the pasted links: a deliverable's optional **short link** and a portal's optional
   **share link**. A QR encodes the short link when set, else the destination. The built-in
   `go4.cc` shortener from Phases 0–3 was retired on 2026-10-06 (IMPLEMENTATION.md §10 item 1).
 
@@ -147,28 +147,34 @@ records). Facts that shape Wardest:
 
 ## 10. Email
 
-- **Provider: Resend** (HTTPS API, Worker-friendly; free tier 3,000/mo + 100/day, ongoing — far above
-  our invite volume).
-- **Sending domain:** `send.wardest.com` (subdomain; Resend's MX/SPF/DKIM live here, so Google keeps
-  the apex MX). **From:** `no-reply@send.wardest.com`.
-- **Uses:** invites (callings-chart additions), workspace approved/denied. No broader notification
-  system.
-- API key stored as a Worker secret (`RESEND_API_KEY`), never in the repo.
+- **Provider: Cloudflare Email Service** (Email Sending), through the Worker's `send_email`
+  binding (`EMAIL`) — no API key. Needs the Workers Paid plan (3,000 emails/month included, then
+  $0.35 per 1,000). Moved from Resend on 2026-11-22, before the first deploy.
+- **Sending domain:** `send.wardforward.com` (subdomain; its SPF/DKIM records live there, so Google
+  keeps the apex MX). **Streams:** `notify` from `WardForward <no-reply@send.wardforward.com>`
+  (invites, volunteer messages) and `invitations` from
+  `WardForward invitations <invite@send.wardforward.com>` (bulk invitations, next feature).
+- **One recipient per message**, always — never a visible To/CC list, never BCC fan-out. Bulk sends
+  are many single-recipient messages (`sendMailBatch`).
+- **Uses:** invites (callings-chart additions), workspace approved/denied, volunteer sign-up
+  messages (verify, confirmations, reminders, organizer notices).
+- `src/lib/mail.ts` is the only code that sends email. Locally `EMAIL_DELIVERY=log` prints each
+  message (with its links) to the `wrangler dev` console.
 
 ## 11. Infrastructure & cost
 
 - **Cloudflare:** Workers (app), **D1** (structured data), **R2** (uploaded files, free
   egress), **Pages** (static marketing site). Short links run on zippa.run's own infrastructure.
-- **~$0/month hosting** at ward scale. Hard costs: the `wardest.com` domain (~$10/yr) — plus
-  optional **$5/mo** Workers Paid if free limits are ever exceeded.
+- **Near-$0 hosting** at ward scale. Hard costs: the `wardforward.com` domain (~$10/yr) plus
+  **$5/mo** Workers Paid, which Email Sending requires (see §10).
 - Not GCP (overkill and pricier for this workload). Donations via a **static link/embed**
   (Stripe/PayPal/Ko-fi) — **no WordPress**. (Non-nonprofit donations aren't tax-deductible; separate
   question if that matters.)
 
 ## 12. Non-goals / deferred
 
-- Per-ward `*.wardest.com` subdomains.
-- In-app meeting management (agendas/minutes live in **Google Docs**; Wardest only surfaces the task
+- Per-ward `*.wardforward.com` subdomains.
+- In-app meeting management (agendas/minutes live in **Google Docs**; WardForward only surfaces the task
   list).
 - Identity/calling verification.
 - WordPress / any CMS.
@@ -200,7 +206,7 @@ Each phase ships something usable.
   *(Built for `go4.cc`; superseded 2026-10 — M44's links live on zippa.run.)*
 - A data-driven **public portal** for M44 (successor to `M44 Link in Bio/index.html`) with auto **SVG
   QR** per link and poster-quality print/PDF.
-- `wardest.com` static landing + Donate button; `app.wardest.com` stub.
+- `wardforward.com` static landing + Donate button; `app.wardforward.com` stub.
 - **Exit:** M44's links resolve through short links; public portal live and printable.
 
 ### Phase 1 — Identity, tenancy, spaces, onboarding
@@ -208,7 +214,8 @@ Each phase ships something usable.
 - D1 schema: wards, users, memberships, spaces, roles.
 - Request-a-workspace + approval; onboarding wizard; callings chart; duplicate detection (unit number);
   multi-ward membership.
-- **Resend** wired for invites/approvals (`no-reply@send.wardest.com`).
+- Transactional email wired for invites/approvals (built on Resend; moved to Cloudflare Email
+  Service, `no-reply@send.wardforward.com`, on 2026-11-22).
 - **Exit:** M44 is a real tenant with real users, roles, and spaces; superadmin can invite + assign.
 
 ### Phase 2 — Solutions catalog + implementation tracker

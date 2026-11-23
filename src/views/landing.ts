@@ -1,11 +1,11 @@
-// wardest.com static landing. Donate link is a placeholder pending owner choice (O6).
+// wardforward.com static landing. Donate link is a placeholder pending owner choice (O6).
 export function renderLanding(): string {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wardest — tools for ward leaders</title>
+<title>WardForward — tools for ward leaders</title>
 <meta name="description" content="Self-hosted tools for LDS ward leaders: curated solutions and shareable, printable portal pages.">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -24,7 +24,7 @@ export function renderLanding(): string {
 </style>
 </head>
 <body>
-  <h1>Wardest</h1>
+  <h1>WardForward</h1>
   <p class="tag">Self-hosted tools for ward leaders — curated solutions, tracked and assembled
      into shareable, printable portal pages.</p>
   <div class="divider"></div>

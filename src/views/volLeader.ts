@@ -330,7 +330,7 @@ export function renderWardVolunteers(o: {
       <p class="muted">${esc(o.wardName)} · <a href="/w/${esc(o.wardId)}">ward home</a></p>
       ${o.notice ? `<div class="ok">${esc(o.notice)}</div>` : ''}
       <p class="muted">Check each person against the ward's directory yourself before approving; one
-        approval covers the whole ward. Wardest stores only the name and email they typed.</p>
+        approval covers the whole ward. WardForward stores only the name and email they typed.</p>
       ${section('Waiting for approval', pending, (v) => act(v.id, 'approve', 'Approve', 'btn sm') + act(v.id, 'decline', 'Decline', 'btn sm ghost danger'), 'No one is waiting.')}
       ${section('Address not confirmed yet', unverified, (v) => act(v.id, 'decline', 'Decline', 'btn sm ghost danger'), 'None.')}
       ${section('Approved', approved, (v) => act(v.id, 'revoke', 'Revoke approval', 'btn sm ghost danger'), 'None yet.')}

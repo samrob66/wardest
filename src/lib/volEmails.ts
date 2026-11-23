@@ -35,7 +35,7 @@ function wrap(body: string, footer?: string): string {
   return `<div style="font-family:Georgia,serif;color:#2c3a4a;line-height:1.55;max-width:560px">${body}
 <p style="color:#8695a8;font-size:12px;margin-top:24px">${
     footer ??
-    'Sent by Wardest for your ward&#39;s leaders. If you didn&#39;t expect this, you can ignore it.'
+    'Sent by WardForward for your ward&#39;s leaders. If you didn&#39;t expect this, you can ignore it.'
   }</p></div>`;
 }
 

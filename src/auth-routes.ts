@@ -6,7 +6,7 @@ import { setSession, clearSession } from './lib/auth';
 import { upsertGoogleUser } from './lib/users';
 import { randomToken } from './lib/ids';
 
-const OAUTH_COOKIE = 'wardest_oauth';
+const OAUTH_COOKIE = 'wardforward_oauth';
 const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 

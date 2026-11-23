@@ -1,5 +1,5 @@
 // "Who can manage volunteer posts" per organization (spec §5). The org space's owners are
-// always on the list (and manage it); they can add any Wardest member of the ward, typically
+// always on the list (and manage it); they can add any WardForward member of the ward, typically
 // their counselors. Kept separate from space ownership, which also controls the portal.
 // Route handlers check canManageEditorList (volAccess.ts) before calling add/remove.
 import type { Env } from '../types';

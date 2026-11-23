@@ -28,7 +28,7 @@ export function renderSuggestForm(user: SessionUser, ward: WardRow, error?: stri
     title: 'Suggest a solution',
     userEmail: user.email,
     body: `<h1>Suggest a solution</h1>
-      <p class="muted">${esc(ward.name)} · proposals go to the Wardest operators for review.</p>
+      <p class="muted">${esc(ward.name)} · proposals go to the WardForward operators for review.</p>
       ${error ? `<div class="err">${esc(error)}</div>` : ''}
       <form method="post" action="/w/${esc(ward.id)}/suggest">
         <label>Title</label><input name="title" required maxlength="120">

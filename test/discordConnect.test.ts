@@ -18,7 +18,7 @@ async function approvedVol(fx: Fx) {
 async function volCookie(fx: Fx, vid: string): Promise<string> {
   const tok = await makeLinkToken(env, { typ: 'vacc', wardId: fx.wardId, id: vid });
   const res = await SELF.fetch(`http://localhost/vol/access/${tok}`, { redirect: 'manual' });
-  return (res.headers.get('set-cookie') ?? '').match(/wardest_vol=[^;]+/)![0];
+  return (res.headers.get('set-cookie') ?? '').match(/wardforward_vol=[^;]+/)![0];
 }
 
 async function startConnect(cookie: string) {
@@ -62,7 +62,7 @@ describe('Connect Discord', () => {
     const loc = new URL(start.headers.get('location')!);
     expect(loc.hostname).toBe('discord.com');
     const state = loc.searchParams.get('state')!;
-    const dc = (start.headers.get('set-cookie') ?? '').match(/wardest_vol_dc=[^;]+/)![0];
+    const dc = (start.headers.get('set-cookie') ?? '').match(/wardforward_vol_dc=[^;]+/)![0];
     const both = `${cookie}; ${dc}`;
     const bad = await SELF.fetch(`http://localhost/vol/discord/callback?code=c&state=wrong`, { redirect: 'manual', headers: { cookie: both } });
     expect(bad.status).toBe(400);
@@ -90,7 +90,7 @@ describe('Connect Discord', () => {
     const cb = await volCookie(fx, b);
     const start = await startConnect(ca);
     const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
-    const dc = (start.headers.get('set-cookie') ?? '').match(/wardest_vol_dc=[^;]+/)![0];
+    const dc = (start.headers.get('set-cookie') ?? '').match(/wardforward_vol_dc=[^;]+/)![0];
     const res = await SELF.fetch(`http://localhost/vol/discord/callback?code=c&state=${state}`, { redirect: 'manual', headers: { cookie: `${cb}; ${dc}` } });
     expect(res.status).toBe(400);
   });

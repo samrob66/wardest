@@ -1,9 +1,9 @@
-# Wardest.com — Implementation Playbook (handoff for execution)
+# WardForward — Implementation Playbook (handoff for execution)
 
 **Audience:** the Claude model executing the build (Opus). **Author:** strategy phase
 (blueprint by Opus 4.8, audit + this playbook by Fable 5), all decisions confirmed by the owner.
 
-**Reading order:** [`BLUEPRINT.md`](BLUEPRINT.md) (what Wardest is) → [`SCHEMA.md`](SCHEMA.md) +
+**Reading order:** [`BLUEPRINT.md`](BLUEPRINT.md) (what WardForward is) → [`SCHEMA.md`](SCHEMA.md) +
 [`db/schema.sql`](db/schema.sql) (data model + canonical visibility rules) → this file (how to
 build it, in order). `HANDOFF.md` is historical; ignore where it conflicts.
 
@@ -13,48 +13,62 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
 
 ---
 
-## 1. Current state (verified, July 2026)
+## 1. Current state (updated 2026-11-22: renamed to WardForward, email on Cloudflare)
 
 | Item | State |
 |---|---|
-| Repo | `github.com/samrob66/wardest`, `main`, push access verified |
+| Repo | `github.com/samrob66/wardforward` once Sam renames it (O11), `main`, push access verified |
 | Code | Phases 0–3 built + local-verified (`src/` Worker, `db/` schema + seeds); built-in shortener retired 2026-10 (§10 item 1) |
-| `wardest.com` DNS | On Cloudflare (nameservers moved). Google Workspace MX/SPF/DKIM/DMARC live at apex — **do not touch apex MX** |
-| Email | Resend verified on `send.wardest.com` (records live at `send.send.wardest.com` + `resend._domainkey.send.wardest.com`). From: `no-reply@send.wardest.com`. Live send test passed (SPF/DKIM/DMARC) |
+| `wardforward.com` DNS | Bought by Sam. Put it on Cloudflare if it isn't already (O9). Sam adds it to Google Workspace as an alias domain, so Workspace owns the apex MX — **do not touch apex MX** |
+| Email | Cloudflare Email Service (Email Sending) through the Worker's `EMAIL` `send_email` binding; no API key. Sending domain `send.wardforward.com`, not onboarded yet (O10). From: `no-reply@send.wardforward.com` (notify) and `invite@send.wardforward.com` (invitations). Needs the Workers Paid plan (O8) |
 | `go4.cc` | **Dead (2026-10)** — the seller never transferred it; refunded. Short links are on `zippa.run`, a separate live project (`../zipa.run`). See BLUEPRINT §7 |
-| Owner's Resend API key | Created (never committed; goes in via `wrangler secret put RESEND_API_KEY`) |
 
 ## 2. Owner tasks (blockers you cannot do — ask when you hit them)
 
 - ~~**O1.** Add `go4.cc` as a Cloudflare zone.~~ **Obsolete** — go4.cc is dead (2026-10).
 - **O2.** Supply the real M44 **unit number** for the seed (placeholder until then).
 - **O3.** `wrangler login` / Cloudflare API token for deploys from this machine.
-- **O4.** Phase 1: create a **Google Cloud OAuth client** (web app; authorized redirect
-  `https://app.wardest.com/auth/callback` + `http://localhost:8787/auth/callback` for dev).
-- **O5.** Phase 1: `wrangler secret put RESEND_API_KEY` (+ `SESSION_SECRET`, `GOOGLE_CLIENT_SECRET`).
+- **O4.** Create a **Google Cloud OAuth client** for WardForward (web app; authorized redirects
+  `https://app.wardforward.com/auth/callback` + `http://localhost:8787/auth/callback` for dev).
+- **O5.** Secrets: `wrangler secret put SESSION_SECRET`, `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET` (plus the Turnstile and Discord secrets in §10 item 9). Email needs no
+  secret: it goes through the `EMAIL` binding.
 - **O6.** Choose the donate link (Stripe Payment Link / Ko-fi / PayPal) for the landing page.
 - ~~**O7.** Confirm cutover timing for the old `M44 Link in Bio` page.~~ **Obsolete** — the M44
   site is the ward's property, already on zippa.run, and is never migrated (see §9).
+- **O8.** Put the Cloudflare account on the **Workers Paid** plan (Email Sending is not
+  available on Workers Free; Paid includes 3,000 emails a month).
+- **O9.** Put **wardforward.com** on Cloudflare DNS if it isn't already (add the zone, move the
+  nameservers). Sam adds it to Google Workspace as an alias domain, which sets the apex MX/SPF.
+- **O10.** Onboard the email sending subdomain (after O8 and O9; Email Service needs Cloudflare
+  DNS): `wrangler email sending enable send.wardforward.com` (or Dashboard → Compute → Email
+  Service → Email Sending → Onboard Domain → pick `send.wardforward.com`). Onboarding adds the
+  records on the subdomain (cf-bounce MX, SPF, DKIM, DMARC); check them with
+  `wrangler email sending dns get send.wardforward.com` and `wrangler email sending list`. Until
+  this is done the Worker can only send to verified destination addresses. The Worker's binding
+  only allows `no-reply@` and `invite@send.wardforward.com` as senders.
+- **O11.** Rename the GitHub repo to `samrob66/wardforward` (Sam) and update the local remote
+  (`git remote set-url origin https://github.com/samrob66/wardforward.git`).
 
 ## 3. Stack decisions (settled)
 
-- **One Worker** (`wardest`) serving two hostnames via hostname routing in the fetch handler:
-  `app.wardest.com/*` (app + portal render) and `wardest.com/*` (static landing). Split into
+- **One Worker** (`wardforward`) serving two hostnames via hostname routing in the fetch handler:
+  `app.wardforward.com/*` (app + portal render) and `wardforward.com/*` (static landing). Split into
   multiple Workers later only if a real reason appears. *(Until 2026-10 it also served `go4.cc`
   redirects; that shortener is retired — short links are zippa.run's, a separate project.)*
 - **TypeScript + Hono** (Workers-native router). Server-rendered HTML; minimal vanilla JS
   (QR modal, later form UX). No frontend framework. Portal pages must degrade gracefully
   without JS (QR modal is the only JS-dependent nicety).
 - **D1** = source of truth (apply `db/schema.sql` as migration 0001). **R2** bucket
-  `wardest-files` (Phase 2+). No KV (the `GO4_LINKS` redirect mirror went with the shortener).
+  `wardforward-files` (Phase 2+). No KV (the `GO4_LINKS` redirect mirror went with the shortener).
 - **QR codes:** generate **SVG server-side** with `uqr` (zero-dep, edge-compatible; if
   unavailable, any zero-dependency SVG QR encoder — pin whatever you verify works in
   `wrangler dev`). Never use external QR APIs (the old page's `api.qrserver.com` dependency is
   one of the things we're deliberately eliminating: privacy, rasterization, third-party uptime).
 - **Short links are pasted, not minted.** A leader makes them on zippa.run (which redirects with
-  302 + `no-store`, so edits take effect at once) and pastes them into Wardest:
+  302 + `no-store`, so edits take effect at once) and pastes them into WardForward:
   `deliverables.short_url` and `spaces.share_url`. A QR encodes the short link when set, else
-  the destination. Wardest itself never redirects.
+  the destination. WardForward itself never redirects.
 - **Sessions (Phase 1):** stateless signed cookie — `base64url(JSON{uid, exp}) + "." +
   HMAC-SHA256 sig` via WebCrypto, secret in `SESSION_SECRET`, HttpOnly + Secure + SameSite=Lax,
   7-day expiry. No sessions table.
@@ -66,7 +80,7 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
 2. **Visibility:** implement `canViewSpaceContent` / `canViewImplementation` exactly as specified
    in SCHEMA.md §"App-layer rules", **once**, in one module, and route every read through it.
    Fail closed. **Ward superadmin is break-glass**: `canView*` returns true for a superadmin of
-   the row's ward (view + manage anything in-ward). This is bounded to Wardest's own data — a
+   the row's ward (view + manage anything in-ward). This is bounded to WardForward's own data — a
    link's destination (e.g. a Google Doc) keeps its own permissions.
 3. **Ownership:** only `created_by_user_id` may edit/delete a deliverable/task; only space
    owners edit portal content/shares; only superadmins edit ward structure & callings. A ward
@@ -99,9 +113,9 @@ gone), fix pragmatically, note the deviation in the commit message, and keep the
 
 Goal: replace tinyurl/tiny.cc for M44 and prove the stack. Build/dev now; deploy blocked only by O1.
 
-- **0.1 Scaffold.** `npm` project, TypeScript, Hono, `wrangler.toml` (name `wardest`, D1 binding
+- **0.1 Scaffold.** `npm` project, TypeScript, Hono, `wrangler.toml` (name `wardforward`, D1 binding
   `DB`, KV binding `GO4_LINKS`, routes for all three hostnames), `wrangler dev` runs locally.
-- **0.2 Database.** `wrangler d1 create wardest-db`; migration `0001_init.sql` = `db/schema.sql`
+- **0.2 Database.** `wrangler d1 create wardforward-db`; migration `0001_init.sql` = `db/schema.sql`
   verbatim. Seed script `db/seed-m44.sql`: M44 ward (prefix `m44`, unit number from O2 or
   placeholder `TBD-M44`), default spaces (Public, Bishopric, Ward Council, EQ, RS, YW, YM,
   Primary, Sunday School, Activities Committee, Ward Mission — Public `portal_published=1`),
@@ -109,10 +123,10 @@ Goal: replace tinyurl/tiny.cc for M44 and prove the stack. Build/dev now; deploy
   via `deliverable_spaces`, 6 `short_links` rows (target_type `deliverable`), + 1 portal short
   link `m44` (target_type `portal` → Public space). Keep `seed/links.json` in KV bulk format for 0.4.
 - **0.3 Redirect handler** (hostname `go4.cc`): per rule 4/5 above. 404 = small branded page
-  ("This link doesn't exist — Wardest"). `robots.txt` + favicon stub.
+  ("This link doesn't exist — WardForward"). `robots.txt` + favicon stub.
 - **0.4 KV seed.** `wrangler kv bulk put --binding=GO4_LINKS seed/links.json` (add the `m44`
   portal slug → portal URL). Verify each key.
-- **0.5 Public portal render.** `GET app.wardest.com/p/<prefix>` → D1: ward by prefix → Public
+- **0.5 Public portal render.** `GET app.wardforward.com/p/<prefix>` → D1: ward by prefix → Public
   space → included `deliverable_spaces` (ordered) → render. Design per §7. Each card: label,
   link (the go4.cc URL), QR sub-button opening inline-SVG QR modal, mono `go4.cc/<slug>` caption.
   Master-QR block for the portal's own `m44` short link. Disclaimer line. `noindex` (rule 8).
@@ -121,7 +135,7 @@ Goal: replace tinyurl/tiny.cc for M44 and prove the stack. Build/dev now; deploy
   → same data, print-optimized layout (`@page` size from param, pt/in units,
   `print-color-adjust: exact`, larger QR). All vector (text + SVG QR) so any size stays crisp.
   Owner prints via browser print-to-PDF.
-- **0.7 Landing.** `wardest.com` → static page from the same Worker: name, one-line thesis,
+- **0.7 Landing.** `wardforward.com` → static page from the same Worker: name, one-line thesis,
   "Sign in (coming soon)", donate placeholder (O6). (Deviation from blueprint's "Pages" — one
   Worker is fewer moving parts; move to Pages if/when marketing grows.)
 - **0.8 Deploy + verify** (needs O1, O3): routes live on all three hostnames.
@@ -161,15 +175,17 @@ URLs).
   (still globally unique). The prefix rule (§4) governs app-created links from Phase 1 on.
 - Landing is served from the **Worker** (plan 0.7 already flagged this vs. Pages).
 - `wrangler.toml` has a **placeholder** D1 `database_id`; owner replaces it after
-  `wrangler d1 create wardest-db`. (The KV namespace is gone with the shortener.)
+  `wrangler d1 create wardforward-db`. (The KV namespace is gone with the shortener.)
 - Local reset = delete `.wrangler/state` (schema.sql has no `IF NOT EXISTS` — it's the prod
   migration, run once).
 
-**Deploy steps (owner, when O3 is ready; current as of 2026-10):** create D1 (paste the real id
-into `wrangler.toml`) and `wrangler r2 bucket create wardest-files`;
-`wrangler d1 execute wardest-db --remote --file=./db/schema.sql`; same for `db/seed-m44.sql` and
-`db/seed-solutions.sql`; uncomment the `wardest.com` + `app.wardest.com` routes; `wrangler deploy`.
-Replace the `TBD-M44` unit number (O2) first.
+**Deploy steps (owner; current as of 2026-11-22, WardForward):** Workers Paid (O8) and
+wardforward.com on Cloudflare (O9) first. `wrangler d1 create wardforward-db` (paste the real id
+into `wrangler.toml`) and `wrangler r2 bucket create wardforward-files`;
+`wrangler d1 execute wardforward-db --remote --file=./db/schema.sql`; same for `db/seed-m44.sql`
+and `db/seed-solutions.sql`; onboard `send.wardforward.com` for email (O10); set the secrets (O5);
+uncomment the `wardforward.com` + `app.wardforward.com` routes; `wrangler deploy`. Replace the
+`TBD-M44` unit number (O2) first.
 
 ## 6. Phases 1–4 (milestone level — detail when you get there)
 
@@ -180,7 +196,7 @@ rules). Session cookie per §3. Then: request-a-workspace form (public) → oper
 (operator = emails in `OPERATOR_EMAILS` var) → approval creates ward + default spaces + first
 superadmin membership; unit-number dedupe routes to `kind='join'` requests reviewed by that
 ward's superadmins. Onboarding wizard (callings chart → `invites` + `invite_space_roles`,
-Resend emails via HTTPS API, president+secretary of each org auto-flagged as space owners).
+invite emails (built on Resend; Cloudflare Email Service since 2026-11-22), president+secretary of each org auto-flagged as space owners).
 Invite acceptance materializes memberships (re-invites UPDATE the row). Home = list of your
 wards/spaces. Authz middleware = the visibility module (rule 2).
 
@@ -198,9 +214,8 @@ request→approve→ward, join dedupe+approve, invite→accept→memberships, in
 logged-out paths, Phase 0 regressions. NOT yet exercised: real Google round-trip (needs O4
 client + O5 secrets) and live Resend send (dummy key in dev — send returns false, link shown in
 UI). Config: `[vars]` APP_URL/OPERATOR_EMAILS + secrets via `.dev.vars` (`.dev.vars.example`).
-New deploy steps: `wrangler secret put SESSION_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
-RESEND_API_KEY`; set OPERATOR_EMAILS + APP_URL in `[vars]`; create the Google OAuth client (O4)
-with redirect `https://app.wardest.com/auth/callback`.
+(Email moved from Resend to Cloudflare Email Service on 2026-11-22, `src/lib/mail.ts`; the
+deploy steps are now §2 (O2–O11) and §5b.)
 
 **Phase 2 — catalog + tracker.**
 Operator authoring UI for `solutions` (markdown body, optional video URL, template asset,
@@ -237,7 +252,7 @@ to the `FILES` bucket, each minting a go4 short link → the `/f/<id>` serving r
 public when the deliverable is published to a public space, else gated through
 `canViewImplementation`/`canViewDeliverable`. Verified: upload 302, bad type 400, unpublished
 file → creator/ward-member/superadmin 200, non-member 403, anon → login; publish to Public →
-anon 200. Prod deploy adds `wrangler r2 bucket create wardest-files`. NOTE: non-public space
+anon 200. Prod deploy adds `wrangler r2 bucket create wardforward-files`. NOTE: non-public space
 portals still don't *render* — that's Phase 3 (portal builder).
 
 **Phase 3 — portal builder.**
@@ -291,9 +306,10 @@ file + BLUEPRINT.md stay truthful), owner walked through anything they must clic
 
 ## 9. Guardrails (do NOT)
 
-- Don't touch apex `wardest.com` DNS/MX, the Workspace/Resend records, or nameservers.
+- Don't touch apex `wardforward.com` DNS/MX, the Workspace records, or nameservers. Email
+  Sending's records live on `send.wardforward.com`.
 - Don't modify `F:\!SLRFam\AI\Claude-Apps\M44 Link in Bio` or `github.com/m44ward/m44links` —
-  the site is Mapleton 44th's property. Wardest gets its own demo copy (§10).
+  the site is Mapleton 44th's property. WardForward gets its own demo copy (§10).
 - Don't modify `../zipa.run` from here; it's a separate project with its own decision records.
 - Don't build: custom passwords, calling verification, meeting agendas/minutes, WordPress,
   per-ward subdomains, analytics — all explicitly out of scope (BLUEPRINT §12).
@@ -305,7 +321,7 @@ file + BLUEPRINT.md stay truthful), owner walked through anything they must clic
 
 ## 10. Roadmap from here (2026-10-06)
 
-Items 1–2 get Wardest live; 3–7 build the Executive Secretary resource; 8 is Phase 4. Sam's
+Items 1–2 get WardForward live; 3–7 build the Executive Secretary resource; 8 is Phase 4. Sam's
 Notion Master Tasks (Area `Wardest.com`) tracks the same list.
 
 1. ✅ **DONE 2026-10-06 — built-in shortener retired; links are pasted zippa.run links.**
@@ -325,20 +341,22 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    links. Nothing had been deployed, so `db/schema.sql` was edited in place, with no migration.
    Verified locally on a fresh D1: portal, print, share-link set/clear/reject, deliverable
    create/reject, short-link permissions, file upload, and print for a non-public portal.
-2. **Deploy.** Owner: O2 (M44 unit number), O3 (`wrangler login`), O4 (Google OAuth client), O5
-   (secrets), O6 (donate link). Then create D1 + R2 (`wardest-files`), migrate + seed, deploy,
-   and verify a real Google sign-in and a live Resend invite.
+2. **Deploy.** Owner: O2 (M44 unit number), O3 (`wrangler login`), O4 (Google OAuth client
+   for `app.wardforward.com`), O5 (secrets), O6 (donate link), O8 (Workers Paid), O9
+   (wardforward.com on Cloudflare DNS), O10 (`send.wardforward.com` onboarded for Email
+   Sending), O11 (repo rename). Then create D1 + R2 (`wardforward-db`, `wardforward-files`), migrate + seed,
+   deploy (§5b), and verify a real Google sign-in and a live invite email.
 3. **Spec the Executive Secretary setup track** — the guided, ordered path for a new bishopric's
    Exec Sec. Settled 2026-10-06: it's a "Start here" page in the app that lists existing catalog
    solutions in order, not a new kind of object; Exec Sec first, a Ward Clerk track later.
-   Order: role account → **Wardest callings + spaces** (moved up so the bishopric can help
+   Order: role account → **WardForward callings + spaces** (moved up so the bishopric can help
    early) → Google plan → calendars → booking pages → interview router → zippa.run creator +
    links → public portal → flyer → Zoom → assignment rotations. Full spec in review as a .docx;
    build after Sam approves it.
    Settled by Sam 2026-11-21: the 13 steps and their order stand; spec decisions 1, 2, 3, 5
-   and 6 are yes (own Google accounts on Wardest / role account on zippa.run; interview setup
+   and 6 are yes (own Google accounts on WardForward / role account on zippa.run; interview setup
    split into three steps; hand-off note is step 13; zippa.run request noted in step 1; step 8
-   is Wardest's own portal). All 13 steps are the Exec Sec's ("Steps 10-13 should be done by
+   is WardForward's own portal). All 13 steps are the Exec Sec's ("Steps 10-13 should be done by
    the Exec Sec, so I guess all of this is the Exec Sec"), so the track has no Bishopric-category
    steps. Decision 4 (template Sheets' owner) and the rest of the spec (page, build, phases)
    are on hold: Sam has a new app to brainstorm first that needs callings and spaces and may
@@ -360,16 +378,17 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    - Throttle wrong PIN guesses.
    - Use the generic calling list only.
    - Make the setup guide match the code.
-   Wardest hosts the code and guide; it doesn't run the tracker.
+   WardForward hosts the code and guide; it doesn't run the tracker.
 6. **Demo / example ward links site.** A generic copy of the M44 hub and its interview sub-pages
    that new wards can see and copy. Agreed 2026-10-06: a GitHub template repo with Pages, owned by
-   a Wardest GitHub organization (not samrob66, not m44ward). Creating it is an owner step; Sam
+   a WardForward GitHub organization (not samrob66, not m44ward). Creating it is an owner step; Sam
    agreed to an org. `github.com/wardest` is already taken (a user account created 2021-11 with
    no public repos). It is not known to be Sam's: on 2026-11-21 he said "wardest is mine" but
    meant this repo, `github.com/samrob66/wardest`. So the org's name is still pending Sam.
+   Resolved 2026-11-22 with the rename: the demo org is `github.com/wardforward` (created).
    Confirmed the same day: each ward's own links site stays on a GitHub account owned by that
    ward's role account (M44: `m44ward`), handed to the next bishopric; only the generic demo
-   belongs to Wardest.
+   belongs to WardForward.
 7. **Other Exec Sec templates** from the same Drive folder (meeting agendas + minutes, speaker
    planner, tithing declaration sign-up, missionary dinner calendar, new & returning members) —
    catalog candidates once Sam confirms they're current.
@@ -384,21 +403,23 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    cron sends reminders and 48h approval nudges and lapses stale waiting sign-ups. Schema:
    `wards.timezone` + the `vol_*` / `volunteers` tables (edited in place; nothing deployed).
    Tests: `npm test` (Vitest in the Workers runtime). Owner steps before it can go live:
-   - **Turnstile:** create a widget for `app.wardest.com`; put its site key in `wrangler.toml`
+   - **Turnstile:** create a widget for `app.wardforward.com`; put its site key in `wrangler.toml`
      `[vars] TURNSTILE_SITE_KEY` (today: Cloudflare's always-pass test key) and
      `wrangler secret put TURNSTILE_SECRET_KEY`.
-   - **Discord:** register one Wardest Discord application (bot + OAuth2, redirect
-     `https://app.wardest.com/vol/discord/callback`, plus the localhost one for testing);
+   - **Discord:** the one Discord application is already renamed WardForward (Sam); give it the
+     OAuth2 redirect `https://app.wardforward.com/vol/discord/callback`, plus the localhost one
+     for testing;
      `wrangler secret put` `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`; each
      ward's Discord admin adds the bot to the ward's server. Live DM not yet proven (no token).
-   - **Resend:** check the plan's daily send limit before a second ward goes live (reminders and
-     confirmations count against it).
+   - **Email:** Cloudflare Email Sending starts new accounts on a conservative daily quota that
+     grows with good sending; check it (and request an increase if needed) before a second ward
+     goes live (reminders and confirmations count against it).
    - Cron: the `[triggers]` hourly cron deploys with the Worker; nothing else to set up.
 
    Local hand check (e.g. from the main checkout): its `.dev.vars` needs
    `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA` (Cloudflare's always-pass test
-   secret; the site key is already the test key in `wrangler.toml`) and `RESEND_API_KEY=dev`,
-   which prints every volunteer email, with its links, to the `wrangler dev` console.
+   secret; the site key is already the test key in `wrangler.toml`) and `EMAIL_DELIVERY=log`,
+   which prints every email, with its links, to the `wrangler dev` console.
 
    Decisions and known limitations (2026-11-21):
    - The page after the public sign-up form is the same for every outcome that depends on the
@@ -434,7 +455,7 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
      volunteers never land on a date they didn't choose.
    - Later improvement: an impostor can rename an unconfirmed person just before they confirm.
      Store the typed name with each confirm token and apply the name from the link that's clicked.
-   - An email that belongs to a Wardest member of the ward is always approved, even after a
+   - An email that belongs to a WardForward member of the ward is always approved, even after a
      decline or a revoked approval. Removing them from the ward is the real lever.
    - Ward prefixes `verify`, `cancel`, `withdraw`, `access` and `discord` are refused at ward
      approval: they're fixed segments under `/vol/`.

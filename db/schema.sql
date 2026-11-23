@@ -1,4 +1,4 @@
--- Wardest.com — Cloudflare D1 (SQLite) schema
+-- WardForward — Cloudflare D1 (SQLite) schema
 -- See SCHEMA.md for rationale, ERD, and the audit trail of resolved design questions.
 --
 -- Conventions:
@@ -110,7 +110,7 @@ CREATE INDEX idx_ward_memberships_user ON ward_memberships(user_id);
 -- kind='public' identifies the ward's public portal (no login, noindex).
 -- share_url: an optional short link (e.g. zippa.run/m44Links) that a leader made on zippa.run,
 -- pointing at this portal, and pasted in. It's what the portal's master QR encodes; when it's
--- unset, the QR encodes the portal's own address. Wardest never creates short links itself.
+-- unset, the QR encodes the portal's own address. WardForward never creates short links itself.
 CREATE TABLE spaces (
   id                    TEXT PRIMARY KEY,
   ward_id               TEXT NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
@@ -240,7 +240,7 @@ CREATE INDEX idx_impl_visibility_space ON implementation_visibility(space_id);
 -- One implementation may produce several deliverables (e.g. URL + printable PDF).
 -- QR is DERIVED at render time (not stored): it encodes short_url when set, else the
 -- destination (url, or the /f/<id> serving URL for a file/image).
--- short_url is a pasted short link (e.g. zippa.run/m44Bulletin); Wardest never creates them.
+-- short_url is a pasted short link (e.g. zippa.run/m44Bulletin); WardForward never creates them.
 -- created_by is the ownership boundary (only the creator edits/deletes; app-enforced).
 CREATE TABLE deliverables (
   id                 TEXT PRIMARY KEY,

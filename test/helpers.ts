@@ -225,7 +225,7 @@ export async function makeLeader(
 export async function asUser(userId: string): Promise<string> {
   const exp = Math.floor(Date.now() / 1000) + 3600;
   const token = await signToken({ uid: userId, exp }, env.SESSION_SECRET);
-  return `wardest_session=${token}`;
+  return `wardforward_session=${token}`;
 }
 
 export function uniqueEmail(label: string): string {

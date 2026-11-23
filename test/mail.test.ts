@@ -204,4 +204,8 @@ describe('htmlToText', () => {
     const t = htmlToText('<p>Hello &amp; welcome</p><p><a href="https://a.b/c?x=1&amp;y=2">Go</a><br>Bye &lt;3 &#39;x&#39;</p>');
     expect(t).toBe("Hello & welcome\nGo (https://a.b/c?x=1&y=2)\nBye <3 'x'");
   });
+
+  it('drops the HTML source indentation', () => {
+    expect(htmlToText('<p>Hi,\n      thanks for\n      helping.</p>\n    <p>Bye</p>')).toBe('Hi,\nthanks for\nhelping.\nBye');
+  });
 });

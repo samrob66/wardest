@@ -183,7 +183,7 @@ appSite.post('/operator/requests/:id/approve', operatorOnly, async (c) => {
 
   const prefix = String((await c.req.parseBody()).prefix ?? '').trim().toLowerCase();
   if (!PREFIX_RE.test(prefix)) return reload('Prefix must be 2–12 lowercase letters/digits.');
-  if (RESERVED_PREFIXES.has(prefix)) return reload(`Prefix "${prefix}" is reserved by Wardest; pick another.`);
+  if (RESERVED_PREFIXES.has(prefix)) return reload(`Prefix "${prefix}" is reserved by WardForward; pick another.`);
   if (await prefixTaken(c.env, prefix)) return reload(`Prefix "${prefix}" is already taken.`);
   if (await getWardByUnitNumber(c.env, req.unit_number)) return reload('A ward with that unit number already exists.');
 

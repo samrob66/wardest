@@ -125,7 +125,7 @@ export function renderPortal(data: PortalData): string {
     <div class="master-url">${esc(masterText)}</div>
   </section>
   <footer class="footer">
-    Powered by Wardest · <a href="/p/${esc(data.prefix)}/print">Printable version</a>
+    Powered by WardForward · <a href="/p/${esc(data.prefix)}/print">Printable version</a>
   </footer>
 </body>
 </html>`;

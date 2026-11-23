@@ -1,5 +1,5 @@
 // Links a leader pastes in: a deliverable's destination, or a short link they made on
-// zippa.run (Wardest never creates short links itself).
+// zippa.run (WardForward never creates short links itself).
 
 // Normalize a pasted link. Adds https:// when the scheme is missing (leaders paste
 // "zippa.run/m44Links" the way it's printed) and accepts only http(s), so a javascript: or

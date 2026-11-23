@@ -1,5 +1,5 @@
 -- Example published solutions for the catalog (global; not ward-scoped). Idempotent.
--- Load locally: wrangler d1 execute wardest-db --local --file=./db/seed-solutions.sql
+-- Load locally: wrangler d1 execute wardforward-db --local --file=./db/seed-solutions.sql
 INSERT OR IGNORE INTO solutions
   (id, category, title, slug, summary, body, video_url, template_type, template_value, implementation_scope, status, position)
 VALUES

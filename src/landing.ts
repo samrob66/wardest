@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from './types';
 import { renderLanding } from './views/landing';
 
-// wardest.com — static marketing / entry point.
+// wardforward.com — static marketing / entry point.
 export const landing = new Hono<{ Bindings: Env }>();
 
 landing.get('/', (c) => c.html(renderLanding()));

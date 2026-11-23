@@ -116,7 +116,7 @@ export function renderDiscordCard(o: { connected: boolean }): string {
         : `<p style="margin-top:0">Get confirmations and reminders as a Discord direct message too (email still comes).</p>
            <a class="btn sm" href="/vol/discord/connect">Connect Discord</a>`
     }
-    <p class="muted">This works when your ward's Discord server has the Wardest bot and you allow direct
+    <p class="muted">This works when your ward's Discord server has the WardForward bot and you allow direct
       messages from server members. If a message can't be delivered, email is the backup.</p>
   </div>`;
 }

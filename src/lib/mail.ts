@@ -70,6 +70,7 @@ export function htmlToText(html: string): string {
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/[ \t]+\n/g, '\n')
+    .replace(/^[ \t]+/gm, '') // template indentation from the HTML source
     .replace(/\n{2,}/g, '\n')
     .trim();
 }

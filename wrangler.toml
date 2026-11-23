@@ -1,14 +1,14 @@
-name = "wardest"
+name = "wardforward"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 
 # Non-secret config. Secrets (SESSION_SECRET, GOOGLE_CLIENT_ID/SECRET, ...) are set
 # via `wrangler secret put` (prod) or `.dev.vars` (local). `.dev.vars` overrides these in dev.
 [vars]
-APP_URL = "https://app.wardest.com"
+APP_URL = "https://app.wardforward.com"
 OPERATOR_EMAILS = ""  # owner task: set to operator Google email(s), comma-separated
 # Cloudflare Turnstile site key for the public volunteer forms. This is Cloudflare's published
-# always-pass TEST key; the owner replaces it with the app.wardest.com widget's key at deploy.
+# always-pass TEST key; the owner replaces it with the app.wardforward.com widget's key at deploy.
 # (The secret, TURNSTILE_SECRET_KEY, goes in .dev.vars / `wrangler secret put`.)
 TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
 
@@ -27,24 +27,24 @@ allowed_sender_addresses = ["no-reply@send.wardforward.com", "invite@send.wardfo
 
 # --- D1 (structured data; source of truth) ---
 # Local dev keys storage by database_name and ignores database_id. Owner replaces the
-# placeholder id with the real one after: wrangler d1 create wardest-db  (owner task O3).
+# placeholder id with the real one after: wrangler d1 create wardforward-db  (owner task O3).
 [[d1_databases]]
 binding = "DB"
-database_name = "wardest-db"
+database_name = "wardforward-db"
 database_id = "00000000-0000-0000-0000-000000000000"
 
 # --- R2 (uploaded files/images for deliverables) ---
 # Local dev auto-creates local state. Owner runs once for prod:
-#   wrangler r2 bucket create wardest-files
+#   wrangler r2 bucket create wardforward-files
 [[r2_buckets]]
 binding = "FILES"
-bucket_name = "wardest-files"
+bucket_name = "wardforward-files"
 
-# --- Production routes (uncomment at deploy; the wardest.com zone is already on Cloudflare) ---
+# --- Production routes (uncomment at deploy, once the wardforward.com zone is on Cloudflare) ---
 # Short links live on zippa.run (a separate project), so there is no shortener route here.
 # [[routes]]
-# pattern = "wardest.com/*"
-# zone_name = "wardest.com"
+# pattern = "wardforward.com/*"
+# zone_name = "wardforward.com"
 # [[routes]]
-# pattern = "app.wardest.com/*"
-# zone_name = "wardest.com"
+# pattern = "app.wardforward.com/*"
+# zone_name = "wardforward.com"

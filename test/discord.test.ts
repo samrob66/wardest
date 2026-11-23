@@ -61,6 +61,6 @@ describe('/dev/discord-dm', () => {
     const res = await appSite.request('http://localhost/dev/discord-dm?to=111222333444', {}, { ...env, DEV_LOGIN: '1' });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('sent');
-    expect((sentFetches()[1]!.body as { content: string }).content).toBe('Wardest test message');
+    expect((sentFetches()[1]!.body as { content: string }).content).toBe('WardForward test message');
   });
 });

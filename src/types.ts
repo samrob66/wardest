@@ -11,7 +11,7 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   // Non-secret config ([vars] in wrangler.toml)
   OPERATOR_EMAILS: string; // comma-separated
-  APP_URL: string; // e.g. https://app.wardest.com (or http://localhost:8787 in dev)
+  APP_URL: string; // e.g. https://app.wardforward.com (or http://localhost:8787 in dev)
   // Dev-only: when "1", enables /auth/dev-login. NEVER set in production.
   DEV_LOGIN?: string;
   // Volunteer sign-ups: Discord DMs (optional; email always goes) and Turnstile bot check.

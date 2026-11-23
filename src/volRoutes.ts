@@ -720,7 +720,7 @@ volRoutes.post('/vol/:prefix/me/signout', (c) => {
 
 // ---------------------------------------------------------------- Discord connect
 
-const DC_COOKIE = 'wardest_vol_dc';
+const DC_COOKIE = 'wardforward_vol_dc';
 
 interface DcState {
   typ: 'vdc';
@@ -734,7 +734,7 @@ volRoutes.get('/vol/discord/connect', async (c) => {
   const sess = await getVolunteerSession(c);
   if (!sess) return c.text('Please open My sign-ups from your email link first.', 403);
   if (sess.volunteer.approval !== 'approved') return c.text('Discord can be connected once a leader has confirmed you.', 403);
-  if (!(c.env.DISCORD_CLIENT_ID ?? '').trim()) return c.text('Discord is not set up for Wardest yet.', 503);
+  if (!(c.env.DISCORD_CLIENT_ID ?? '').trim()) return c.text('Discord is not set up for WardForward yet.', 503);
   const state = randomToken(16);
   const exp = Math.floor(Date.now() / 1000) + 600;
   const tok = await signToken(
@@ -860,7 +860,7 @@ volRoutes.get('/dev/discord-dm', async (c) => {
   if (c.env.DEV_LOGIN !== '1') return c.notFound();
   const to = (c.req.query('to') ?? '').trim();
   if (!/^\d{5,25}$/.test(to)) return c.text('dev discord-dm: ?to=<discord user id> required', 400);
-  const result = await sendDiscordDm(c.env, to, 'Wardest test message');
+  const result = await sendDiscordDm(c.env, to, 'WardForward test message');
   return c.text(`discord dm result: ${result}`);
 });
 
