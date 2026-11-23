@@ -3,6 +3,7 @@
 // through src/lib/mail.ts (and, best-effort, a Discord DM). Email always goes; Discord is extra.
 import type { Env } from '../types';
 import { listEditorUserIds } from './volEditors';
+import { delegateUserIds } from './serviceAccess';
 import { sendDiscordDm } from './discord';
 import { sendMail } from './mail';
 
@@ -65,17 +66,28 @@ export async function deliver(env: Env, msgs: OutgoingMessage[]): Promise<void> 
   }
 }
 
-// Post creator + that organization's volunteer editors, lowercased and deduplicated
-// (spec §6.6: one email per person).
+// Who gets a post's organizer messages (approvals, "fully filled", cancellations, nudges),
+// lowercased and deduplicated (spec §6.6: one email per person). Service spec §3: when the
+// post's category has delegates, its delegates + the post's creator ("that person receives all
+// of the messaging and notifications instead of the RS pres"); otherwise, as before, the
+// creator + the organization's volunteer editors (org posts) or the space's owners (ward
+// council and bishopric posts).
 export async function approverEmails(env: Env, wardId: string, postId: string): Promise<string[]> {
   const post = await env.DB.prepare(
-    `SELECT p.created_by_user_id AS creator, p.space_id AS space_id
-       FROM vol_posts p WHERE p.id = ? AND p.ward_id = ?`,
+    `SELECT p.created_by_user_id AS creator, p.space_id AS space_id, p.category_id AS category_id, s.kind AS kind
+       FROM vol_posts p JOIN spaces s ON s.id = p.space_id AND s.ward_id = p.ward_id
+      WHERE p.id = ? AND p.ward_id = ?`,
   )
     .bind(postId, wardId)
-    .first<{ creator: string | null; space_id: string }>();
+    .first<{ creator: string | null; space_id: string; category_id: string | null; kind: string }>();
   if (!post) return [];
-  const ids = new Set(await listEditorUserIds(env, wardId, post.space_id));
+  const delegates = post.category_id ? await delegateUserIds(env, wardId, post.category_id) : [];
+  const base = delegates.length
+    ? delegates
+    : post.kind === 'org'
+      ? await listEditorUserIds(env, wardId, post.space_id)
+      : await spaceOwnerIds(env, wardId, post.space_id);
+  const ids = new Set<string>(base);
   if (post.creator) ids.add(post.creator);
   if (!ids.size) return [];
   // Only people who are still members of this ward get organizer email.
@@ -88,4 +100,14 @@ export async function approverEmails(env: Env, wardId: string, postId: string): 
     .bind(wardId, ...list)
     .all<{ email: string }>();
   return [...new Set((rows.results ?? []).map((r) => r.email))];
+}
+
+async function spaceOwnerIds(env: Env, wardId: string, spaceId: string): Promise<string[]> {
+  const res = await env.DB.prepare(
+    `SELECT sm.user_id FROM space_memberships sm JOIN spaces s ON s.id = sm.space_id AND s.ward_id = sm.ward_id
+      WHERE sm.space_id = ? AND s.ward_id = ? AND sm.role = 'owner'`,
+  )
+    .bind(spaceId, wardId)
+    .all<{ user_id: string }>();
+  return (res.results ?? []).map((r) => r.user_id);
 }
