@@ -4,6 +4,8 @@
 //  - 48h nudge: a date starting within 48 hours with someone verified but still waiting for
 //    approval -> the post's approvers, once per date.
 //  - Lapse: waiting sign-ups whose date is over (spec item 17: never before).
+//  - Fill warnings (service spec §4): a date still short at a recipient's lead time
+//    (src/lib/serviceWarnings.ts).
 //  - Cleanup: rate events older than 2 days, verify tokens expired more than 7 days ago.
 import type { Env } from '../types';
 import { approverEmails, deliver, type OutgoingMessage } from './volMessages';
@@ -11,11 +13,13 @@ import * as E from './volEmails';
 import { emailPost, getPost, roleLabel, roleStartTime, whenText } from './volPosts';
 import { accessUrl, cancelUrl } from './volSignup';
 import { addDays, localToUtc, wardHour, wardToday } from './wardTime';
+import { warningsFor } from './serviceWarnings';
 
 export interface CronCounts {
   reminders: number;
   nudges: number;
   lapsed: number;
+  warnings: number;
 }
 
 const HOUR = 3_600_000;
@@ -143,7 +147,7 @@ async function lapseFor(env: Env, ward: { id: string; timezone: string }, now: D
 
 // `o.wardIds` limits the run to some wards (tests); the scheduled handler runs every ward.
 export async function runVolunteerCron(env: Env, now: Date, o: { wardIds?: string[] } = {}): Promise<CronCounts> {
-  const counts: CronCounts = { reminders: 0, nudges: 0, lapsed: 0 };
+  const counts: CronCounts = { reminders: 0, nudges: 0, lapsed: 0, warnings: 0 };
   const wards = await env.DB.prepare(
     `SELECT DISTINCT w.id AS id, w.timezone AS timezone FROM wards w JOIN vol_posts p ON p.ward_id = w.id WHERE w.status = 'active'`,
   ).all<{ id: string; timezone: string }>();
@@ -158,6 +162,9 @@ export async function runVolunteerCron(env: Env, now: Date, o: { wardIds?: strin
       counts.nudges += nud.n;
       messages.push(...nud.msgs);
       counts.lapsed += await lapseFor(env, ward, now);
+      const warn = await warningsFor(env, ward, now);
+      counts.warnings += warn.length;
+      messages.push(...warn);
     } catch (e) {
       // One ward's trouble mustn't stop the others.
       console.error(`[volCron] ward ${ward.id}: ${(e as Error).message}`);
@@ -166,6 +173,8 @@ export async function runVolunteerCron(env: Env, now: Date, o: { wardIds?: strin
   await env.DB.prepare(`DELETE FROM vol_rate_events WHERE created_at < ?`).bind(new Date(now.getTime() - 48 * HOUR).toISOString()).run();
   await env.DB.prepare(`DELETE FROM vol_tokens WHERE expires_at < ?`).bind(new Date(now.getTime() - 7 * 24 * HOUR).toISOString()).run();
   await deliver(env, messages);
-  console.log(`[volCron] ${now.toISOString()} reminders=${counts.reminders} nudges=${counts.nudges} lapsed=${counts.lapsed}`);
+  console.log(
+    `[volCron] ${now.toISOString()} reminders=${counts.reminders} nudges=${counts.nudges} lapsed=${counts.lapsed} warnings=${counts.warnings}`,
+  );
   return counts;
 }

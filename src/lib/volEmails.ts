@@ -405,6 +405,29 @@ export function approverNudge48h(o: {
   };
 }
 
+// Service spec §4: a date is still short at the recipient's chosen lead time.
+export function fillWarning(o: {
+  to: string;
+  post: EmailPost;
+  when: string;
+  shortRoles: Array<{ name: string; confirmed: number; needed: number }>;
+  manageUrl: string;
+}): OutgoingMessage {
+  return {
+    kind: 'fill_warning',
+    to: o.to,
+    subject: `${o.post.orgName}: may not fill — ${o.post.title}`,
+    html: wrap(
+      `<p><strong>${esc(o.post.title)}</strong> on ${esc(o.when)} still needs help:</p>
+       <ul>${o.shortRoles
+         .map((r) => `<li>${esc(r.name)}: ${r.confirmed} of ${r.needed} (${r.needed - r.confirmed} short)</li>`)
+         .join('')}</ul>
+       <p>You could share the public link again, or invite people by email from the post's page.</p>
+       ${button(o.manageUrl, 'Open the post')}`,
+    ),
+  };
+}
+
 export function approverFilled(o: { to: string; post: EmailPost; manageUrl: string }): OutgoingMessage {
   return {
     kind: 'approver_filled',
