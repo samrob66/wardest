@@ -140,10 +140,13 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
   typecheck` before committing. Rules that keep it green on a busy machine (2026-11-22 flake fix):
   work a route hands to `waitUntil` is awaited with `settle()` (`test/helpers.ts`), never polled,
   and setup settles after every test; a test that runs on the real clock uses `futureDate()` or
-  passes `now`, never a fixed calendar date; one leader page view per test where a page runs
-  ~150+ D1 queries (service hub, space pages). Those pages are slow because `src/lib/serviceAccess.ts`
-  checks permissions one category at a time (N+1 queries; a known follow-up). Aim for new tests
-  to take under ~0.5 s with their file run alone; several existing ones take more. The
+  passes `now`, never a fixed calendar date. Permission checks decide from one per-request
+  snapshot (`loadAccess`, `src/lib/serviceAccess.ts`; 2026-11-23), so a leader page runs ~10–30
+  D1 statements however many categories or posts the ward has; `test/accessQueryCount.test.ts`
+  fails if a page's count grows again, so a new loop over categories or posts passes one snapshot
+  to every check. `test/accessEquivalence*.test.ts` hold the snapshot to the old per-query rules
+  (frozen in `test/reference/`, never edited); they are the suite's slowest files. Aim for new
+  tests to take under ~0.5 s with their file run alone; several existing ones take more. The
   2,000-invitation volume test has its own measured timeout.
 - Cron locally: `npx wrangler dev --test-scheduled`, then
   `curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"` (hourly: reminders, nudges, lapses,

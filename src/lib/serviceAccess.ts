@@ -37,7 +37,7 @@ interface CatInfo {
 // Everything a decision needs about one (ward, user), read in one D1 batch of five statements,
 // however many categories or posts the ward has. Every decision is made from it in memory, by the
 // same rules as the per-check queries it replaced (frozen in test/reference/serviceAccessRef.ts;
-// test/accessEquivalence.test.ts proves they agree). Build one per request; never keep one across
+// test/accessEquivalence*.test.ts prove they agree). Build one per request; never keep one across
 // requests or in module state (Workers isolates are shared between requests).
 //
 // Space membership comes in two strengths, as before: 'strict' (the membership row's own ward_id
