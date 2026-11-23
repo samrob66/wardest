@@ -438,15 +438,18 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
      decline or a revoked approval. Removing them from the ward is the real lever.
    - Ward prefixes `verify`, `cancel`, `withdraw`, `access` and `discord` are refused at ward
      approval: they're fixed segments under `/vol/`.
-   - Follow-ups from the final review (minor, recorded at merge 2026-11-22; fix before a second
-     ward goes live):
-     1. If reading the database to build the "fully filled" email fails, the volunteer's own
-        confirmation for that sign-up isn't sent either, and the log line doesn't name the
-        sign-up. Send the confirmation first (or independently) and name the sign-up in the log.
-     2. Two near-simultaneous first sign-ups from the same new ward member can send a spurious
-        "waiting for approval" email alongside the real outcome.
-     3. No test covers a double-click (two quick submits) from an address that's already
-        approved.
+   - Follow-ups from the final review (minor, recorded at merge 2026-11-22) — ✅ all DONE
+     2026-11-22 (`test/volFollowups.test.ts`):
+     1. ✅ The volunteer's confirmation and the leaders' "fully filled" email are built
+        independently (`filledOrLog` in `src/lib/volSignup.ts`, on the sign-up and the approval
+        paths). If the "fully filled" step fails, the confirmation still goes and one log line
+        names the ward, the sign-up and `kind=approver_filled`.
+     2. ✅ The ward-member auto-approval can no longer move an approved volunteer back to
+        'pending': its writes are guarded (`approval <> 'approved'`), approval is claimed
+        atomically, and a member never falls through to the waiting path. Pinned by a test that
+        forces the exact interleaving of two first sign-ups (no "waiting for approval" email).
+     3. ✅ Test added: a double click from an approved address on the batch path makes one
+        sign-up, counts it once and sends one confirmation (no bug found).
    - Toolchain (accepted with the test harness): `npm install` of `@cloudflare/vitest-plugin`
      1.5.1 + `vitest` 5.1.0 moved the lockfile to **wrangler 4.157.0** (miniflare
      5.20261103.0-beta, `@cloudflare/workers-types` 5.20261121.1); `package.json` still says

@@ -190,6 +190,19 @@ async function filledMessages(env: Env, wardId: string, postId: string, now: Dat
   );
 }
 
+// filledMessages, but a failure is logged (ward, the sign-up or post it's about, kind) instead of
+// thrown, so it can't take other emails down with it. The post is then simply not marked as
+// notified, so the next sign-up that keeps it full can try again.
+async function filledOrLog(env: Env, wardId: string, postId: string, now: Date, signupId?: string): Promise<OutgoingMessage[]> {
+  try {
+    return await filledMessages(env, wardId, postId, now);
+  } catch (e) {
+    const about = signupId ? `signup=${signupId}` : `post=${postId}`;
+    console.error(`[signup] fully filled email not built ward=${wardId} ${about} kind=approver_filled: ${(e as Error).message}`);
+    return [];
+  }
+}
+
 async function confirmationMessage(
   env: Env,
   v: VolunteerRow,
@@ -368,21 +381,42 @@ export async function completeSignup(env: Env, o: SignupInput): Promise<Outcome<
   // Ward members are approved. If they already have waiting sign-ups (signed up before they
   // were a member), approve through approveVolunteer so those count too, in order, with the
   // over-limit rule (round 3: they mustn't be left waiting for good).
+  //
+  // Race-safe (review round 4): two near-simultaneous first sign-ups from the same new member
+  // both see them as not yet approved. Every write here is guarded so it can never move an
+  // already-approved volunteer back to 'pending' (which would send the approvers a spurious
+  // "waiting for approval"). Approval itself is claimed atomically by approveVolunteer or by the
+  // single guarded UPDATE below; whichever request loses finds them approved.
   const autoMessages: OutgoingMessage[] = [];
   if (member && v.approval !== 'approved') {
-    await env.DB.prepare(
-      `UPDATE volunteers SET approval = 'pending', email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ? AND ward_id = ?`,
-    )
-      .bind(now.toISOString(), v.id, wardId)
-      .run();
     if ((await upcomingSignups(env, wardId, v.id, 'waiting', now)).length) {
+      await env.DB.prepare(
+        `UPDATE volunteers SET approval = 'pending', email_verified_at = COALESCE(email_verified_at, ?)
+          WHERE id = ? AND ward_id = ? AND approval <> 'approved'`,
+      )
+        .bind(now.toISOString(), v.id, wardId)
+        .run();
       autoMessages.push(...(await approveVolunteer(env, wardId, v.id, null, now)).messages);
     } else {
-      await env.DB.prepare(`UPDATE volunteers SET approval = 'approved', decided_at = ? WHERE id = ? AND ward_id = ?`)
-        .bind(now.toISOString(), v.id, wardId)
+      await env.DB.prepare(
+        `UPDATE volunteers SET approval = 'approved', email_verified_at = COALESCE(email_verified_at, ?), decided_at = ?
+          WHERE id = ? AND ward_id = ? AND approval <> 'approved'`,
+      )
+        .bind(now.toISOString(), now.toISOString(), v.id, wardId)
         .run();
     }
     v = (await getVolunteer(env, wardId, v.id))!;
+    // A ward member is always approved (decided 2026-11-21); never let them fall through to the
+    // waiting path, whatever another request did in between.
+    if (v.approval !== 'approved') {
+      await env.DB.prepare(
+        `UPDATE volunteers SET approval = 'approved', email_verified_at = COALESCE(email_verified_at, ?), decided_at = ?
+          WHERE id = ? AND ward_id = ?`,
+      )
+        .bind(now.toISOString(), now.toISOString(), v.id, wardId)
+        .run();
+      v = (await getVolunteer(env, wardId, v.id))!;
+    }
   }
   const vol = v;
   const out = await afterVolunteer(env, o, post, date, role, vol, bringing, autoMessages.length > 0);
@@ -410,9 +444,12 @@ async function afterVolunteer(
     if (!(await hasLiveVerifyToken(env, wardId, vol.id, now))) return mintVerifyUrl(env, wardId, vol.id, now);
     return (await underCap()) ? mintVerifyUrl(env, wardId, vol.id, now) : null;
   };
+  // The volunteer's confirmation and the leaders' "fully filled" email are built independently:
+  // a failure building the leaders' email must never cost the volunteer theirs (it's the spec
+  // §6.3 step 2 safeguard). Each failure logs one line naming the ward, sign-up and kind.
   const counted = async (signupId: string, over: boolean): Promise<Outcome<SubmitResult>> => {
     const messages = await confirmationOrLog(env, [env, vol, post, date, role, signupId, bringing, over, now]);
-    messages.push(...(await filledMessages(env, wardId, post.id, now)));
+    messages.push(...(await filledOrLog(env, wardId, post.id, now, signupId)));
     return { result: over ? 'confirmed_over' : 'confirmed', messages };
   };
 
@@ -624,7 +661,7 @@ export async function approveVolunteer(
       mySignupsUrl: await accessUrl(env, wardId, v.id, now), signups: items,
     }),
   ];
-  for (const pid of touchedPosts) messages.push(...(await filledMessages(env, wardId, pid, now)));
+  for (const pid of touchedPosts) messages.push(...(await filledOrLog(env, wardId, pid, now)));
   return { result: undefined, messages };
 }
 

@@ -279,3 +279,56 @@ export async function waitFor<T>(check: () => Promise<T> | T, ms = 4000): Promis
     await new Promise((r) => setTimeout(r, 15));
   }
 }
+
+// A D1 wrapper that runs hooks around the FIRST run()/first()/all() of a statement whose SQL
+// contains `marker`: `before` (awaited) just before it executes, `after` right after. A hook can
+// also make that execution fail (`fail: true`). For forcing one exact interleaving between two
+// requests, or a failure at one exact step. (Not for statements that go to batch().)
+export function interceptDb(
+  db: D1Database,
+  marker: string,
+  hooks: { before?: () => Promise<void>; after?: () => void; fail?: boolean },
+): D1Database {
+  let done = false;
+  const once = async <T>(exec: () => Promise<T>): Promise<T> => {
+    if (done) return exec();
+    done = true;
+    if (hooks.before) await hooks.before();
+    if (hooks.fail) throw new Error(`interceptDb: forced failure at "${marker}"`);
+    try {
+      return await exec();
+    } finally {
+      hooks.after?.();
+    }
+  };
+  const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(st, {
+      get(target, prop) {
+        if (prop === 'bind') return (...args: unknown[]) => wrap(target.bind(...args));
+        if (prop === 'run') return () => once(() => target.run());
+        if (prop === 'first') return (col?: string) => once(() => (col ? target.first(col) : target.first()));
+        if (prop === 'all') return () => once(() => target.all());
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+  return new Proxy(db, {
+    get(target, prop) {
+      if (prop === 'prepare') {
+        return (sql: string) => {
+          const st = target.prepare(sql);
+          return sql.includes(marker) ? wrap(st) : st;
+        };
+      }
+      const v = Reflect.get(target, prop, target);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}
+
+// A promise you can resolve from outside.
+export function gate(): { promise: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const promise = new Promise<void>((r) => (open = r));
+  return { promise, open };
+}
