@@ -114,6 +114,15 @@ describe('sendMail: send mode', () => {
     expect(sentEmails()).toHaveLength(0);
   });
 
+  it('refuses an unknown stream (including inherited object keys)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const stream of ['marketing', 'constructor', 'toString']) {
+      const r = await sendMail(env, msg({ stream: stream as MailMessage['stream'] }));
+      expect(r, stream).toMatchObject({ ok: false, error: 'invalid_stream' });
+    }
+    expect(sentEmails()).toHaveLength(0);
+  });
+
   it('retries a rate-limited send then succeeds', async () => {
     let n = 0;
     mockEmail(() => {

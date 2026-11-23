@@ -97,7 +97,7 @@ function check(m: MailMessage, to: string): string | null {
     if (CRLF.test(k) || CRLF.test(v)) return 'invalid_header';
     if (!allowedHeader(k)) return 'header_not_allowed';
   }
-  if (!(m.stream in STREAM_FROM)) return 'invalid_stream';
+  if (!Object.hasOwn(STREAM_FROM, m.stream)) return 'invalid_stream';
   return null;
 }
 
