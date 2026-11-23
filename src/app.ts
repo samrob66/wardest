@@ -11,6 +11,8 @@ import { installErrorPages } from './views/errorPages';
 import { loadUser, requireAuth, isOperator } from './lib/auth';
 import { authRoutes } from './auth-routes';
 import { volRoutes, spaceVolunteerSection } from './volRoutes';
+import { serviceRoutes } from './serviceRoutes';
+import { hasServiceRole } from './lib/serviceAccess';
 import { getUserWards } from './lib/users';
 import {
   PREFIX_RE,
@@ -130,6 +132,9 @@ appSite.route('/auth', authRoutes);
 // --- Volunteer sign-ups (/w/:wardId/vol/*, /v/*, /vol/*) ---
 appSite.route('/', volRoutes);
 
+// --- Service categories, requests, invitations (/w/:wardId/service/*, ...) ---
+appSite.route('/', serviceRoutes);
+
 // --- Operator guard (auth + allowlist) ---
 const operatorOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
   const user = c.get('user');
@@ -237,7 +242,7 @@ appSite.get('/w/:wardId', requireAuth(), async (c) => {
   return c.html(
     renderWardPage({
       user, ward, role, joins, spaces, invites, members, portals, publicPortal,
-      appUrl: c.env.APP_URL, notice, error,
+      appUrl: c.env.APP_URL, notice, error, showService: await hasServiceRole(c.env, ward.id, user.id),
     }),
   );
 });

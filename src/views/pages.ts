@@ -124,6 +124,7 @@ export function renderWardPage(o: {
   appUrl: string;
   notice?: string;
   error?: string;
+  showService?: boolean; // manages, coordinates or may create in a service category
 }): string {
   const { user, ward, role, joins, spaces, invites, members, portals, publicPortal, appUrl, notice, error } = o;
   const isSuper = role === 'superadmin';
@@ -246,7 +247,9 @@ export function renderWardPage(o: {
               : ''
         }
       </div>
-      <p><a class="btn" href="/w/${esc(ward.id)}/catalog">Open solutions catalog</a></p>
+      <p><a class="btn" href="/w/${esc(ward.id)}/catalog">Open solutions catalog</a>${
+        o.showService ? ` <a class="btn ghost" href="/w/${esc(ward.id)}/service">Service opportunities &amp; requests</a>` : ''
+      }</p>
       ${portalsHtml}
       ${joinsHtml}
       ${membersHtml}

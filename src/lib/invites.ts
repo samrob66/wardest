@@ -27,6 +27,7 @@ export interface InviteRow {
   status: string;
   ward_prefix: string;
   ward_name: string;
+  invited_by_user_id?: string | null;
 }
 
 // One invite per (ward, email); re-inviting UPDATES the row (fresh token, pending) per schema.
@@ -97,7 +98,7 @@ export async function listPendingInvites(env: Env, wardId: string): Promise<Pend
 // Valid, pending, unexpired invite (joined to its ward) — or null.
 export async function getInviteByToken(env: Env, token: string): Promise<InviteRow | null> {
   return env.DB.prepare(
-    `SELECT i.id, i.ward_id, i.email, i.ward_role, i.calling_title, i.status,
+    `SELECT i.id, i.ward_id, i.email, i.ward_role, i.calling_title, i.status, i.invited_by_user_id,
             w.prefix AS ward_prefix, w.name AS ward_name
        FROM invites i JOIN wards w ON w.id = i.ward_id
       WHERE i.token = ? AND i.status = 'pending' AND i.expires_at > datetime('now')`,
@@ -125,6 +126,15 @@ export async function acceptInvite(env: Env, invite: InviteRow, userId: string):
       ).bind(newId('sm'), invite.ward_id, r.space_id, userId, r.role),
     );
   }
+  // Category delegations a manager attached (service categories of this ward only).
+  stmts.push(
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO service_delegates (id, ward_id, category_id, user_id, added_by_user_id)
+       SELECT 'sdel_' || lower(hex(randomblob(16))), c.ward_id, c.id, ?, ?
+         FROM invite_category_delegations icd JOIN service_categories c ON c.id = icd.category_id
+        WHERE icd.invite_id = ? AND c.ward_id = ?`,
+    ).bind(userId, invite.invited_by_user_id ?? null, invite.id, invite.ward_id),
+  );
   stmts.push(
     env.DB.prepare(`UPDATE invites SET status = 'accepted', accepted_user_id = ? WHERE id = ?`).bind(
       userId,

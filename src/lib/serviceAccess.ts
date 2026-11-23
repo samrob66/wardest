@@ -239,3 +239,14 @@ export async function requestNotifyEmails(env: Env, wardId: string, categoryId: 
     [wardId],
   );
 }
+
+// Shows the ward page's "Service" link: manages, coordinates or may create in a category.
+export async function hasServiceRole(env: Env, wardId: string, userId: string): Promise<boolean> {
+  if (!(await wardRoleOf(env, wardId, userId))) return false;
+  for (const c of await listCategories(env, wardId, { includeArchived: true })) {
+    if (await isCategoryManager(env, wardId, c.id, userId)) return true;
+    if (await isCategoryDelegate(env, wardId, c.id, userId)) return true;
+    if (await canCreateInCategory(env, wardId, c.id, userId)) return true;
+  }
+  return false;
+}
