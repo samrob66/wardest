@@ -23,8 +23,8 @@ The bishop must approve the ward using WardForward (General Handbook 38.8.21.2).
 - **4.** Under "Invite a leader (callings chart)", invite the bishop: his Email, Calling "Bishop", Ward role "Superadmin", Space "Bishopric", Space role "Owner". Click Create / update invite. He gets an email with a link to accept; the same link shows under "Pending invites".
 - **5.** Invite the counselors and the Ward Clerk to the Bishopric space the same way, with Ward role "Member".
 - **6.** Invite each organization's president and secretary to their own organization's space with Space role "Owner". The owners of a space manage it.
-- **7.** Add the ward council members to the Ward Council space too. To put someone in a second space, submit the invite form again with the same email and the other space; it adds another space.
-- **8.** Under "Members & roles", check that both the bishop and you show "superadmin". If not, click Make superadmin.
+- **7.** Add the ward council members to the Ward Council space too. To put someone in a second space, submit the invite form again with the same email and the other space; it adds another space. Each time, choose the same Ward role and type the same Calling as before (Superadmin and "Bishop" for the bishop): a new invite replaces both, so leaving the defaults would make the bishop a Member and clear his calling. The person must click the link in the new email before the extra space takes effect.
+- **8.** After everyone has accepted, check "Members & roles": both the bishop and you must show "superadmin". If not, click Make superadmin.
 
 ## Done when
 

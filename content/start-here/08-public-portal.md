@@ -13,6 +13,8 @@ One public page with every link members need (bulletin, forms, chat, interview b
 
 ## Steps
 
+Only a Superadmin sees "Public" in the publish list, and the Public page's print link, share link and section controls. As the Executive Secretary you are one (step 2).
+
 - **1.** On this page, set the status to In progress and click Save status. A Deliverables section appears below it.
 - **2.** Under "Add a link", fill in the Title members will see (for example "Ward Bulletin"), the real address (URL), and the short link you made in step 7 (for example zippa.run/abcBulletin). Click "Add link + generate QR".
 - **3.** In the new link's card, choose "Public" in the list and click Publish. (The list starts on Bishopric; make sure it says Public.)

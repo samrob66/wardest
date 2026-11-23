@@ -23,7 +23,7 @@ Two sections at the top of the public portal. "Service Opportunities" lists the 
 
 ## The categories every ward starts with
 
-- Opportunities: Provide a Meal (Relief Society), Lend a Helping Hand (Ward Council), Help with an Activity (Activities Committee), Clean the Building (Bishopric), Clean the Temple (Relief Society and Elders Quorum), Substitute in Primary (Primary), Substitute in Sunday School (Sunday School), Help Someone Move (Elders Quorum).
+- Opportunities: Provide a Meal (Relief Society), Lend a Helping Hand (Ward Council), Help with an Activity (Activities Committee), Clean the Building (Bishopric), Clean the Temple (Relief Society and Elders Quorum), Substitute in Primary (Primary), Substitute in Sunday School (Sunday School), Help Someone Move (in/out) (Elders Quorum).
 - Requests: Get Help Moving (Elders Quorum), Request a Christmas or Presents (Bishopric, confidential), Other Requests (Bishopric, confidential).
 
 ## Done when
