@@ -367,11 +367,35 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
    Step 2 (callings and spaces) must say: put the Ward Clerk in the Bishopric space; an
    Activities chair or Ward Mission Leader who isn't in the Ward Council space sees only their
    own organization's volunteer posts until they're added (volunteer sign-ups spec §5).
-4. **Catalog how-tos from the Playbook.** Revise the 3 drafted solutions (zippa.run + demo site),
+   **Settled by Sam 2026-11-23 ("All yes" to part 2); spec approved:**
+   `docs/superpowers/specs/2026-11-23-execsec-start-here-design.md` (plan
+   `docs/superpowers/plans/2026-11-23-execsec-start-here.md`). The track is now **14 steps**: a
+   new **step 9, service sections** (turn on the portal's Service Opportunities and Service
+   Requests sections, paste their zippa.run short links, check each default category's owner),
+   so the flyer, Zoom and rotations move to 10–13 and the hand-off note to 14. Decision 4: the
+   tracker template Sheets are owned by **the WardForward templates account** (a separate free
+   Google account Sam created; its address is never written in the repo). Step 2 carries the
+   General Handbook 38.8.21.2 rules: the bishop approves the ward joining, and the ward keeps at
+   least two administrators (bishop + Exec Sec). The landing page (wardforward.com) now tells a
+   new Exec Sec that signing in and requesting the ward, then operator approval, is the first
+   move.
+   ✅ **Phase A BUILT 2026-11-23, local-verified — the page.** `solutions.setup_step` (operator
+   "Setup step" field; `db/upgrade-2026-11-23-start-here.sql` for older local DBs), the Start
+   here page `/w/:wardId/start`, the ward home card, the catalog link, the landing line, and the
+   content pipeline (`content/start-here/*.md` → `npm run seed:start-here` →
+   `db/seed-start-here.sql`, checked by `npm run seed:start-here:check`) seeding the 14 steps
+   with "Done when" lists and a "Full how-to coming soon" placeholder. Next: phases B+D (how-to
+   content, generalized router, one review .docx for Sam) and C (rotation trackers).
+4. **Catalog how-tos from the Playbook.** Status 2026-11-23: now phase B+D of the Start here
+   plan (item 3); the 14 step solutions are seeded with placeholder bodies, waiting for this
+   content. Revise the 3 drafted solutions (zippa.run + demo site),
    seed them in place of `sol_ex_interviews` / `sol_ex_bulletin`, and ship the generalized
    `InterviewRouter` template with the real calendar IDs stripped. Then the remaining Playbook
    sections, in the track order from item 3.
-5. **Assignment rotation trackers** (Bishopric Meeting + Ward Council). These were built
+5. **Assignment rotation trackers** (Bishopric Meeting + Ward Council). Status 2026-11-23: now
+   phase C of the Start here plan (item 3), as steps 12 and 13; both are seeded (for now under
+   `exec_secretary`, as the plan says) with placeholder bodies, waiting for the hardened
+   template and guide. These were built
    2026-07 and are described in CLAUDE.md under "Related tools". The **Apps Script version** is the
    template asset for two catalog solutions. Bishopric Meeting goes under `bishopric`. Ward Council
    goes under `exec_secretary` (confirmed by Sam 2026-10-06; the schema has no Ward Council

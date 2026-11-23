@@ -10,9 +10,12 @@
     "db:init:local": "wrangler d1 execute wardforward-db --local --file=./db/schema.sql",
     "db:seed:local": "wrangler d1 execute wardforward-db --local --file=./db/seed-m44.sql",
     "db:seed:solutions:local": "wrangler d1 execute wardforward-db --local --file=./db/seed-solutions.sql",
+    "db:seed:start-here:local": "wrangler d1 execute wardforward-db --local --file=./db/seed-start-here.sql",
     "db:reset:local": "npm run db:init:local && npm run db:seed:local",
     "test": "vitest run",
-    "test:equiv": "vitest run --config vitest.equiv.config.ts"
+    "test:equiv": "vitest run --config vitest.equiv.config.ts",
+    "seed:start-here": "node scripts/build-start-here-seed.mjs",
+    "seed:start-here:check": "node scripts/build-start-here-seed.mjs --check"
   },
   "dependencies": {
     "hono": "^4.9.0",

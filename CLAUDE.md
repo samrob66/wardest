@@ -4,7 +4,7 @@ Renamed from Wardest to WardForward on 2026-11-22.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; built-in shortener retired (2026-10, short links are pasted `zippa.run` links). Volunteer sign-ups built & local-verified 2026-11-21 (IMPLEMENTATION.md §10 item 9; Turnstile + Discord owner steps pending). Renamed to WardForward and email moved to Cloudflare Email Service 2026-11-22. Service opportunities, requests, bulk invitations and portal sections built & local-verified 2026-11-22 (IMPLEMENTATION.md §10 item 10). Deploy + real Google/email pending owner (IMPLEMENTATION.md §2 O2–O11, §5b). Next: see IMPLEMENTATION.md §10 (roadmap)
+## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; built-in shortener retired (2026-10, short links are pasted `zippa.run` links). Volunteer sign-ups built & local-verified 2026-11-21 (IMPLEMENTATION.md §10 item 9; Turnstile + Discord owner steps pending). Renamed to WardForward and email moved to Cloudflare Email Service 2026-11-22. Service opportunities, requests, bulk invitations and portal sections built & local-verified 2026-11-22 (IMPLEMENTATION.md §10 item 10). Executive Secretary Start here track phase A (page, home card, setup_step, 14-step seed with placeholder how-tos) built & local-verified 2026-11-23 (IMPLEMENTATION.md §10 item 3; content phases B–D next). Deploy + real Google/email pending owner (IMPLEMENTATION.md §2 O2–O11, §5b). Next: see IMPLEMENTATION.md §10 (roadmap)
 
 Reading order: `BLUEPRINT.md` (what WardForward is) → `SCHEMA.md` + `db/schema.sql` (data model +
 canonical visibility rules) → `IMPLEMENTATION.md` (the execution playbook: stack decisions,
@@ -127,13 +127,22 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
 (miniflare 5.20261103.0-beta), pulled in with the test harness in 2026-11.
 
 - Local: `npm run db:init:local` → `npm run db:seed:local` → `npm run db:seed:solutions:local` →
-  `npm run dev` (portal at `http://localhost:8787/p/m44`; `/auth/dev-login?email=…` needs
-  `.dev.vars`). `db/schema.sql` has no `IF NOT EXISTS`, so to reset, delete `.wrangler/state`
-  first — or point at a scratch DB with `--persist-to <dir>` on both `d1 execute` and `dev`.
+  `npm run db:seed:start-here:local` → `npm run dev` (portal at `http://localhost:8787/p/m44`;
+  `/auth/dev-login?email=…` needs `.dev.vars`). `db/schema.sql` has no `IF NOT EXISTS`, so to
+  reset, delete `.wrangler/state` first — or point at a scratch DB with `--persist-to <dir>` on
+  both `d1 execute` and `dev`.
   An existing local DB made before 2026-11-22 needs
   `npx wrangler d1 execute wardforward-db --local --file=./db/upgrade-2026-11-22-service.sql`
-  (service categories, requests, invitations, portal sections; run once), or delete
-  `.wrangler/state` to reset.
+  (service categories, requests, invitations, portal sections; run once), and one made before
+  2026-11-23 needs `.../db/upgrade-2026-11-23-start-here.sql` (`solutions.setup_step`; run
+  once), or delete `.wrangler/state` to reset.
+- Start here steps (spec `docs/superpowers/specs/2026-11-23-execsec-start-here-design.md`): the
+  14 Executive Secretary steps are Markdown in `content/start-here/NN-<slug>.md`;
+  `npm run seed:start-here` regenerates `db/seed-start-here.sql` (committed, idempotent:
+  re-running refreshes text and `setup_step`), and `npm run seed:start-here:check` fails when it
+  is out of date. Never edit the generated SQL by hand. The page is `/w/:wardId/start`
+  (`src/lib/startHere.ts`, `src/views/startHere.ts`); operators change a step's order with the
+  solution form's Setup step field.
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm test` — Vitest inside the Workers runtime (`@cloudflare/vitest-plugin`); applies
   `db/schema.sql` to a test D1, intercepts every outbound fetch and fakes the `EMAIL` binding. Run `npm test && npm run

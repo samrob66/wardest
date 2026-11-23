@@ -28,6 +28,7 @@ export function renderLanding(): string {
   <h1>WardForward</h1>
   <p class="tag">Self-hosted tools for ward leaders — curated solutions, tracked and assembled
      into shareable, printable portal pages.</p>
+  <p class="tag">New Executive Secretary? Your first move is to sign in and request your ward. An operator approves each ward, and then your setup steps are waiting under Start here.</p>
   <div class="divider"></div>
   <div class="cta">
     <span class="btn btn-primary" aria-disabled="true">Sign in (coming soon)</span>

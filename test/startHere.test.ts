@@ -3,6 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import schemaSql from '../db/schema.sql?raw';
 import upgradeSql from '../db/upgrade-2026-11-23-start-here.sql?raw';
+import seedSql from '../db/seed-start-here.sql?raw';
+import { renderLanding } from '../src/views/landing';
 import { asUser, countQueries, ensureUser, env, makeLeader, makeWard, schemaStatements, uniqueEmail } from './helpers';
 import { parseSetupStep } from '../src/lib/solutions';
 import { loadStartHere } from '../src/lib/startHere';
@@ -321,7 +323,7 @@ describe('Start here home card, catalog link and route', () => {
     expect([await count(`/w/${wardId}`), await count(`/w/${wardId}/start`)]).toEqual(before);
   });
 
-  it('escapes titles and summaries', async () => {
+  it('escapes titles and summaries (A2)', async () => {
     await clearSteps();
     const { wardId, memberId } = await wardWithMember();
     await insertSolution({ title: '<b>Bold</b> & co', step: 1 });
@@ -330,5 +332,73 @@ describe('Start here home card, catalog link and route', () => {
     expect(page.html).not.toContain('<b>Bold</b>');
     const home = await getPage(memberId, `/w/${wardId}`);
     expect(home.html).toContain('Next: &lt;b&gt;Bold&lt;/b&gt; &amp; co');
+  });
+});
+
+// ---------------------------------------------------------------- Task A3: landing line, seed
+
+// The spec's §3 titles, in step order.
+const SPEC_TITLES = [
+  "Create the ward's role account",
+  'Set up WardForward: callings and spaces',
+  'Put the role account on the right Google plan',
+  'Create one calendar per leader',
+  'Create the booking pages',
+  'Install the interview router',
+  'Get zippa.run access and make your links',
+  "Publish the ward's public portal",
+  'Turn on service opportunities and requests',
+  'Print the foyer flyer',
+  'Set up virtual interviews (Zoom)',
+  'Bishopric meeting assignment rotation',
+  'Ward Council assignment rotation',
+  'Write the hand-off note',
+];
+
+// The generator writes one statement per line; header lines are comments.
+async function applySeed(): Promise<void> {
+  const stmts = seedSql.split(/\r?\n/).filter((l) => /^INSERT /.test(l));
+  expect(stmts).toHaveLength(14);
+  await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
+}
+
+describe('landing page', () => {
+  it('tells a new Executive Secretary to sign in and request the ward first', () => {
+    const html = renderLanding();
+    expect(html).toContain('New Executive Secretary? Your first move is to sign in and request your ward.');
+    expect(html).toContain('request your ward');
+    expect(html).toContain('then your setup steps are waiting under Start here.');
+  });
+});
+
+describe('db/seed-start-here.sql', () => {
+  it('applied twice gives the 14 published steps in spec order, and re-running refreshes them', async () => {
+    await clearSteps();
+    await applySeed();
+    await env.DB.prepare(`UPDATE solutions SET title = 'Edited', setup_step = 40, status = 'draft' WHERE id = 'sol_es_zoom'`).run();
+    await applySeed();
+    const rows = (
+      await env.DB.prepare(
+        `SELECT id, title, category, implementation_scope, status, setup_step, body FROM solutions
+          WHERE setup_step IS NOT NULL ORDER BY setup_step`,
+      ).all<{ id: string; title: string; category: string; implementation_scope: string; status: string; setup_step: number; body: string }>()
+    ).results;
+    expect(rows).toHaveLength(14);
+    expect(rows.map((r) => r.title)).toEqual(SPEC_TITLES);
+    expect(rows.map((r) => r.setup_step)).toEqual(Array.from({ length: 14 }, (_, i) => i + 1));
+    for (const r of rows) {
+      expect(r).toMatchObject({ category: 'exec_secretary', implementation_scope: 'ward_singleton', status: 'published' });
+      expect(r.id).toMatch(/^sol_es_/);
+      expect(r.body).toContain('## Done when');
+      expect(r.body).toContain('\n- ');
+    }
+    expect(rows[0]!.id).toBe('sol_es_role_account');
+    expect(rows[13]!.id).toBe('sol_es_handoff_note');
+
+    const { wardId, memberId } = await wardWithMember();
+    const sh = await loadStartHere(env, wardId, memberId);
+    expect(sh.rows).toHaveLength(14);
+    expect(sh.rows.map((r) => r.title)).toEqual(SPEC_TITLES);
+    expect(sh.next?.solutionId).toBe('sol_es_role_account');
   });
 });
