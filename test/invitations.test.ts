@@ -101,6 +101,13 @@ describe('bulk invitations: routes', () => {
   });
 });
 
+// The volume test sends 2,000 invitations because the spec requires that volume (2,000 from
+// one paste), and that is ~2,300 D1 statements and 2,000 sends: 0.9 s with its file running
+// alone, 2.3-3.1 s inside a full run, and 3.3 s to over 5 s with a second suite running at the
+// same time (it timed out in 13 of 24 such runs at vitest's default 5 s, which was never chosen
+// for it). 20 s keeps the full 2,000 with room for a loaded machine.
+const VOLUME_TEST_TIMEOUT_MS = 20_000;
+
 describe('bulk invitations: the pump', () => {
   it('a 2,000-address batch completes across several pump calls, each address mailed exactly once', async () => {
     const fx = await fixture({ date: futureDate(20) });
@@ -128,7 +135,7 @@ describe('bulk invitations: the pump', () => {
     expect(b.status).toBe('done');
     expect(b.sent).toBe(2000);
     expect(await recipientCount(batchId)).toBe(0);
-  });
+  }, VOLUME_TEST_TIMEOUT_MS);
 
   it('Review Focus 4: two overlapping pumps on one batch send each address once; counts add up', async () => {
     const fx = await fixture({ date: futureDate(20) });
