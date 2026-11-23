@@ -418,6 +418,28 @@ Notion Master Tasks (Area `Wardest.com`) tracks the same list.
      grows with good sending; check it (and request an increase if needed) before a second ward
      goes live (reminders and confirmations count against it).
    - Cron: the `[triggers]` hourly cron deploys with the Worker; nothing else to set up.
+10. ✅ **BUILT 2026-11-22, local-verified — Service opportunities, requests and portal sections**
+   (spec `docs/superpowers/specs/2026-11-22-service-opportunities-requests-design.md`, plan
+   `docs/superpowers/plans/2026-11-22-service-opportunities.md`). Service categories (11 defaults
+   per ward) with owning spaces, delegates (invitable by email), per-manager fill warnings and a
+   Discord channel webhook; every post has a category and audiences, and a parent can sign up a
+   child; public `/serve/<prefix>` and `/help/<prefix>` pages with their own QR codes; minimal,
+   email-verified requests that only the right leaders see (confidential Christmas/Other), purged
+   30 days after closing; bulk email invitations from a pasted list with one-click unsubscribe,
+   pumped by an every-minute cron under a per-ward daily ceiling; Discord channel announcements;
+   named portal sections with the two service sections at the top; the workspace request form now
+   requires the bishop's approval. Schema edited in place; existing local DBs:
+   `db/upgrade-2026-11-22-service.sql`. Local walk-through (scratch D1, `EMAIL_DELIVERY=log`):
+   `/p/m44` order, an RS meal opportunity on `/serve/m44`, a Christmas request verified and seen
+   by the bishop only, 5 pasted invitations printed, one unsubscribed. Owner steps:
+   - **Retarget `zippa.run/m44Links`** to `https://app.wardforward.com/p/m44` once the bishopric
+     has seen the new page (keep the GitHub Pages hub until then). Optionally make
+     `zippa.run/m44Serve` and `zippa.run/m44Help` and paste them in ward settings.
+   - **Discord channel webhooks** per ward and category (a manager pastes it on the category page).
+   - **Email Sending limits:** confirm the account's daily quota covers invitations (about 1,000 a
+     month for M44, up to 2,000 in one paste) plus notify mail, and request an increase if needed;
+     the per-ward ceiling (default 5,000/day) is on the operator console.
+   - The every-minute cron (`"* * * * *"` in `wrangler.toml`) deploys with the Worker.
 
    Local hand check (e.g. from the main checkout): its `.dev.vars` needs
    `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA` (Cloudflare's always-pass test

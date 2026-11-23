@@ -105,6 +105,11 @@ links/portals are secret. The Public portal is `noindex` (unlisted, not hidden b
   **user-uploaded raster images/screenshots will be grainy blown up** — inherent, accepted.
 - The Public portal is shared through a `zippa.run` short link pointing at it (e.g.
   `zippa.run/m44Links`). Access-gated portals require Google login + space membership.
+- **Public portal structure (2026-11-22):** two sections at the very top, "Service Opportunities"
+  (card → `/serve/<prefix>`) and "Service Requests" (card → `/help/<prefix>`), each switchable in
+  ward settings and QR-coded to a pasted short link when set; then the ward's own named sections
+  (e.g. "Ward Links", "Interviews", two to a row on wide screens); then unsectioned links under
+  "Links". Print layouts follow the same order.
 
 ## 7. Shortener (`zippa.run` — a separate project)
 

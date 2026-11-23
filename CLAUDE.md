@@ -4,7 +4,7 @@ Renamed from Wardest to WardForward on 2026-11-22.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; built-in shortener retired (2026-10, short links are pasted `zippa.run` links). Volunteer sign-ups built & local-verified 2026-11-21 (IMPLEMENTATION.md §10 item 9; Turnstile + Discord owner steps pending). Renamed to WardForward and email moved to Cloudflare Email Service 2026-11-22. Deploy + real Google/email pending owner (IMPLEMENTATION.md §2 O2–O11, §5b). Next: see IMPLEMENTATION.md §10 (roadmap)
+## Status: Phase 0 + 1 + 2 + 3 COMPLETE, built & local-verified; built-in shortener retired (2026-10, short links are pasted `zippa.run` links). Volunteer sign-ups built & local-verified 2026-11-21 (IMPLEMENTATION.md §10 item 9; Turnstile + Discord owner steps pending). Renamed to WardForward and email moved to Cloudflare Email Service 2026-11-22. Service opportunities, requests, bulk invitations and portal sections built & local-verified 2026-11-22 (IMPLEMENTATION.md §10 item 10). Deploy + real Google/email pending owner (IMPLEMENTATION.md §2 O2–O11, §5b). Next: see IMPLEMENTATION.md §10 (roadmap)
 
 Reading order: `BLUEPRINT.md` (what WardForward is) → `SCHEMA.md` + `db/schema.sql` (data model +
 canonical visibility rules) → `IMPLEMENTATION.md` (the execution playbook: stack decisions,
@@ -69,6 +69,24 @@ implementation tracker) and **Publish & Share** (portals).
   secret; test keys locally) plus D1 rate limits. **Discord** DMs use one WardForward application
   (`DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` secrets). Emailed links open
   a page whose button POSTs (mail scanners prefetch links).
+- **Service opportunities, requests and portal sections** (spec
+  `docs/superpowers/specs/2026-11-22-service-opportunities-requests-design.md`). Routes in
+  `src/serviceRoutes.ts`: leader pages `/w/:wardId/service` (hub), `/w/:wardId/service/category/:id`
+  (managers: settings, delegates, fill warnings, Discord webhook), `/w/:wardId/service/mine`,
+  `/w/:wardId/requests[/:id]` (inbox), `/w/:wardId/vol/:postId/invite/*` (bulk invitations); public
+  `/serve/:prefix` (open opportunities by brothers/sisters/youth/children), `/help/:prefix[/:slug]`
+  (request tiles and minimal forms), `/help/verify/:token`, `/unsub/:token` (RFC 8058 one-click).
+  Every category/delegate/request decision goes through `src/lib/serviceAccess.ts` (posts still
+  through `src/lib/volAccess.ts`); both fail closed, and confidential request categories (Christmas,
+  Other) are hidden from bishopric members who don't own the space. Every post has a
+  `service_categories` category and audiences; `vol_signups.child_name` lets a parent sign up a
+  child. New requests notify leaders by email with no details; requests are purged 30 days after
+  they close. Invitations go out on the `invitations` stream, one recipient each, pumped from D1 by
+  an every-minute cron (`src/lib/invitations.ts`) under a per-ward daily ceiling
+  (`wards.invite_daily_cap`, operator-editable). The public portal starts with the Service
+  Opportunities and Service Requests sections (ward settings: short links, on/off), then the ward's
+  `portal_sections`, then "Links". The hourly cron also sends fill warnings
+  (`src/lib/serviceWarnings.ts`) and purges requests.
 - **Independence disclaimer** (General Handbook 38.8.21.2). Every page shell (landing, `layout()`,
   portal, print, not-found) renders `siteFooter()` from `src/views/footer.ts`: "WardForward is an
   independent tool made by Church members. It is not an official product of, or sponsored by, The
@@ -121,7 +139,8 @@ deprecated). Prefix with `npx ` if not installed globally. The lockfile pins **w
   `db/schema.sql` to a test D1, intercepts every outbound fetch and fakes the `EMAIL` binding. Run `npm test && npm run
   typecheck` before committing.
 - Cron locally: `npx wrangler dev --test-scheduled`, then
-  `curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"`.
+  `curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"` (hourly: reminders, nudges, lapses,
+  fill warnings, request purges) or `cron=*+*+*+*+*` (every minute: the invitation pump).
 - `wrangler deploy` — deploy (full owner steps: IMPLEMENTATION.md §5b + §10 item 2).
 - `wrangler d1 execute wardforward-db --remote --file=<sql>` — run schema/seeds against prod D1.
 - `wrangler email sending enable send.wardforward.com` — onboard the sending domain (owner, once).
