@@ -38,7 +38,7 @@ function joinNames_(list) {
 
 function requestFormDescription_(s, c) {
   var who = isTicked(c.Confidential)
-    ? 'Only the bishop and the people he names see this request.'
+    ? 'Only the bishopric and the people they name see this request.'
     : 'Only the ' + (joinNames_(splitList(c['Owning organizations'])) || 'bishopric') + ' leaders see this request.';
   return [
     who,
@@ -85,8 +85,36 @@ function newRequestSheet_(folder, categoryName, month, headers) {
   return ss;
 }
 
-/** One form, folder and month sheet per request category that has no form yet. Re-runnable. */
-function buildRequestForms_(s, categories) {
+function requestFormTitle_(s, c) {
+  return c.Name + ' — ' + s.ward_name;
+}
+
+/**
+ * A form made earlier gets the current title and description (so a ward that set up on older
+ * wording gets the new one by running Set up again). Returns true when something changed.
+ */
+function refreshRequestForm_(s, c, formId) {
+  var form = FormApp.openById(formId);
+  var changed = false;
+  var title = requestFormTitle_(s, c);
+  if (form.getTitle() !== title) {
+    form.setTitle(title);
+    changed = true;
+  }
+  var description = requestFormDescription_(s, c);
+  if (form.getDescription() !== description) {
+    form.setDescription(description);
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * One form, folder and month sheet per request category that has no form yet; forms already
+ * made get their title and description refreshed. Re-runnable. Names of refreshed forms go into
+ * refreshed and problems into problems (both optional).
+ */
+function buildRequestForms_(s, categories, refreshed, problems) {
   var portal = portalFolder_();
   var filesT = systemTab_(SYS_TAB.requestFiles);
   var have = indexBy_(filesT.rows(), 'Category id');
@@ -95,12 +123,19 @@ function buildRequestForms_(s, categories) {
   categories.forEach(function (c) {
     if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !c.Id) return;
     var rec = have[c.Id];
-    if (rec && rec['Form id']) return;
+    if (rec && rec['Form id']) {
+      try {
+        if (refreshRequestForm_(s, c, rec['Form id']) && refreshed) refreshed.push(c.Name);
+      } catch (e) {
+        if (problems) problems.push('Could not open the ' + c.Name + ' form to refresh its wording (' + clip(e && e.message ? e.message : e, 120) + ').');
+      }
+      return;
+    }
     var folderName = 'Requests – ' + c.Name;
     var existing = portal.getFoldersByName(folderName);
     var folder = existing.hasNext() ? existing.next() : portal.createFolder(folderName);
     var ss = newRequestSheet_(folder, c.Name, month);
-    var form = FormApp.create(c.Name + ' — ' + s.ward_name);
+    var form = FormApp.create(requestFormTitle_(s, c));
     form
       .setDescription(requestFormDescription_(s, c))
       .setCollectEmail(false)

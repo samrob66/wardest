@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadPortal, seedPost, setSetting } from './harness.mjs';
+import { loadPortal, seedPost, setSetting, addLeader, MORE_BISHOPRIC } from './harness.mjs';
 import { OWNER_EMAIL } from './fakes.mjs';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
@@ -206,19 +206,38 @@ describe('Sync sharing', () => {
     const sysId = gp.fakes.props.get('SYSTEM_ID');
     gp.fakes.drive.permsOf(sysId).set('leak@example.test', { id: 'py', role: 'reader', type: 'user', emailAddress: 'leak@example.test' });
     gp.fakes.state.failPermissionFor = ['sister.coordinator@example.test'];
+    for (const l of MORE_BISHOPRIC) addLeader(gp, l);
+    // Calling text alone no longer decides anything: this row says Bishop but Bishopric is not ticked.
+    addLeader(gp, { Name: 'Brother Typed', Email: 'brother.typed@example.test', Calling: 'Bishop', Organization: 'Sunday School', 'Ward council': true });
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'christmas'), { Coordinators: 'helper.coord@example.test' });
+    gp.gpBegin_();
     gp.gpMenuSyncSharing();
     expect(perms(serviceId)).toEqual({
       [OWNER_EMAIL]: 'owner',
-      // D2: only the administrators edit (Sheet editors can edit its bound script).
+      // 1.1 (decision 14): every Bishopric-ticked leader edits; other ward council members view.
       'bishop.example@example.test': 'writer',
-      'brother.counselor@example.test': 'reader',
+      'brother.counselor@example.test': 'writer',
       'brother.clerk@example.test': 'writer',
+      'brother.second@example.test': 'writer',
+      'brother.recorder@example.test': 'writer',
       'sister.example@example.test': 'reader',
       'brother.sample@example.test': 'reader',
+      'brother.typed@example.test': 'reader',
     });
     expect(perms(sysId)).toEqual({ [OWNER_EMAIL]: 'owner' });
     const files = sys(gp).rowsOf('Request files');
-    expect(perms(files[1]['Folder id'])).toEqual({ [OWNER_EMAIL]: 'owner', 'bishop.example@example.test': 'writer' });
+    expect(files[1]['Category id']).toBe('christmas');
+    // Christmas: the whole bishopric plus its coordinators.
+    expect(perms(files[1]['Folder id'])).toEqual({
+      [OWNER_EMAIL]: 'owner',
+      'bishop.example@example.test': 'writer',
+      'brother.counselor@example.test': 'writer',
+      'brother.clerk@example.test': 'writer',
+      'brother.second@example.test': 'writer',
+      'brother.recorder@example.test': 'writer',
+      'helper.coord@example.test': 'writer',
+    });
     expect(Object.keys(perms(files[0]['Folder id'])).sort()).toEqual([OWNER_EMAIL, 'brother.sample@example.test', 'sister.example@example.test'].sort());
     // Share emails are off.
     for (const p of gp.fakes.drive.permsOf(serviceId).values()) if (p.opts) expect(p.opts.sendNotificationEmail).toBe(false);

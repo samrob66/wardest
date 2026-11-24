@@ -23,11 +23,17 @@ export const WARD = {
 export const LEADERS = [
   { Name: 'Bishop Example', Email: 'bishop.example@example.test', Calling: 'Bishop', Organization: 'Bishopric', Bishopric: true, 'Ward council': true },
   { Name: 'Brother Counselor', Email: 'brother.counselor@example.test', Calling: 'First Counselor', Organization: 'Bishopric', Bishopric: true, 'Ward council': true },
-  { Name: 'Brother Clerk', Email: 'brother.clerk@example.test', Calling: 'Executive Secretary', Organization: 'Bishopric', 'Ward council': true },
+  { Name: 'Brother Clerk', Email: 'brother.clerk@example.test', Calling: 'Executive Secretary', Organization: 'Bishopric', Bishopric: true, 'Ward council': true },
   { Name: 'Sister Example', Email: 'sister.example@example.test', Calling: 'Relief Society President', Organization: 'Relief Society', 'Ward council': true, 'Org editor': true },
   { Name: 'Brother Sample', Email: 'brother.sample@example.test', Calling: 'Elders Quorum President', Organization: 'Elders Quorum', 'Ward council': true, 'Org editor': true },
   { Name: 'Sister Helper', Email: 'sister.helper@example.test', Calling: 'Primary Secretary', Organization: 'Primary', 'Org editor': true },
   { Name: 'Sister Coordinator', Email: 'sister.coordinator@example.test', Calling: 'Service Coordinator', Organization: 'Relief Society', Coordinator: true },
+];
+
+/** The rest of a full bishopric (1.1: Bishopric is ticked for all five callings). */
+export const MORE_BISHOPRIC = [
+  { Name: 'Brother Second', Email: 'Brother.Second@example.test ', Calling: 'Second Counselor', Organization: 'Bishopric', Bishopric: true, 'Ward council': true },
+  { Name: 'Brother Recorder', Email: 'brother.recorder@example.test', Calling: 'Ward Clerk', Organization: 'Bishopric', Bishopric: true },
 ];
 
 export function loadPortal(opts = {}) {

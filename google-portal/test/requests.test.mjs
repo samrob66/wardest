@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadPortal, LEADERS } from './harness.mjs';
+import { loadPortal, LEADERS, MORE_BISHOPRIC, addLeader } from './harness.mjs';
 import { formSubmitEvent } from './fakes.mjs';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
@@ -13,8 +13,46 @@ describe('requestReaders', () => {
       ['helper.coord@example.test', 'sister.example@example.test', 'brother.sample@example.test', 'sister.coordinator@example.test'].sort()
     );
   });
-  it('Christmas: the bishop and coordinators only, not counselors', () => {
-    expect(plain(gp0.requestReaders(christmas, LEADERS)).sort()).toEqual(['bishop.example@example.test', 'helper.coord@example.test']);
+  it('Christmas: the whole bishopric (Bishopric ticked) and its coordinators, no other ward council member', () => {
+    const readers = plain(gp0.requestReaders(christmas, [...LEADERS, ...MORE_BISHOPRIC])).sort();
+    expect(readers).toEqual(
+      [
+        'bishop.example@example.test',
+        'brother.counselor@example.test',
+        'brother.second@example.test',
+        'brother.clerk@example.test',
+        'brother.recorder@example.test',
+        'helper.coord@example.test',
+      ].sort()
+    );
+    // The Elders Quorum and Relief Society presidents sit on the ward council but are not bishopric.
+    expect(readers).not.toContain('brother.sample@example.test');
+    expect(readers).not.toContain('sister.example@example.test');
+  });
+  it('Christmas: a coordinator who is also in the bishopric is listed once', () => {
+    const c = { ...christmas, Coordinators: 'Bishop.Example@example.test, helper.coord@example.test' };
+    expect(plain(gp0.requestReaders(c, LEADERS)).filter((e) => e === 'bishop.example@example.test')).toHaveLength(1);
+  });
+});
+
+describe('bishopricEmails', () => {
+  it('is every row with Bishopric ticked, normalized and de-duplicated; Calling text does not matter', () => {
+    const leaders = [
+      ...LEADERS,
+      ...MORE_BISHOPRIC,
+      // Calling says Bishop, but the box is not ticked.
+      { Name: 'Not Ticked', Email: 'not.ticked@example.test', Calling: 'Bishop', Organization: 'Bishopric', 'Ward council': true },
+      // A duplicate row for a bishopric member.
+      { Name: 'Bishop Again', Email: ' BISHOP.example@example.test', Calling: 'Bishop', Bishopric: true },
+      { Name: 'No Address', Email: 'not an email', Bishopric: true },
+    ];
+    expect(plain(gp0.bishopricEmails(leaders))).toEqual([
+      'bishop.example@example.test',
+      'brother.counselor@example.test',
+      'brother.clerk@example.test',
+      'brother.second@example.test',
+      'brother.recorder@example.test',
+    ]);
   });
 });
 
@@ -60,7 +98,8 @@ function setupForms() {
   gp.buildRequestForms_(gp.settings_(), gp.serviceTab_('Categories').rows());
   return { gp, portal };
 }
-const filesOf = (gp) => gp.fakes.system.rowsOf('Request files');
+// The System Sheet in use (Set up makes a new one when SYSTEM_ID is cleared).
+const filesOf = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID')).rowsOf('Request files');
 
 describe('buildRequestForms_', () => {
   it('makes one form, folder and month sheet per request category, once', () => {
@@ -90,11 +129,37 @@ describe('buildRequestForms_', () => {
     expect(moving.items[0].required).toBe(true);
     expect(moving.items[4].required).toBe(false);
     expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders see this request.');
-    expect(christmas.description).toContain('Only the bishop and the people he names see this request.');
+    expect(christmas.description).toContain('Only the bishopric and the people they name see this request.');
+    expect(christmas.description).not.toContain('the bishop and the people he names');
     expect(moving.description).toContain('Nothing is emailed back to you; a leader will contact you.');
     expect(moving.description).toContain('This form is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.');
     expect(moving.description).toContain('Contact: help@riverbend.example');
     expect(moving.confirmation).toBe('Thank you. A leader will contact you.');
+  });
+});
+
+describe('Set up refreshes request forms', () => {
+  it('run twice on forms with the old wording: new descriptions and titles, no form duplicated', () => {
+    const gp = loadPortal({ seed: true });
+    gp.fakes.props.delete('SYSTEM_ID');
+    gp.gpMenuSetUp();
+    const forms = () => filesOf(gp).map((f) => gp.fakes.forms.get(f['Form id']));
+    // As the phase 1 code left them.
+    const old = ['Only the bishop and the people he names see this request.', 'Nothing is emailed back to you; a leader will contact you.'].join('\n');
+    forms()[1].setDescription(old);
+    forms()[2].setDescription(old);
+    forms()[0].setTitle('Moving help — Old Ward Name');
+    gp.gpMenuSetUp();
+    gp.gpMenuSetUp();
+    expect(gp.fakes.forms.size).toBe(3);
+    expect(filesOf(gp)).toHaveLength(3);
+    const [moving, christmas, other] = forms();
+    for (const f of [christmas, other]) {
+      expect(f.description).toContain('Only the bishopric and the people they name see this request.');
+      expect(f.description).not.toContain('he names');
+    }
+    expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders see this request.');
+    expect(moving.title).toBe('Moving help — Riverbend 1st Ward (example)');
   });
 });
 
@@ -117,6 +182,31 @@ describe('gpOnRequestSubmit', () => {
       }
       expect(m.subject).toBe('New Moving help request');
     }
+  });
+
+  it('a Christmas request notice reaches each bishopric member and coordinator once, and nobody else', () => {
+    const { gp } = setupForms();
+    for (const l of MORE_BISHOPRIC) addLeader(gp, l);
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'christmas'), { Coordinators: 'brother.counselor@example.test, helper.coord@example.test' });
+    gp.gpBegin_();
+    const f = filesOf(gp)[1];
+    const form = gp.fakes.forms.get(f['Form id']);
+    gp.fakes.mail.sent.length = 0;
+    gp.gpOnRequestSubmit(formSubmitEvent(form, { Name: 'Sister Private', 'Phone or email': 'private@example.test', For: 'My family', Note: 'secret need' }));
+    const to = gp.fakes.mail.sent.map((m) => m.to).sort();
+    expect(to).toEqual(
+      [
+        'bishop.example@example.test',
+        'brother.counselor@example.test',
+        'brother.clerk@example.test',
+        'brother.second@example.test',
+        'brother.recorder@example.test',
+        'helper.coord@example.test',
+      ].sort()
+    );
+    for (const m of gp.fakes.mail.sent) expect(m.subject).toBe('New Christmas help request');
+    expect(JSON.stringify(gp.fakes.mail.sent)).not.toContain('secret need');
   });
 
   it('on failure keeps the answer in the form, logs without request text and alerts the administrators', () => {

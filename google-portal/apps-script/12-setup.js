@@ -91,9 +91,13 @@ function gpMenuSetUp() {
   }
   var folder = ensurePortalFolder_(ss);
   ensureSystemSheet_(s, folder);
-  var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows());
+  var refreshed = [];
+  var problems = [];
+  var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows(), refreshed, problems);
   var lines = ['Set up is done.'];
   lines.push(made.length ? 'New request forms: ' + made.join(', ') + '.' : 'Request forms: already made.');
+  if (refreshed.length) lines.push('Updated the wording of: ' + refreshed.join(', ') + '.');
+  if (problems.length) lines.push('Problems: ' + problems.join(' '));
   var tz = tzMismatchLine_(s);
   if (tz) lines.push('Time zone: ' + tz);
   lines.push('Next: deploy the web app, paste its address into Settings web_app_url, then run Install triggers and Sync sharing.');
@@ -191,19 +195,19 @@ function gpMenuSyncSharing() {
   var problems = [];
   var summary = [];
 
-  // Only the administrators (Bishop, Executive Secretary) may edit the Service Sheet: its editors
-  // can also edit the script bound to it, which runs as this account and can open every request
-  // sheet, including the bishop-only ones. Every other bishopric and ward council leader views it.
+  // Decision 14: the whole bishopric (Bishopric ticked) edits the Service Sheet. Its editors can
+  // also edit the bound script, which can open every request sheet; the bishopric reads the
+  // confidential requests anyway. Other ward council members view it.
   var sheetWant = {};
   leaders.forEach(function (l) {
     if (isTicked(l.Bishopric) || isTicked(l['Ward council'])) sheetWant[normEmail(l.Email)] = 'reader';
   });
-  adminEmails(leaders).forEach(function (e) {
+  bishopricEmails(leaders).forEach(function (e) {
     sheetWant[e] = 'writer';
   });
   var d = applySharing_(serviceSs_().getId(), sheetWant, owner, 'Service Sheet', problems);
   summary.push(
-    'Service Sheet: ' + Object.keys(sheetWant).length + ' people (bishop and Executive Secretary edit; other bishopric and ward council view); ' +
+    'Service Sheet: ' + Object.keys(sheetWant).length + ' people (the bishopric edits; other ward council members view); ' +
       d.add.length + ' added, ' + d.change.length + ' changed, ' + d.remove.length + ' removed.'
   );
 

@@ -4,22 +4,36 @@
  */
 
 /**
- * Who reads a request category's folder: its Coordinators, plus (when confidential) the Leaders
- * whose Calling is Bishop, otherwise the Leaders whose Organization owns the category.
+ * The bishopric: every Leaders row with Bishopric ticked (the bishop, both counselors, the
+ * Executive Secretary and the Ward Clerk). The Calling text decides nothing. Normalized and
+ * de-duplicated. (Decision 14: they edit the Service Sheet and read the confidential requests.)
+ */
+function bishopricEmails(leaders) {
+  return uniq_(
+    leaders
+      .filter(function (l) {
+        return isTicked(l.Bishopric) && isEmail(l.Email);
+      })
+      .map(function (l) {
+        return normEmail(l.Email);
+      })
+  );
+}
+
+/**
+ * Who reads a request category's folder (and gets its notices): its Coordinators, plus (when
+ * confidential) the whole bishopric, otherwise the Leaders whose Organization owns the category.
  * Normalized and de-duplicated.
  */
 function requestReaders(category, leaders) {
   var out = splitList(category.Coordinators)
     .filter(isEmail)
     .map(normEmail);
+  if (isTicked(category.Confidential)) return uniq_(out.concat(bishopricEmails(leaders)));
   var owners = splitList(category['Owning organizations']);
-  var confidential = isTicked(category.Confidential);
   leaders.forEach(function (l) {
     if (!isEmail(l.Email)) return;
-    var yes = confidential
-      ? String(l.Calling == null ? '' : l.Calling).trim().toLowerCase() === 'bishop'
-      : owners.indexOf(String(l.Organization == null ? '' : l.Organization).trim()) >= 0;
-    if (yes) out.push(normEmail(l.Email));
+    if (owners.indexOf(String(l.Organization == null ? '' : l.Organization).trim()) >= 0) out.push(normEmail(l.Email));
   });
   return uniq_(out);
 }

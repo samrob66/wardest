@@ -861,10 +861,10 @@ function readMeLines_(s) {
     'Ward: ' + (s.ward_name || '(fill in Settings)'),
     '',
     'What each tab is for',
-    'Who may edit: only the bishop and the Executive Secretary edit this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so edit access stays with those two.)',
+    'Who may edit: the bishopric (every Leaders row with Bishopric ticked) edits this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so tick Bishopric only for the bishop, both counselors, the Executive Secretary and the Ward Clerk.)',
     'Settings: ward name, time zone, contact email, web addresses and limits.',
-    'Leaders: who gets a leader link and which files. Tick the role boxes; tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
-    'Categories: kinds of opportunities and requests, their owners and coordinators.',
+    'Leaders: who gets a leader link and which files. Tick the role boxes (Bishopric: the bishop, both counselors, the Executive Secretary and the Ward Clerk); tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
+    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators.',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',
     'Volunteers, Needs help soon: for phase 2; the script fills them.',
     '',
@@ -1288,22 +1288,36 @@ function rateCheck(counts, limits) {
  */
 
 /**
- * Who reads a request category's folder: its Coordinators, plus (when confidential) the Leaders
- * whose Calling is Bishop, otherwise the Leaders whose Organization owns the category.
+ * The bishopric: every Leaders row with Bishopric ticked (the bishop, both counselors, the
+ * Executive Secretary and the Ward Clerk). The Calling text decides nothing. Normalized and
+ * de-duplicated. (Decision 14: they edit the Service Sheet and read the confidential requests.)
+ */
+function bishopricEmails(leaders) {
+  return uniq_(
+    leaders
+      .filter(function (l) {
+        return isTicked(l.Bishopric) && isEmail(l.Email);
+      })
+      .map(function (l) {
+        return normEmail(l.Email);
+      })
+  );
+}
+
+/**
+ * Who reads a request category's folder (and gets its notices): its Coordinators, plus (when
+ * confidential) the whole bishopric, otherwise the Leaders whose Organization owns the category.
  * Normalized and de-duplicated.
  */
 function requestReaders(category, leaders) {
   var out = splitList(category.Coordinators)
     .filter(isEmail)
     .map(normEmail);
+  if (isTicked(category.Confidential)) return uniq_(out.concat(bishopricEmails(leaders)));
   var owners = splitList(category['Owning organizations']);
-  var confidential = isTicked(category.Confidential);
   leaders.forEach(function (l) {
     if (!isEmail(l.Email)) return;
-    var yes = confidential
-      ? String(l.Calling == null ? '' : l.Calling).trim().toLowerCase() === 'bishop'
-      : owners.indexOf(String(l.Organization == null ? '' : l.Organization).trim()) >= 0;
-    if (yes) out.push(normEmail(l.Email));
+    if (owners.indexOf(String(l.Organization == null ? '' : l.Organization).trim()) >= 0) out.push(normEmail(l.Email));
   });
   return uniq_(out);
 }
@@ -2852,7 +2866,7 @@ function joinNames_(list) {
 
 function requestFormDescription_(s, c) {
   var who = isTicked(c.Confidential)
-    ? 'Only the bishop and the people he names see this request.'
+    ? 'Only the bishopric and the people they name see this request.'
     : 'Only the ' + (joinNames_(splitList(c['Owning organizations'])) || 'bishopric') + ' leaders see this request.';
   return [
     who,
@@ -2899,8 +2913,36 @@ function newRequestSheet_(folder, categoryName, month, headers) {
   return ss;
 }
 
-/** One form, folder and month sheet per request category that has no form yet. Re-runnable. */
-function buildRequestForms_(s, categories) {
+function requestFormTitle_(s, c) {
+  return c.Name + ' — ' + s.ward_name;
+}
+
+/**
+ * A form made earlier gets the current title and description (so a ward that set up on older
+ * wording gets the new one by running Set up again). Returns true when something changed.
+ */
+function refreshRequestForm_(s, c, formId) {
+  var form = FormApp.openById(formId);
+  var changed = false;
+  var title = requestFormTitle_(s, c);
+  if (form.getTitle() !== title) {
+    form.setTitle(title);
+    changed = true;
+  }
+  var description = requestFormDescription_(s, c);
+  if (form.getDescription() !== description) {
+    form.setDescription(description);
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * One form, folder and month sheet per request category that has no form yet; forms already
+ * made get their title and description refreshed. Re-runnable. Names of refreshed forms go into
+ * refreshed and problems into problems (both optional).
+ */
+function buildRequestForms_(s, categories, refreshed, problems) {
   var portal = portalFolder_();
   var filesT = systemTab_(SYS_TAB.requestFiles);
   var have = indexBy_(filesT.rows(), 'Category id');
@@ -2909,12 +2951,19 @@ function buildRequestForms_(s, categories) {
   categories.forEach(function (c) {
     if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !c.Id) return;
     var rec = have[c.Id];
-    if (rec && rec['Form id']) return;
+    if (rec && rec['Form id']) {
+      try {
+        if (refreshRequestForm_(s, c, rec['Form id']) && refreshed) refreshed.push(c.Name);
+      } catch (e) {
+        if (problems) problems.push('Could not open the ' + c.Name + ' form to refresh its wording (' + clip(e && e.message ? e.message : e, 120) + ').');
+      }
+      return;
+    }
     var folderName = 'Requests – ' + c.Name;
     var existing = portal.getFoldersByName(folderName);
     var folder = existing.hasNext() ? existing.next() : portal.createFolder(folderName);
     var ss = newRequestSheet_(folder, c.Name, month);
-    var form = FormApp.create(c.Name + ' — ' + s.ward_name);
+    var form = FormApp.create(requestFormTitle_(s, c));
     form
       .setDescription(requestFormDescription_(s, c))
       .setCollectEmail(false)
@@ -3178,9 +3227,13 @@ function gpMenuSetUp() {
   }
   var folder = ensurePortalFolder_(ss);
   ensureSystemSheet_(s, folder);
-  var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows());
+  var refreshed = [];
+  var problems = [];
+  var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows(), refreshed, problems);
   var lines = ['Set up is done.'];
   lines.push(made.length ? 'New request forms: ' + made.join(', ') + '.' : 'Request forms: already made.');
+  if (refreshed.length) lines.push('Updated the wording of: ' + refreshed.join(', ') + '.');
+  if (problems.length) lines.push('Problems: ' + problems.join(' '));
   var tz = tzMismatchLine_(s);
   if (tz) lines.push('Time zone: ' + tz);
   lines.push('Next: deploy the web app, paste its address into Settings web_app_url, then run Install triggers and Sync sharing.');
@@ -3278,19 +3331,19 @@ function gpMenuSyncSharing() {
   var problems = [];
   var summary = [];
 
-  // Only the administrators (Bishop, Executive Secretary) may edit the Service Sheet: its editors
-  // can also edit the script bound to it, which runs as this account and can open every request
-  // sheet, including the bishop-only ones. Every other bishopric and ward council leader views it.
+  // Decision 14: the whole bishopric (Bishopric ticked) edits the Service Sheet. Its editors can
+  // also edit the bound script, which can open every request sheet; the bishopric reads the
+  // confidential requests anyway. Other ward council members view it.
   var sheetWant = {};
   leaders.forEach(function (l) {
     if (isTicked(l.Bishopric) || isTicked(l['Ward council'])) sheetWant[normEmail(l.Email)] = 'reader';
   });
-  adminEmails(leaders).forEach(function (e) {
+  bishopricEmails(leaders).forEach(function (e) {
     sheetWant[e] = 'writer';
   });
   var d = applySharing_(serviceSs_().getId(), sheetWant, owner, 'Service Sheet', problems);
   summary.push(
-    'Service Sheet: ' + Object.keys(sheetWant).length + ' people (bishop and Executive Secretary edit; other bishopric and ward council view); ' +
+    'Service Sheet: ' + Object.keys(sheetWant).length + ' people (the bishopric edits; other ward council members view); ' +
       d.add.length + ' added, ' + d.change.length + ' changed, ' + d.remove.length + ' removed.'
   );
 

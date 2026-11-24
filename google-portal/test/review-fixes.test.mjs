@@ -260,13 +260,16 @@ describe('requests: step messages and capped alerts', () => {
   });
 });
 
-describe('D2: the Read me says who edits', () => {
-  it('names the bishop and Executive Secretary as the only editors and says why', () => {
+describe('Decision 14 (replaces D2): the Read me says who edits and who sees confidential requests', () => {
+  it('names the whole bishopric as editors, says to tick Bishopric for five callings, and says why', () => {
     const gp = loadPortal({ seed: true });
     gp.gpEnsureTabs_(gp.fakes.spreadsheet);
     const text = gp.fakes.spreadsheet.getSheetByName('Read me').raw().flat().join('\n');
-    expect(text).toContain('only the bishop and the Executive Secretary edit this sheet');
+    expect(text).not.toContain('only the bishop and the Executive Secretary edit this sheet');
+    expect(text).toContain('the bishopric (every Leaders row with Bishopric ticked) edits this sheet');
+    expect(text).toContain('the bishop, both counselors, the Executive Secretary and the Ward Clerk');
     expect(text).toContain('script');
+    expect(text).toContain('Christmas and Other requests go only to the bishopric and that kind');
   });
 });
 

@@ -11,7 +11,7 @@ const PURE = [
   'sanitizeCell', 'esc', 'isEmail', 'normEmail', 'clip', 'isTicked', 'splitList',
   'validatePost', 'countsBySlot', 'slotStart', 'postSummary', 'publicPost', 'checkSignup', 'cancelIsLate', 'remindersDue', 'detailsDue',
   'postsToMarkPast', 'leaderAccess', 'canSeePost', 'canEditPost', 'noticeRecipients', 'rateCheck',
-  'requestReaders', 'adminEmails', 'stampClosed', 'rowsToPurge', 'rowsToCarry', 'needsRotation', 'sharingDiff',
+  'requestReaders', 'bishopricEmails', 'adminEmails', 'stampClosed', 'rowsToPurge', 'rowsToCarry', 'needsRotation', 'sharingDiff',
 ];
 /** The intended public entry points (checked below or in web.test.mjs). */
 const ENTRY = ['doGet', 'doPost', 'gpApi'];
