@@ -19,7 +19,7 @@ export const SOURCE_ORDER = readdirSync(SRC_DIR)
   .filter((f) => /^\d\d-[a-z0-9-]+\.js$/.test(f))
   .sort();
 
-export const PAGE_NAMES = ['serve', 'post', 'help', 'confirm', 'leader'];
+export const PAGE_NAMES = ['serve', 'post', 'help', 'confirm', 'leader', 'me'];
 
 const read = (path) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
 

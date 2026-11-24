@@ -328,6 +328,15 @@ function tplWaitingNotice_(s, name, items) {
   };
 }
 
+/** "Email me my link" from the My sign-ups page. */
+function tplMeLink_(s, url) {
+  var lines = [
+    'Here is the link to your sign-ups with ' + (s.ward_name || 'the ward') + '. It shows what you signed up for, lets you cancel, and lists other ways to serve.',
+    'Keep it to yourself: anyone with this link can see and cancel your sign-ups. A newer link replaces this one.',
+  ];
+  return { subject: 'Your sign-ups: ' + (s.ward_name || 'ward'), html: paras_(lines.map(esc)) + button_(url, 'See my sign-ups'), text: lines.join('\n\n') + '\n\n' + url };
+}
+
 /** A leader approved this address. Each sign-up that now counts gets its own email. */
 function tplApproved_(s, volunteer) {
   var ward = s.ward_name || 'the ward';

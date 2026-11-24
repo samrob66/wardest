@@ -262,7 +262,7 @@ function gpMenuInstallTriggers() {
 
 // ---------- hub files ----------
 
-/** Service Portal > Make hub files: the five pages and the sections snippet, ready to copy. */
+/** Service Portal > Make hub files: every page and the sections snippet, ready to copy. */
 function gpMenuMakeHubFiles() {
   if (!menuStart_()) return;
   var s = settings_();
@@ -274,7 +274,7 @@ function gpMenuMakeHubFiles() {
   var found = portal.getFoldersByName(HUB_FOLDER_NAME);
   var folder = found.hasNext() ? found.next() : portal.createFolder(HUB_FOLDER_NAME);
   var files = {};
-  ['serve', 'post', 'help', 'confirm', 'leader'].forEach(function (name) {
+  Object.keys(PAGE_TITLES).forEach(function (name) {
     files[name + '.html'] = renderPage_(name, s, false);
   });
   files['hub-sections.html'] = renderHubSections_(s);

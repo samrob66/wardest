@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<base target="_top">
+<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>
+<meta property="og:title" content="{{WARD_NAME}} · {{PAGE_TITLE}}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{PREVIEW_IMAGE}}">
+<!-- GP:CSS -->
+</head>
+<body>
+<main class="gp-wrap">
+  <header class="gp-head">
+    <p class="gp-ward">{{WARD_NAME}}</p>
+    <h1>{{PAGE_TITLE}}</h1>
+  </header>
+  <div id="gp-main"><p class="gp-loading">Loading…</p></div>
+</main>
+<footer class="gp-footer" id="gp-footer">
+  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
+  <p class="gp-contact">Contact: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></p>
+</footer>
+<!-- GP:JS -->
+<script>
+GP.init({ page: 'me', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });
+GP.footer();
+(function () {
+  var el = GP.el;
+  var main = GP.$('gp-main');
+  var STATUS = { 'Waiting-email': 'Waiting: please click the link in your confirm email', 'Waiting-approval': 'Waiting for a leader to approve' };
+  var T = '';
+
+  /** No link (or an old one): ask for a new one by email. */
+  function showRequest(error) {
+    var email = el('input', { type: 'email', id: 'gp-me-email', autocomplete: 'email', maxlength: '254' });
+    var out = el('div');
+    var button = el('button', { type: 'submit' }, 'Email me my link');
+    var form = el(
+      'form',
+      {
+        onsubmit: function (e) {
+          e.preventDefault();
+          button.disabled = true;
+          GP.call('requestMeLink', { email: email.value }).then(
+            function (res) {
+              button.disabled = false;
+              GP.show(out, GP.message(res && res.ok ? 'ok' : 'alert', res && res.ok ? res.message : GP.errorText(res)));
+            },
+            function () {
+              button.disabled = false;
+              GP.show(out, GP.unreachable('me'));
+            }
+          );
+        },
+      },
+      [el('label', { for: 'gp-me-email' }, 'The email you signed up with'), email, el('p', {}, [button])]
+    );
+    GP.show(main, [
+      error ? GP.message('alert', error) : null,
+      el('p', {}, 'Your sign-ups open from a personal link in your confirmation email. Type your email and we will send you a new one.'),
+      form,
+      out,
+    ]);
+  }
+
+  function when(s) {
+    return GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '');
+  }
+
+  function card(s, upcoming) {
+    var out = el('div');
+    var bits = [
+      el('h3', {}, [el('a', { href: s.publicUrl }, s.title)]),
+      el('p', { class: 'gp-meta' }, when(s) + ' · ' + s.role + (s.childName ? ' · for ' + s.childName : '')),
+    ];
+    if (STATUS[s.status]) bits.push(el('p', {}, [el('span', { class: 'gp-tag' }, STATUS[s.status])]));
+    if (s.bringing) bits.push(el('p', { class: 'gp-meta' }, 'Bringing: ' + s.bringing));
+    if (s.privateDetails) bits.push(el('div', { class: 'gp-note' }, [el('strong', {}, 'Details (please keep them private): '), s.privateDetails]));
+    if (s.others && s.others.length) bits.push(el('p', { class: 'gp-meta' }, 'Also serving: ' + s.others.join(', ')));
+    if (upcoming && s.cancelToken) {
+      var button = el('button', {
+        type: 'button',
+        class: 'gp-danger',
+        onclick: function () {
+          if (!window.confirm('Cancel ' + s.role + ' on ' + GP.fmtDate(s.date) + '?')) return;
+          button.disabled = true;
+          GP.call('cancel', { t: s.cancelToken }).then(
+            function (r) {
+              if (r && r.ok) return load(r.message);
+              button.disabled = false;
+              GP.show(out, GP.message('alert', GP.errorText(r)));
+            },
+            function () {
+              button.disabled = false;
+              GP.show(out, GP.unreachable('me'));
+            }
+          );
+        },
+      }, 'Cancel');
+      bits.push(el('p', {}, [button]));
+    }
+    bits.push(out);
+    return el('div', { class: 'gp-card' }, bits);
+  }
+
+  function render(res, note) {
+    var parts = [];
+    if (note) parts.push(GP.message('ok', note));
+    parts.push(el('h2', {}, 'Coming up'));
+    if (!res.upcoming.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing coming up.'));
+    res.upcoming.forEach(function (s) {
+      parts.push(card(s, true));
+    });
+    if (res.otherWays.length) {
+      parts.push(el('h2', {}, 'Other ways to serve'));
+      res.otherWays.forEach(function (o) {
+        parts.push(el('a', { class: 'gp-card', href: o.url }, [
+          el('h3', {}, o.title),
+          GP.fillBar(o.filled, o.needed),
+          el('p', { class: 'gp-count' }, o.filled + ' of ' + o.needed + ' filled'),
+        ]));
+      });
+    }
+    if (res.past.length) {
+      parts.push(el('h2', {}, 'Past'));
+      res.past.forEach(function (s) {
+        parts.push(card(s, false));
+      });
+    }
+    GP.show(main, parts);
+  }
+
+  function load(note) {
+    GP.call('me', { t: T }).then(
+      function (res) {
+        if (!res || !res.ok) return showRequest(GP.errorText(res));
+        render(res, note);
+      },
+      function () {
+        GP.show(main, GP.unreachable('me'));
+      }
+    );
+  }
+
+  GP.hash().then(function (h) {
+    T = h.t || '';
+    if (!T) return showRequest('');
+    load('');
+  });
+})();
+</script>
+</body>
+</html>

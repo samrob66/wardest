@@ -38,6 +38,23 @@ function readToken_(raw, kind) {
   return { subject: String(row.Subject), expires: row.Expires };
 }
 
+/** Several tokens in one write: items [{kind, subject, expires}] → raw tokens in the same order. */
+function issueTokensMany_(items) {
+  if (!items.length) return [];
+  var now = nowLocal_();
+  var raws = items.map(function () {
+    return newToken_();
+  });
+  withLock_(function () {
+    systemTab_(SYS_TAB.tokens).appendMany(
+      items.map(function (it, i) {
+        return { Hash: sha256Hex_(raws[i]), Kind: it.kind, Subject: it.subject, Expires: it.expires, Created: now };
+      })
+    );
+  });
+  return raws;
+}
+
 /** {kind, subject, expires, expired} for a raw token still in the Tokens tab, else null. */
 function tokenRow_(raw) {
   if (!isRawToken_(raw)) return null;

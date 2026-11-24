@@ -32,22 +32,32 @@ GP.footer();
   var main = GP.$('gp-main');
   GP.hash().then(function (h) {
     if (!h.t) return GP.show(main, GP.message('alert', 'This link is missing part of its address. Open it again from your email.'));
+    // One page for three kinds of emailed link: confirm your address, withdraw an offer, cancel.
+    var KINDS = {
+      confirm: { action: 'confirm', label: 'Confirm my address', cls: '', intro: 'Please confirm this is your email address so your sign-up can go ahead.' },
+      withdraw: { action: 'withdraw', label: 'Withdraw my offer', cls: 'gp-danger', intro: 'This role already has the people it needs. You may stay signed up, or withdraw your offer below.' },
+      cancel: { action: 'cancel', label: 'Cancel my sign-up', cls: 'gp-danger', intro: "Can't make it? Cancel below so someone else can take your place." },
+    };
+    var ACTIVE = { Confirmed: true, 'Waiting-email': true, 'Waiting-approval': true };
     GP.call('tokenInfo', { t: h.t }).then(
       function (res) {
         if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
+        var kind = KINDS[res.kind] || KINDS.cancel;
         var when = GP.fmtDate(res.date) + (res.start ? ', ' + GP.fmtTime(res.start) : '');
         var info = el('div', { class: 'gp-card' }, [el('h3', {}, res.title), el('p', {}, res.role + ' · ' + when)]);
-        if (res.status !== 'Confirmed') return GP.show(main, [info, GP.message('ok', 'This sign-up is already cancelled.')]);
+        if (res.kind === 'confirm' && res.confirmed) return GP.show(main, [info, GP.message('ok', 'Your address is already confirmed.')]);
+        if (res.kind === 'withdraw' && res.status !== 'Confirmed') return GP.show(main, [info, GP.message('ok', 'This sign-up is no longer active.')]);
+        if (res.kind === 'cancel' && !ACTIVE[res.status]) return GP.show(main, [info, GP.message('ok', 'This sign-up is already cancelled.')]);
         var out = el('div');
-        // Cancelling happens only on this click (email scanners open links but never press buttons).
+        // The change happens only on this click (email scanners open links but never press buttons).
         var button = el(
           'button',
           {
             type: 'button',
-            class: 'gp-danger',
+            class: kind.cls,
             onclick: function () {
               button.disabled = true;
-              GP.call('cancel', { t: h.t }).then(
+              GP.call(kind.action, { t: h.t }).then(
                 function (r) {
                   if (r && r.ok) return GP.show(main, [info, GP.message('ok', r.message)]);
                   button.disabled = false;
@@ -60,9 +70,9 @@ GP.footer();
               );
             },
           },
-          'Cancel my sign-up'
+          kind.label
         );
-        GP.show(main, [info, el('p', {}, "Can't make it? Cancel below so someone else can take your place."), el('p', {}, [button]), out]);
+        GP.show(main, [info, el('p', {}, kind.intro), el('p', {}, [button]), out]);
       },
       function () {
         GP.show(main, GP.unreachable('confirm'));

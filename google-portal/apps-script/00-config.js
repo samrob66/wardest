@@ -45,6 +45,7 @@ var TEXT = {
   confirmedPassed: 'Your address is confirmed. The date you signed up for has passed, so that sign-up has ended.',
   withdrawn: 'Your offer is withdrawn. Thank you for being willing to help.',
   notActive: 'This sign-up is no longer active.',
+  meLinkMessage: 'If that address has signed up for something, a link to your sign-ups is on its way.',
   alreadyCancelled: 'This sign-up is already cancelled.',
   cancelled: 'Your sign-up is cancelled. Thank you for letting us know.',
   linkInvalid: 'This link has expired or is no longer valid.',

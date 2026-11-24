@@ -253,7 +253,7 @@ describe('Install triggers, hub files, leader links, health', () => {
     gp.gpMenuMakeHubFiles();
     gp.gpMenuMakeHubFiles();
     const live = [...gp.fakes.drive.files.values()].filter((f) => f.mime === 'text/html' && !f.trashed);
-    expect(live.map((f) => f.name).sort()).toEqual(['confirm.html', 'help.html', 'hub-sections.html', 'leader.html', 'post.html', 'serve.html']);
+    expect(live.map((f) => f.name).sort()).toEqual(['confirm.html', 'help.html', 'hub-sections.html', 'leader.html', 'me.html', 'post.html', 'serve.html']);
     const serve = live.find((f) => f.name === 'serve.html').content;
     expect(serve).toContain('fallback: false');
     expect(serve).toContain('Riverbend 1st Ward (example)');

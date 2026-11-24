@@ -2,7 +2,7 @@
  * Web entry points. The web app is deployed "Execute as: Me" (the shared account) and "Who has
  * access: Anyone".
  *   GET  ?api=serve|post|help|ping   JSON for the hub pages
- *   GET  ?page=serve|post|help|confirm|leader   the same pages served by the script (fallback)
+ *   GET  ?page=serve|post|help|confirm|leader|me   the same pages served by the script (fallback)
  *   POST (text/plain body holding JSON {action, ...})   every action that changes or reads private data
  *   gpApi(req)   the fallback pages' google.script.run channel
  */
@@ -13,6 +13,7 @@ var PAGE_TITLES = {
   help: 'Request Help or Service',
   confirm: 'Your Sign-up',
   leader: 'Leader Page',
+  me: 'My Sign-ups',
 };
 
 var POST_ACTIONS = [
@@ -21,6 +22,8 @@ var POST_ACTIONS = [
   'cancel',
   'confirm',
   'withdraw',
+  'me',
+  'requestMeLink',
   'requestLeaderLink',
   'whoami',
   'listPosts',
@@ -107,6 +110,12 @@ function dispatch_(action, data) {
     },
     withdraw: function () {
       return apiWithdraw_(data);
+    },
+    me: function () {
+      return apiMe_(data);
+    },
+    requestMeLink: function () {
+      return apiRequestMeLink_(data);
     },
     requestLeaderLink: function () {
       return apiRequestLeaderLink_(data);

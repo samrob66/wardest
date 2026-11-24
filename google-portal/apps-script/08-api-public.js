@@ -379,14 +379,21 @@ function notifyApprovers_(firstPost, name, items) {
   });
 }
 
-/** Other Open posts still needing people, fill levels only: [{title, filled, needed, url}]. */
-function otherWays_(s, d, exceptPostId) {
+/**
+ * Other Open posts still needing people, fill levels only: [{title, filled, needed, url}].
+ * except: a post id or a list of them to leave out.
+ */
+function otherWays_(s, d, except) {
   var today = todayLocal_();
   var counts = countsBySlot(d.signups);
   var slotsByPost = groupBy_(d.slots, 'Post id');
+  var skip = {};
+  [].concat(except || []).forEach(function (id) {
+    skip[id] = true;
+  });
   return d.posts
     .filter(function (p) {
-      return p.Status === POST_STATUS.open && p['Post id'] !== exceptPostId;
+      return p.Status === POST_STATUS.open && !skip[p['Post id']];
     })
     .map(function (p) {
       return postSummary(p, slotsByPost[p['Post id']] || [], counts, today);
@@ -656,4 +663,127 @@ function apiWithdraw_(data) {
 
 function apiRequestLeaderLink_(data) {
   return requestLeaderLink_(data && data.email);
+}
+
+// ---------- My sign-ups ----------
+
+/** 'Sister' from 'Sister Example': the first word only (or a child's first name). */
+function firstName_(su) {
+  var child = String(su['Child first name'] || '').trim();
+  if (child) return child;
+  return String(su.Name || '').trim().split(/\s+/)[0] || '';
+}
+
+/**
+ * My sign-ups (a "me" link). Only this address's sign-ups: upcoming (waiting or confirmed, today or
+ * later, each with a fresh cancel link) and past (confirmed, date gone). For an approved
+ * volunteer or a leader: the other volunteers' first names on the same post (confirmed only, no
+ * emails), the private details while the post is on, and other ways to serve (fill levels only).
+ */
+function apiMe_(data) {
+  var row = tokenRow_(data && data.t);
+  if (!row || row.kind !== 'me') return { ok: false, error: TEXT.linkInvalid };
+  if (row.expired) return { ok: false, error: TEXT.linkExpired };
+  var s = settings_();
+  var email = normEmail(row.subject);
+  var d = volunteerData_();
+  var today = todayLocal_();
+  var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
+  var state = volunteerState(email, vols, leaderEmails_());
+  var trusted = state === 'approved' || state === 'leader';
+  var postsById = indexBy_(d.posts, 'Post id');
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var byPost = groupBy_(d.signups, 'Post id');
+  var mine = d.signups.filter(function (su) {
+    return normEmail(su.Email) === email && slotsById[su['Slot id']] && postsById[su['Post id']];
+  });
+  var upcoming = [];
+  var past = [];
+  var issue = [];
+  mine.forEach(function (su) {
+    var sl = slotsById[su['Slot id']];
+    var p = postsById[su['Post id']];
+    var over = sl.Date < today || p.Status === POST_STATUS.past || p.Status === POST_STATUS.cancelled;
+    var active = isActiveSignup_(su.Status);
+    if (!over && !active) return;
+    if (over && su.Status !== SIGNUP_STATUS.confirmed) return;
+    var item = {
+      title: p.Title,
+      publicUrl: pageUrl_(s, 'post', { p: p['Public id'] }),
+      date: sl.Date,
+      start: sl.Start || '',
+      end: sl.End || '',
+      role: sl.Role,
+      childName: su['Child first name'] || '',
+      bringing: su.Bringing || '',
+      status: su.Status,
+      others: [],
+    };
+    if (trusted) {
+      item.others = uniq_(
+        (byPost[p['Post id']] || [])
+          .filter(function (o) {
+            return o.Status === SIGNUP_STATUS.confirmed && normEmail(o.Email) !== email;
+          })
+          .map(firstName_)
+          .filter(String)
+      );
+      if (!over && su.Status === SIGNUP_STATUS.confirmed && p['Private details']) item.privateDetails = p['Private details'];
+    }
+    if (over) {
+      past.push(item);
+    } else {
+      issue.push({ item: item, id: su['Sign-up id'], slot: sl });
+      upcoming.push(item);
+    }
+  });
+  // Fresh cancel links for what is still to come; they last a day (the emailed ones last longer).
+  var now = nowLocal_();
+  var dayLater = localMinusHours(now, -24);
+  var raws = issueTokensMany_(
+    issue.map(function (x) {
+      var end = addDays(x.slot.Date, 1) + ' 23:59';
+      return { kind: 'cancel', subject: x.id, expires: end < dayLater ? end : dayLater };
+    })
+  );
+  issue.forEach(function (x, i) {
+    x.item.cancelToken = raws[i];
+  });
+  var order = function (a, b) {
+    return cmpLocal(a.date + ' ' + (a.start || '00:00'), b.date + ' ' + (b.start || '00:00')) || cmpLocal(a.title, b.title);
+  };
+  var minePosts = {};
+  mine.forEach(function (su) {
+    minePosts[su['Post id']] = true;
+  });
+  var otherWays = trusted ? otherWays_(s, d, Object.keys(minePosts)) : [];
+  var vrow = vols[email];
+  return { ok: true, name: vrow ? vrow.Name : '', upcoming: upcoming.sort(order), past: past.sort(order), otherWays: otherWays };
+}
+
+/** "Email me my link": the same answer always; sends only to an address with a sign-up, 3 a day. */
+function apiRequestMeLink_(data) {
+  var answer = { ok: true, message: TEXT.meLinkMessage };
+  var raw = String((data && data.email) == null ? '' : data.email).trim();
+  if (!isEmail(raw)) return answer;
+  var email = normEmail(raw);
+  var d = volunteerData_();
+  var has = d.signups.some(function (su) {
+    return normEmail(su.Email) === email;
+  });
+  if (!has) return answer;
+  var tag = sha256Hex_('me:' + email).slice(0, 32);
+  var today = todayLocal_();
+  var count = systemTab_(SYS_TAB.log)
+    .rows()
+    .filter(function (r) {
+      return r.What === 'me link requested' && String(r.Detail) === tag && String(r.At).slice(0, 10) === today;
+    }).length;
+  if (count >= LIMITS.meLinksPerAddressPerDay) return answer;
+  log_('me link requested', tag);
+  var s = settings_();
+  var t = issueMeToken_(email, d.signups, indexBy_(d.slots, 'Slot id'));
+  var m = tplMeLink_(s, pageUrl_(s, 'me', { t: t }));
+  sendOrQueue_({ to: email, subject: m.subject, html: m.html, text: m.text, priority: 'normal' });
+  return answer;
 }
