@@ -252,11 +252,47 @@ GP.footer();
     }, function (e) { failed(e, body); });
   }
 
+  /** The inline "are you sure" panel for cancelling a post (date blank) or one date. */
+  function cancelPanel(p, date, box) {
+    var note = el('textarea', { id: nextId('gp-cancel-note-'), maxlength: '300', placeholder: 'Optional note for the email (up to 300 characters)' });
+    var msg = el('div');
+    var question = date
+      ? 'Cancel ' + GP.fmtDate(date) + '? Everyone signed up for that date gets an email, and no reminders go out for it.'
+      : 'Cancel this opportunity? Everyone signed up gets an email, and no reminders go out.';
+    var yes = el('button', {
+      type: 'button',
+      class: 'gp-danger',
+      onclick: function () {
+        yes.disabled = true;
+        call(date ? 'cancelDate' : 'cancelPost', { postId: p.postId, date: date || '', note: note.value }).then(function (res) {
+          if (!res.ok) {
+            yes.disabled = false;
+            return GP.show(msg, GP.message('alert', GP.errorText(res)));
+          }
+          flash('ok', res.message);
+          render();
+        }, function (e) {
+          yes.disabled = false;
+          failed(e, msg);
+        });
+      },
+    }, date ? 'Yes, cancel this date' : 'Yes, cancel it');
+    var no = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.clear(box); } }, 'Keep it');
+    GP.show(box, el('div', { class: 'gp-alert' }, [
+      el('p', { style: 'margin-top:0' }, question),
+      el('label', { for: note.id }, 'Note (optional)'),
+      note,
+      el('p', {}, [yes, no]),
+      msg,
+    ]));
+  }
+
   function postCard(p) {
     var bySlot = {};
     p.signups.forEach(function (s) {
       (bySlot[s.slotId] = bySlot[s.slotId] || []).push(s);
     });
+    var live = p.status !== 'Past' && p.status !== 'Cancelled';
     var out = el('div');
     var items = [
       el('h3', {}, p.title),
@@ -266,19 +302,43 @@ GP.footer();
       var copyBtn = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');
       items.push(el('p', { class: 'gp-meta' }, ['Public link: ', el('a', { href: p.publicUrl, target: '_blank', rel: 'noopener' }, p.publicUrl), ' ', copyBtn]));
     }
+    if (p.status === 'Closed' || p.status === 'Draft') {
+      items.push(el('p', { class: 'gp-meta' }, 'No one new can sign up. People already signed up keep their place and still get their reminder.'));
+    }
     if (p.signups.length) items.push(el('p', { class: 'gp-meta' }, DETAILS_NOTE));
+    var dates = {};
+    p.slots.forEach(function (s) {
+      dates[s.date] = true;
+    });
+    var multiDate = Object.keys(dates).length > 1;
+    var bookedDates = {};
+    p.signups.forEach(function (su) {
+      p.slots.forEach(function (x) {
+        if (x.slotId === su.slotId) bookedDates[x.date] = true;
+      });
+    });
+    var cancelShown = {};
     p.slots.forEach(function (s) {
       var people = (bySlot[s.slotId] || []).map(function (su) {
         return personRow(p, s, su, out);
       });
+      var dateBits = [];
+      // One "Cancel this date" per date with people signed up, when the post has other dates.
+      if (p.canEdit && live && multiDate && bookedDates[s.date] && !cancelShown[s.date]) {
+        cancelShown[s.date] = true;
+        var dateBox = el('div');
+        dateBits.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, s.date, dateBox); } }, 'Cancel this date'));
+        dateBits.push(dateBox);
+      }
       items.push(
         el('div', { class: 'gp-slot' }, [
           el('strong', {}, GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '') + ' · ' + s.role),
           el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.filled >= s.needed ? ' · Filled ✓' : '')),
-        ].concat(people.length ? people : [el('div', { class: 'gp-person gp-muted' }, 'No one yet.')]))
+        ].concat(people.length ? people : [el('div', { class: 'gp-person gp-muted' }, 'No one yet.')]).concat(dateBits))
       );
     });
-    if (p.canEdit) {
+    if (p.canEdit && live) {
+      var cancelBox = el('div');
       var actions = [
         el('button', { type: 'button', onclick: function () { openForEdit(p.postId, false, out); } }, 'Edit'),
         el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post'),
@@ -287,9 +347,10 @@ GP.footer();
         actions.push(
           el('button', {
             type: 'button',
-            class: 'gp-danger',
+            class: 'gp-light',
             onclick: function () {
-              if (!window.confirm('Close "' + p.title + '"? No one new can sign up; people already signed up stay.')) return;
+              var q = 'Close "' + p.title + '"? No one new can sign up. People already signed up keep their place and still get their reminder. (If it is not happening at all, use Cancel this opportunity.)';
+              if (!window.confirm(q)) return;
               call('savePost', { mode: 'close', post: { postId: p.postId } }).then(function (res) {
                 flash(res.ok ? 'ok' : 'alert', res.ok ? 'Closed.' : GP.errorText(res));
                 render();
@@ -298,7 +359,11 @@ GP.footer();
           }, 'Close')
         );
       }
+      actions.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, '', cancelBox); } }, 'Cancel this opportunity'));
       items.push(el('p', {}, actions));
+      items.push(cancelBox);
+    } else if (p.canEdit && p.status === 'Past') {
+      items.push(el('p', {}, [el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post')]));
     }
     items.push(out);
     return el('div', { class: 'gp-card' }, items);
@@ -308,7 +373,8 @@ GP.footer();
     var bits = [el('span', {}, su.name + (su.childName ? ' (for ' + su.childName + ')' : ''))];
     if (su.bringing) bits.push(el('span', { class: 'gp-meta' }, 'Bringing: ' + su.bringing));
     if (su.email) bits.push(el('span', { class: 'gp-meta' }, su.email));
-    if (p.canEdit && p.hasPrivateDetails && !su.detailsSent) {
+    // Only for a sign-up the day-before reminder can no longer reach (the role is today).
+    if (p.canEdit && su.detailsDue) {
       bits.push(el('span', { class: 'gp-error' }, 'Details not sent'));
       bits.push(
         el('button', {
@@ -323,7 +389,7 @@ GP.footer();
         }, 'Send details')
       );
     }
-    if (p.canEdit) {
+    if (p.canEdit && p.status !== 'Past' && p.status !== 'Cancelled') {
       bits.push(
         el('button', {
           type: 'button',
@@ -438,6 +504,7 @@ GP.footer();
     if (f.status === 'Open') {
       actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Save changes'));
       actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft (hide it)'));
+      parts.push(el('p', { class: 'gp-meta' }, 'Save as draft hides it from the public page. People already signed up keep their place and still get their reminder.'));
     } else if (f.status === 'Closed') {
       actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Reopen and save'));
       actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));
@@ -571,7 +638,12 @@ GP.footer();
       flash('ok', action === 'publish' ? 'Published. Share this link: ' + res.publicUrl : 'Saved as a draft. Nobody else sees it until you publish it.');
       render();
       window.scrollTo(0, 0);
-    }, function (e) { failed(e); });
+    }, function (e) {
+      if (e && e.handled) return;
+      state.formError = "Can't reach the portal right now. What you typed is still here; try Save again in a minute.";
+      render();
+      window.scrollTo(0, 0);
+    });
   }
 
   // ---------- start ----------

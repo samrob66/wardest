@@ -209,9 +209,10 @@ describe('Sync sharing', () => {
     gp.gpMenuSyncSharing();
     expect(perms(serviceId)).toEqual({
       [OWNER_EMAIL]: 'owner',
+      // D2: only the administrators edit (Sheet editors can edit its bound script).
       'bishop.example@example.test': 'writer',
-      'brother.counselor@example.test': 'writer',
-      'brother.clerk@example.test': 'reader',
+      'brother.counselor@example.test': 'reader',
+      'brother.clerk@example.test': 'writer',
       'sister.example@example.test': 'reader',
       'brother.sample@example.test': 'reader',
     });

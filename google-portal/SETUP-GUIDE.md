@@ -39,8 +39,12 @@ What you are building:
       email allowance). Everything below is the same on that account.
 4. **Name two administrators**: the bishop and the Executive Secretary. Both should know how to
    sign in to the shared account (password and 2-step verification recovery), and both will get
-   the portal's alert emails. In the Leaders tab (step 3.7) their Calling must say exactly
-   `Bishop` and `Executive Secretary`.
+   the portal's alert emails. In the Leaders tab (step 3.5) their Calling must say exactly
+   `Bishop` and `Executive Secretary`. They are also the **only two who can edit the Service
+   Sheet**: anyone who can edit it can also change the script inside it, and that script can
+   open every request sheet, including the bishop-only ones. Other bishopric members and the
+   ward council can view it, and ask the Executive Secretary to change Settings, Leaders or
+   Categories.
 5. **Agree on the Gemini rule** with every leader who will see portal data. It is also written
    in the Service Sheet's Read me tab:
    > Do not ask Gemini to read, summarize or draft from the Service Sheet, the request sheets or request notices.
@@ -125,12 +129,16 @@ click **Raw**, press **Ctrl+A** (Mac: **Cmd+A**) to select everything, then **Ct
    | Email | The address their leader link goes to |
    | Calling | e.g. `Relief Society President`. The bishop must be exactly `Bishop`; the Executive Secretary exactly `Executive Secretary` |
    | Organization | Pick from the list |
-   | Bishopric | Tick for bishopric members: they edit the Service Sheet and every opportunity |
+   | Bishopric | Tick for bishopric members: on the leader page they see and edit every opportunity. (Only the bishop and Executive Secretary edit the Service Sheet itself; see section 1.) |
    | Ward council | Tick for ward council members: they see every opportunity and its names, and edit their own organization's |
    | Org editor | Tick for leaders who make opportunities for their organization (they see only their own organization's names) |
    | Coordinator | Phase 2; ticking it alone gives nothing yet |
    | Send leader link | Leave for now (step 7) |
    | Link sent | The script fills this |
+
+   **Your own row:** add yourself, with Calling `Executive Secretary`, Organization `Bishopric`
+   and **Ward council** ticked. Without a role box ticked, the leader page answers *Your leader
+   role can't create opportunities yet* and you can't do the test in section 9.
 
 6. Open the **Categories** tab and check the owners. Request kinds (`moving`, `christmas`,
    `other`) decide who reads each request folder:
@@ -174,8 +182,9 @@ and the old links stop working.
 1. Click **Service Portal > Install triggers**. It says *Triggers installed: every 10 minutes,
    hourly, daily at 2 am, and 3 request form trigger(s).*
 2. Click **Service Portal > Sync sharing**. It shares, with Google's share emails turned off:
-   - the **Service Sheet**: bishopric can edit (Settings, Leaders, Categories), ward council can
-     view;
+   - the **Service Sheet**: the bishop and the Executive Secretary can edit; every other
+     bishopric and ward council member can view (editors can also change the script inside it,
+     which can open every request sheet, so edit access stays with those two);
    - each **request folder**: the leaders who read that kind of request (they can edit the
      request sheet: Status, Assigned to, Leader note);
    - the **System Sheet** and the **Service Portal** folder: nobody but the shared account
@@ -282,9 +291,13 @@ Use your own email for the volunteer steps. Tick each box as it passes.
       the form itself (Drive > Service Portal > the form > **Responses** tab): it shows **0**.
       If a form says it is not accepting responses, open it and click **Publish**.
 - [ ] Set a test request's **Status** to **Done**. Next day its **Closed on** date is filled.
+- [ ] **Close vs Cancel**: Close stops new sign-ups but the event still happens and people
+      still get their reminder; Cancel this opportunity means it isn't happening and everyone
+      signed up is told. Sign up for the test post once more, then click **Cancel this
+      opportunity** on the leader page (add a short note): you get the *Cancelled:* email with
+      your note, and the post leaves the serve page (it moves to **Show past opportunities**).
 - [ ] **Check health**: every line OK.
-- [ ] Delete the test opportunity's sign-ups by Remove, Close the test post, and set test
-      requests to Done (they leave after 30 days).
+- [ ] Set the test requests to **Done** (they leave after 30 days).
 
 ---
 

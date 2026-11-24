@@ -146,48 +146,77 @@ function scrub_(msg, answers) {
   return clip(out, 300);
 }
 
+/** A real form-submit event carries functions; JSON from a web visitor can't. */
+function isFormEvent_(e) {
+  return !!(
+    e &&
+    e.source &&
+    e.response &&
+    typeof e.source.getId === 'function' &&
+    typeof e.source.deleteResponse === 'function' &&
+    typeof e.response.getItemResponses === 'function' &&
+    typeof e.response.getId === 'function'
+  );
+}
+
+/** What an administrator must do, by the step that failed. */
+var REQ_STEP_HELP = {
+  read: 'It is kept in the form’s Responses tab; copy it into the request sheet by hand, then delete it from the form.',
+  file: 'It is kept in the form’s Responses tab; copy it into the request sheet by hand, then delete it from the form.',
+  unform: 'It was filed in the request sheet but is still in the form’s Responses tab; delete it there.',
+  notify: 'It was filed in the request sheet, but not every leader was told. Ask them to check their Requests folder.',
+};
+
 /** Form-submit trigger (one per request form). */
 function gpOnRequestSubmit(e) {
+  if (!isFormEvent_(e)) return;
   gpBegin_();
   var answers = {};
   var catId = '?';
   var catName = 'request';
+  var step = 'read';
   try {
     e.response.getItemResponses().forEach(function (ir) {
       var v = ir.getResponse();
       answers[ir.getItem().getTitle()] = Array.isArray(v) ? v.join(', ') : String(v == null ? '' : v);
     });
     var formId = e.source.getId();
-    var file = systemTab_(SYS_TAB.requestFiles).find('Form id', formId);
-    if (!file) throw new Error('no Request files row for this form');
-    catId = file['Category id'];
-    var cat = serviceTab_(TAB.categories).find('Id', catId);
-    if (!cat) throw new Error('category missing from the Categories tab');
-    catName = cat.Name;
-    var row = { 'Request id': newId_('r'), Received: nowLocal_(), Kind: cat.Name, Status: 'New' };
-    REQ_MAP.forEach(function (m) {
-      if (m[0] in answers) row[m[1]] = clip(answers[m[0]].trim(), m[2]);
+    step = 'file';
+    // Under the lock, so the monthly rotation can't switch sheets between finding and appending.
+    var filed = withLock_(function () {
+      var file = systemTab_(SYS_TAB.requestFiles).find('Form id', formId);
+      if (!file) throw new Error('no Request files row for this form');
+      catId = file['Category id'];
+      var cat = serviceTab_(TAB.categories).find('Id', catId);
+      if (!cat) throw new Error('category missing from the Categories tab');
+      catName = cat.Name;
+      var row = { 'Request id': newId_('r'), Received: nowLocal_(), Kind: cat.Name, Status: 'New' };
+      REQ_MAP.forEach(function (m) {
+        if (m[0] in answers) row[m[1]] = clip(answers[m[0]].trim(), m[2]);
+      });
+      tabOf_(SpreadsheetApp.openById(file['Sheet id']), REQUEST_TAB).append(row);
+      return { file: file, cat: cat };
     });
-    tabOf_(SpreadsheetApp.openById(file['Sheet id']), REQUEST_TAB).append(row);
+    step = 'unform';
     e.source.deleteResponse(e.response.getId());
+    step = 'notify';
     var s = settings_();
-    var t = tplRequestNotice_(s, cat.Name, DriveApp.getFolderById(file['Folder id']).getUrl());
-    requestReaders(cat, leaders_()).forEach(function (to) {
+    var t = tplRequestNotice_(s, filed.cat.Name, DriveApp.getFolderById(filed.file['Folder id']).getUrl());
+    requestReaders(filed.cat, leaders_()).forEach(function (to) {
       sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
     });
   } catch (err) {
     var msg = scrub_(err && err.message ? err.message : err, answers);
-    log_('request error', catId + ' | ' + msg);
-    alertAdmins_([
-      'A ' + catName + ' request could not be filed. It is kept in the form’s Responses tab; copy it into the request sheet by hand.',
-      'Problem: ' + msg,
-    ]);
+    log_('request error', catId + ' | ' + step + ' | ' + msg);
+    alertCapped_('request-error', ['A ' + catName + ' request ran into a problem. ' + REQ_STEP_HELP[step], 'Problem: ' + msg], 3);
   }
 }
 
 /**
- * Daily: stamp Closed on, purge after 30 days, rotate on a new month. Old files that could only be
- * trashed are reported in one admin alert. Returns problem lines (the daily job reports them).
+ * Daily: stamp Closed on, purge after 30 days, rotate on a new month. Each file is handled under
+ * the script lock, so a request can't be filed into a sheet that is being replaced. Old files
+ * that could only be trashed are reported in one admin alert. Returns problem lines (the daily
+ * job reports them).
  */
 function dailyRequests_() {
   var today = todayLocal_();
@@ -198,14 +227,16 @@ function dailyRequests_() {
   filesT.rows().forEach(function (f) {
     if (!f['Sheet id']) return;
     try {
-      var ss = SpreadsheetApp.openById(f['Sheet id']);
-      var t = tabOf_(ss, REQUEST_TAB);
-      var rows = t.rows();
-      stampClosed(rows, today).forEach(function (x) {
-        t.update(x.row, { 'Closed on': x.closedOn });
+      withLock_(function () {
+        var ss = SpreadsheetApp.openById(f['Sheet id']);
+        var t = tabOf_(ss, REQUEST_TAB);
+        var rows = t.rows();
+        stampClosed(rows, today).forEach(function (x) {
+          t.update(x.row, { 'Closed on': x.closedOn });
+        });
+        t.removeMany(rowsToPurge(rows, today));
+        if (needsRotation(f.Month, today)) rotateRequestFile_(f, filesT, t, cats[f['Category id']], today, trashed);
       });
-      t.removeMany(rowsToPurge(rows, today));
-      if (needsRotation(f.Month, today)) rotateRequestFile_(f, filesT, t, cats[f['Category id']], today, trashed);
     } catch (err) {
       var msg = clip(err && err.message ? err.message : err, 300);
       log_('request daily error', f['Category id'] + ' | ' + msg);

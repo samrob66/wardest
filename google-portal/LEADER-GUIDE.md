@@ -26,12 +26,23 @@ cancel cutoff.
 their reminder the day before. Click **Remove** next to a name you don't know; the person gets
 an email and the spot opens again.
 
-**Send details for late sign-ups.** Someone who signs up after the reminder went out shows
-*Details not sent*. Click **Send details** to email them the private details.
+**Send details for same-day sign-ups.** Someone who signs up on the day of the role never gets
+a reminder, so on that day they show *Details not sent*. Check you recognize them, then click
+**Send details** to email them the private details. (Everyone else gets the details in their
+reminder; there is nothing to do for them.)
 
-**Change or close.** **Edit** changes a post (a date with people signed up can't be removed
-until you remove them). **Copy this post** starts a new draft from it. **Close** stops new
-sign-ups.
+**Change a post.** **Edit** changes a post. A date or start time with people signed up can't be
+moved or removed until you remove them (or cancel that date, below). **Copy this post** starts
+a new draft from it.
+
+**Close or cancel?**
+- **Close**: no one new can sign up, but it is still happening. People already signed up keep
+  their place and still get their reminder. (**Save as draft** on a published post does the
+  same and also hides it from the public page.)
+- **Cancel this opportunity**: it isn't happening. Everyone signed up gets an email (with your
+  short note, if you add one), no reminders go out, and it can't be reopened.
+- **Cancel this date**: one date of a longer post isn't happening. The people signed up for that
+  date get the email; the other dates carry on.
 
 **Sign out everywhere.** If your link may have been forwarded, click **Sign out everywhere**.
 The old link stops working and a new one is emailed to you.

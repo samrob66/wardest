@@ -145,21 +145,44 @@ describe('cancelIsLate', () => {
 
 describe('remindersDue', () => {
   const slotsById = { sl1: SLOT({ Date: '2026-12-02', Start: '09:00' }), sl9: SLOT({ 'Slot id': 'sl9', Date: '2026-12-03' }) };
-  const postsById = { p1: POST(), p2: POST({ 'Post id': 'p2', Status: 'Closed' }) };
+  const postsById = {
+    p1: POST(),
+    p2: POST({ 'Post id': 'p2', Status: 'Past' }),
+    p3: POST({ 'Post id': 'p3', Status: 'Closed' }),
+    p4: POST({ 'Post id': 'p4', Status: 'Draft' }),
+    p5: POST({ 'Post id': 'p5', Status: 'Cancelled' }),
+  };
   const signups = [
     SU(),
     SU({ 'Sign-up id': 'su2', Status: 'Cancelled' }),
     SU({ 'Sign-up id': 'su3', 'Reminded at': '2026-12-01 18:00' }),
     SU({ 'Sign-up id': 'su4', 'Slot id': 'sl9' }),
     SU({ 'Sign-up id': 'su5', 'Post id': 'p2' }),
+    SU({ 'Sign-up id': 'su7', 'Post id': 'p3' }),
+    SU({ 'Sign-up id': 'su8', 'Post id': 'p4' }),
+    SU({ 'Sign-up id': 'su9', 'Post id': 'p5' }),
   ];
-  it('waits for the reminder hour and skips cancelled, reminded, other days and closed posts', () => {
+  it('waits for the reminder hour and skips cancelled, reminded, other days, Past and Cancelled posts', () => {
     expect(plain(gp.remindersDue(signups, slotsById, postsById, '2026-12-01 17:59', 18))).toEqual([]);
-    expect(plain(gp.remindersDue(signups, slotsById, postsById, '2026-12-01 18:00', 18))).toEqual(['su1']);
+    // Closed and Draft posts only stop new sign-ups: people already signed up still get reminded (D1).
+    expect(plain(gp.remindersDue(signups, slotsById, postsById, '2026-12-01 18:00', 18))).toEqual(['su1', 'su7', 'su8']);
   });
   it('still reminds a sign-up made at 21:00 at the 22:00 run', () => {
     const late = [SU({ 'Sign-up id': 'su6', 'Signed up at': '2026-12-01 21:00' })];
     expect(plain(gp.remindersDue(late, slotsById, postsById, '2026-12-01 22:00', 18))).toEqual(['su6']);
+  });
+});
+
+describe('detailsDue', () => {
+  const post = POST();
+  const slot = SLOT({ Date: '2026-12-03', Start: '17:00' });
+  it('is true only on the day itself, when the reminder can no longer carry the details', () => {
+    expect(gp.detailsDue(SU(), slot, post, '2026-12-02 18:30')).toBe(false);
+    expect(gp.detailsDue(SU(), SLOT({ Date: '2026-12-20' }), post, '2026-12-02 18:30')).toBe(false);
+    expect(gp.detailsDue(SU(), slot, post, '2026-12-03 08:00')).toBe(true);
+    expect(gp.detailsDue(SU({ 'Details sent at': '2026-12-02 18:00' }), slot, post, '2026-12-03 08:00')).toBe(false);
+    expect(gp.detailsDue(SU(), slot, POST({ 'Private details': '' }), '2026-12-03 08:00')).toBe(false);
+    expect(gp.detailsDue(SU({ Status: 'Removed' }), slot, post, '2026-12-03 08:00')).toBe(false);
   });
 });
 

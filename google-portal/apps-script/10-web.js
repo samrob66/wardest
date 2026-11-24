@@ -27,6 +27,8 @@ var POST_ACTIONS = [
   'removeSignup',
   'sendDetails',
   'signOutEverywhere',
+  'cancelPost',
+  'cancelDate',
 ];
 
 function jsonOut_(obj) {
@@ -117,6 +119,12 @@ function dispatch_(action, data) {
     },
     signOutEverywhere: function () {
       return apiSignOutEverywhere_(data);
+    },
+    cancelPost: function () {
+      return apiCancelPost_(data);
+    },
+    cancelDate: function () {
+      return apiCancelDate_(data);
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };

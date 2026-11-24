@@ -226,7 +226,10 @@ function cancelIsLate(slot, cutoffHours, nowLocal) {
   return nowLocal >= localMinusHours(slotStart(slot), h);
 }
 
-/** Sign-up ids whose day-before reminder is due now. */
+/**
+ * Sign-up ids whose day-before reminder is due now. Every Confirmed sign-up gets one unless its
+ * post is Past or Cancelled: Close and Draft only stop new sign-ups.
+ */
 function remindersDue(signups, slotsById, postsById, nowLocal, reminderHour) {
   var today = nowLocal.slice(0, 10);
   var tomorrow = addDays(today, 1);
@@ -237,12 +240,27 @@ function remindersDue(signups, slotsById, postsById, nowLocal, reminderHour) {
       var slot = slotsById[s['Slot id']];
       var post = postsById[s['Post id']];
       if (!slot || !post) return false;
-      if (post.Status !== POST_STATUS.open) return false;
+      if (post.Status === POST_STATUS.past || post.Status === POST_STATUS.cancelled) return false;
       return slot.Date === tomorrow;
     })
     .map(function (s) {
       return s['Sign-up id'];
     });
+}
+
+/**
+ * Private details still owed to a Confirmed sign-up whose reminder can no longer carry them: the
+ * role is today (reminders go out the day before, so a same-day sign-up never gets one).
+ */
+function detailsDue(signup, slot, post, nowLocal) {
+  return (
+    signup.Status === SIGNUP_STATUS.confirmed &&
+    !signup['Details sent at'] &&
+    !!post['Private details'] &&
+    post.Status !== POST_STATUS.past &&
+    post.Status !== POST_STATUS.cancelled &&
+    slot.Date === nowLocal.slice(0, 10)
+  );
 }
 
 /** Open or Closed posts whose every slot date is before today. */

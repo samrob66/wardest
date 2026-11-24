@@ -168,6 +168,7 @@ GP.footer();
     if (doneMessage) parts.push(GP.message('ok', doneMessage));
     else if (post.status === 'Open') parts.push(signupForm(post));
     else if (post.status === 'Past') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is over. Thank you to everyone who served.'));
+    else if (post.status === 'Cancelled') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity was cancelled.'));
     else parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is closed to new sign-ups.'));
     GP.show(main, parts);
   }

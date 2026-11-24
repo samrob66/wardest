@@ -79,6 +79,51 @@ function withLock_(fn) {
   }
 }
 
+/**
+ * Any top-level function whose name doesn't end in _ can be called by a visitor of a page the
+ * web app serves (google.script.run), running as the shared account. Timed jobs therefore run
+ * only for one of this project's own triggers (the event's triggerUid, which a visitor can't
+ * know) or for the owner running them in the editor.
+ */
+function calledByOwner_(e) {
+  try {
+    if (e && e.triggerUid) {
+      var uid = String(e.triggerUid);
+      var mine = ScriptApp.getProjectTriggers().some(function (t) {
+        return String(t.getUniqueId()) === uid;
+      });
+      if (mine) return true;
+    }
+    var active = normEmail(Session.getActiveUser().getEmail());
+    return !!active && active === normEmail(Session.getEffectiveUser().getEmail());
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Start of every Service Portal menu item. getUi() throws outside the Sheet (a web visitor),
+ * so nothing happens before it. The first run records the account that set the portal up;
+ * later runs from any other account are refused, so files and triggers never end up owned by a
+ * person's own account. Returns the Ui, or null when refused.
+ */
+function menuStart_() {
+  var ui = SpreadsheetApp.getUi();
+  gpBegin_();
+  var me = normEmail(Session.getEffectiveUser().getEmail());
+  var p = props_();
+  var owner = p.getProperty('OWNER_EMAIL');
+  if (!owner) {
+    p.setProperty('OWNER_EMAIL', me);
+    return ui;
+  }
+  if (owner !== me) {
+    ui.alert('Use the Service Portal menu signed in as the account that set the portal up (' + owner + ').');
+    return null;
+  }
+  return ui;
+}
+
 function cache_() {
   return CacheService.getScriptCache();
 }

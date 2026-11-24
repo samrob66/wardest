@@ -74,7 +74,7 @@ function ensureSystemSheet_(s, folder) {
 
 /** Service Portal > Set up. Re-runnable: never duplicates a folder, form or file. */
 function gpMenuSetUp() {
-  gpBegin_();
+  if (!menuStart_()) return;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   props_().setProperty('SERVICE_ID', ss.getId());
   gpEnsureTabs_(ss);
@@ -185,20 +185,27 @@ function protectScriptTabs_(ss) {
 
 /** Service Portal > Sync sharing. */
 function gpMenuSyncSharing() {
-  gpBegin_();
+  if (!menuStart_()) return;
   var owner = normEmail(Session.getEffectiveUser().getEmail());
   var leaders = leaders_();
   var problems = [];
   var summary = [];
 
+  // Only the administrators (Bishop, Executive Secretary) may edit the Service Sheet: its editors
+  // can also edit the script bound to it, which runs as this account and can open every request
+  // sheet, including the bishop-only ones. Every other bishopric and ward council leader views it.
   var sheetWant = {};
   leaders.forEach(function (l) {
-    var e = normEmail(l.Email);
-    if (isTicked(l.Bishopric)) sheetWant[e] = 'writer';
-    else if (isTicked(l['Ward council']) && sheetWant[e] !== 'writer') sheetWant[e] = 'reader';
+    if (isTicked(l.Bishopric) || isTicked(l['Ward council'])) sheetWant[normEmail(l.Email)] = 'reader';
+  });
+  adminEmails(leaders).forEach(function (e) {
+    sheetWant[e] = 'writer';
   });
   var d = applySharing_(serviceSs_().getId(), sheetWant, owner, 'Service Sheet', problems);
-  summary.push('Service Sheet: ' + Object.keys(sheetWant).length + ' people (bishopric edit, ward council view); ' + d.add.length + ' added, ' + d.change.length + ' changed, ' + d.remove.length + ' removed.');
+  summary.push(
+    'Service Sheet: ' + Object.keys(sheetWant).length + ' people (bishop and Executive Secretary edit; other bishopric and ward council view); ' +
+      d.add.length + ' added, ' + d.change.length + ' changed, ' + d.remove.length + ' removed.'
+  );
 
   var cats = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
   systemTab_(SYS_TAB.requestFiles)
@@ -232,7 +239,7 @@ function gpMenuSyncSharing() {
 
 /** Service Portal > Install triggers. Replaces this project's portal triggers. */
 function gpMenuInstallTriggers() {
-  gpBegin_();
+  if (!menuStart_()) return;
   var s = settings_();
   var tz = s.time_zone || Session.getScriptTimeZone();
   ScriptApp.getProjectTriggers().forEach(function (t) {
@@ -256,7 +263,7 @@ function gpMenuInstallTriggers() {
 
 /** Service Portal > Make hub files: the five pages and the sections snippet, ready to copy. */
 function gpMenuMakeHubFiles() {
-  gpBegin_();
+  if (!menuStart_()) return;
   var s = settings_();
   if (!s.web_app_url) {
     ui_().alert('Deploy the web app first and paste its address into Settings web_app_url, then run Make hub files again.');
@@ -285,7 +292,7 @@ function gpMenuMakeHubFiles() {
 // ---------- leader links ----------
 
 function gpMenuSendLeaderLinks() {
-  gpBegin_();
+  if (!menuStart_()) return;
   var n = processLeaderLinkTicks_();
   ui_().alert(n ? 'Sent ' + n + ' leader link(s).' : 'No boxes are ticked. Tick "Send leader link" for each leader first.');
   return n;
@@ -304,7 +311,7 @@ function fetchOk_(url) {
 
 /** Service Portal > Check health: one OK/PROBLEM line per piece. Returns the lines. */
 function gpMenuCheckHealth() {
-  gpBegin_();
+  if (!menuStart_()) return;
   var lines = [];
   var add = function (ok, text) {
     lines.push((ok ? 'OK ' : 'PROBLEM ') + text);

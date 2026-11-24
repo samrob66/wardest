@@ -281,6 +281,34 @@ function tplLeaderLink_(s, leader, url) {
   };
 }
 
+/**
+ * A post (whole = true) or some of its dates were called off. slots: the volunteer's own slots.
+ * note: the leader's optional note (escaped like every value).
+ */
+function tplPostCancelled_(s, post, slots, note, whole) {
+  var when = slots
+    .filter(function (sl) {
+      return sl;
+    })
+    .map(function (sl) {
+      return sl.Role + ', ' + fmtWhen_(sl);
+    });
+  var line = whole
+    ? post.Title + ' has been cancelled, so you no longer need to come.'
+    : 'A date of ' + post.Title + ' has been cancelled, so you no longer need to come then.';
+  var text = [
+    line,
+    'You had signed up for:\n' + when.join('\n'),
+    note ? 'Note from the leader: ' + note : '',
+    'Thank you for being willing to serve.',
+  ].filter(String);
+  var html =
+    paras_([esc(line), 'You had signed up for:<br>' + when.map(esc).join('<br>')]) +
+    (note ? paras_(['Note from the leader: ' + esc(note).replace(/\n/g, '<br>')]) : '') +
+    paras_(['Thank you for being willing to serve.']);
+  return { subject: 'Cancelled: ' + post.Title, html: html, text: text.join('\n\n') };
+}
+
 /** Exactly the category and the folder link. Nothing about the request itself. */
 function tplRequestNotice_(s, categoryName, folderUrl) {
   var text = 'A new ' + categoryName + ' request came in. Open your Requests folder: ' + folderUrl;

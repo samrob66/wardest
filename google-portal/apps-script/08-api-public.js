@@ -137,6 +137,35 @@ function apiHelp_() {
   return answer;
 }
 
+// ---------- refused-attempt counters (Script Properties, one key per address or post-minute per day) ----------
+
+/** Keys for today's refused-attempt counters: per address (hashed) and per post per minute. */
+function attemptKeys_(email, postId, nowLocal) {
+  var day = nowLocal.slice(0, 10).replace(/-/g, '');
+  return {
+    addr: 'RA_' + day + '_' + sha256Hex_(normEmail(email)).slice(0, 32),
+    post: postId ? 'RP_' + day + '_' + postId + '_' + nowLocal.slice(11).replace(':', '') : '',
+  };
+}
+
+function readCount_(key) {
+  return key ? Number(props_().getProperty(key)) || 0 : 0;
+}
+
+function bumpCount_(key) {
+  if (key) props_().setProperty(key, String(readCount_(key) + 1));
+}
+
+/** Deletes counters from before today (the daily job). */
+function pruneAttemptCounters_(todayLocal) {
+  var today = todayLocal.replace(/-/g, '');
+  var p = props_();
+  Object.keys(p.getProperties()).forEach(function (k) {
+    var m = /^R[AP]_([0-9]{8})_/.exec(k);
+    if (m && m[1] < today) p.deleteProperty(k);
+  });
+}
+
 /** data: {publicId, slotId, name, email, bringing}. */
 function apiSignup_(data) {
   data = data || {};
@@ -153,17 +182,23 @@ function apiSignup_(data) {
 
   var done = withLock_(function () {
     var d = volunteerData_();
+    var now = nowLocal_();
+    var keys = attemptKeys_(email, '', now);
     var post = findPublicPost_(d.posts, data.publicId);
-    if (!post) return { error: TEXT.postNotFound };
+    if (!post) {
+      bumpCount_(keys.addr);
+      return { error: TEXT.postNotFound };
+    }
+    keys = attemptKeys_(email, post['Post id'], now);
     var slot = null;
     d.slots.forEach(function (sl) {
       if (sl['Slot id'] === String(data.slotId) && sl['Post id'] === post['Post id']) slot = sl;
     });
-    var now = nowLocal_();
     var today = now.slice(0, 10);
-    var addressToday = 0;
+    // Refused attempts count too, so nobody can probe without limit whether an address is signed up.
+    var addressToday = readCount_(keys.addr);
     var totalToday = 0;
-    var postMinute = 0;
+    var postMinute = readCount_(keys.post);
     d.signups.forEach(function (su) {
       var at = String(su['Signed up at']);
       if (at.slice(0, 10) === today) {
@@ -187,7 +222,11 @@ function apiSignup_(data) {
     }
     var counts = countsBySlot(d.signups);
     var check = checkSignup({ post: post, slot: slot, counts: counts, existing: d.signups, email: email, todayLocal: today, nowLocal: now });
-    if (!check.ok) return { error: check.error };
+    if (!check.ok) {
+      bumpCount_(keys.addr);
+      bumpCount_(keys.post);
+      return { error: check.error };
+    }
     var signup = {
       'Sign-up id': newId_('s'),
       'Post id': post['Post id'],

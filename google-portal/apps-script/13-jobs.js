@@ -3,19 +3,31 @@
  * administrators at most once a day per job.
  */
 
-/** Emails the administrators once per key per day. */
-function alertOncePerDay_(key, lines) {
+/** Emails the administrators at most maxPerDay times a day for one key. */
+function alertCapped_(key, lines, maxPerDay) {
   var p = props_();
   var today = todayLocal_();
-  if (p.getProperty('ALERTED_' + key) === today) return;
-  p.setProperty('ALERTED_' + key, today);
+  var parts = String(p.getProperty('ALERTS_' + key) || '').split('|');
+  var n = parts[0] === today ? Number(parts[1]) || 0 : 0;
+  if (n >= maxPerDay) return;
+  p.setProperty('ALERTS_' + key, today + '|' + (n + 1));
   alertAdmins_(lines);
 }
 
-function runJob_(name, fn) {
+/** Emails the administrators once per key per day. */
+function alertOncePerDay_(key, lines) {
+  alertCapped_(key, lines, 1);
+}
+
+/**
+ * Runs a timed job. Only this project's own triggers or the owner in the editor may run it
+ * (calledByOwner_); a web visitor gets nothing done and nothing back. Returns nothing.
+ */
+function runJob_(name, e, fn) {
   gpBegin_();
+  if (!calledByOwner_(e)) return;
   try {
-    return fn();
+    fn();
   } catch (err) {
     var msg = clip(err && err.message ? err.message : err, 300);
     log_('job error', name + ' | ' + msg);
@@ -24,7 +36,6 @@ function runJob_(name, fn) {
     } catch (e2) {
       log_('alert failed', name + ' | ' + e2);
     }
-    return null;
   }
 }
 
@@ -40,27 +51,36 @@ function refreshAllFilled_() {
   });
 }
 
-/** Day-before reminders, with private details and a fresh cancel link. */
+/**
+ * Day-before reminders, with private details and a fresh cancel link. Due sign-ups are claimed
+ * (Reminded at stamped) under the lock from a fresh read, so someone who cancels or is removed
+ * before the claim gets nothing; the emails go out after the lock is released. Details sent at
+ * is stamped only when the post has private details, so details added later still show as owed.
+ */
 function sendReminders_() {
   var s = settings_();
   var now = nowLocal_();
-  var d = volunteerData_();
-  var slotsById = indexBy_(d.slots, 'Slot id');
-  var postsById = indexBy_(d.posts, 'Post id');
-  var due = remindersDue(d.signups, slotsById, postsById, now, s.reminder_hour);
-  if (!due.length) return 0;
-  var signupsT = serviceTab_(TAB.signups);
-  var byId = indexBy_(d.signups, 'Sign-up id');
-  due.forEach(function (id) {
-    var su = byId[id];
-    var slot = slotsById[su['Slot id']];
-    var post = postsById[su['Post id']];
-    var token = issueToken_('cancel', id, addDays(slot.Date, 1) + ' 23:59');
-    var t = tplReminder_(s, post, slot, su, pageUrl_(s, 'confirm', { t: token }));
-    sendOrQueue_({ to: su.Email, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
-    signupsT.update(su, { 'Reminded at': now, 'Details sent at': now });
+  var claimed = withLock_(function () {
+    var d = volunteerData_();
+    var slotsById = indexBy_(d.slots, 'Slot id');
+    var postsById = indexBy_(d.posts, 'Post id');
+    var byId = indexBy_(d.signups, 'Sign-up id');
+    var signupsT = serviceTab_(TAB.signups);
+    return remindersDue(d.signups, slotsById, postsById, now, s.reminder_hour).map(function (id) {
+      var su = byId[id];
+      var post = postsById[su['Post id']];
+      var stamp = { 'Reminded at': now };
+      if (post['Private details']) stamp['Details sent at'] = now;
+      signupsT.update(su, stamp);
+      return { su: su, slot: slotsById[su['Slot id']], post: post };
+    });
   });
-  return due.length;
+  claimed.forEach(function (c) {
+    var token = issueToken_('cancel', c.su['Sign-up id'], addDays(c.slot.Date, 1) + ' 23:59');
+    var t = tplReminder_(s, c.post, c.slot, c.su, pageUrl_(s, 'confirm', { t: token }));
+    sendOrQueue_({ to: c.su.Email, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+  });
+  return claimed.length;
 }
 
 function markPastPosts_() {
@@ -75,26 +95,24 @@ function markPastPosts_() {
   });
 }
 
-function gpTenMinute() {
-  return runJob_('gpTenMinute', function () {
-    var mail = drainOutbox_();
+function gpTenMinute(e) {
+  runJob_('gpTenMinute', e, function () {
+    drainOutbox_();
     processLeaderLinkTicks_();
     refreshAllFilled_();
-    return mail;
   });
 }
 
-function gpHourly() {
-  return runJob_('gpHourly', function () {
-    var reminded = sendReminders_();
-    var past = markPastPosts_();
+function gpHourly(e) {
+  runJob_('gpHourly', e, function () {
+    sendReminders_();
+    markPastPosts_();
     clearServeCache_();
-    return { reminded: reminded, past: past };
   });
 }
 
-function gpDaily() {
-  return runJob_('gpDaily', function () {
+function gpDaily(e) {
+  runJob_('gpDaily', e, function () {
     var problems = dailyRequests_();
     var now = nowLocal_();
     var today = now.slice(0, 10);
@@ -128,7 +146,7 @@ function gpDaily() {
         outT.removeMany(oldFailed);
       }
     });
+    pruneAttemptCounters_(today);
     if (problems.length) alertOncePerDay_('gpDaily-report', problems);
-    return problems;
   });
 }

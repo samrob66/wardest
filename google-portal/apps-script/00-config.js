@@ -43,6 +43,9 @@ var TEXT = {
   leaderRelink: 'This leader link has expired or is no longer valid. Ask for a new one.',
   notAllowed: "You can't change this opportunity.",
   removeSignupsFirst: 'Remove the people signed up for this date first.',
+  postCancelled: "This opportunity was cancelled and can't be reopened.",
+  onlyDate: 'This is the only date. Cancel the whole opportunity instead.',
+  detailsAlreadySent: 'Details were already sent to this person.',
   signOutDone: 'We emailed you a new leader link. The old one no longer works.',
   phaseOneDetailsNote:
     "Private details go to volunteers in their reminder the day before. Remove anyone you don't recognize before then.",
@@ -104,7 +107,7 @@ var REQUEST_STATUS = ['New', 'In progress', 'Done', 'Declined'];
 /** Tabs only the script writes; Sync sharing protects them (owner only). */
 var PROTECTED_TABS = ['Posts', 'Slots', 'Sign-ups', 'Volunteers', 'Needs help soon'];
 
-var POST_STATUS = { draft: 'Draft', open: 'Open', closed: 'Closed', past: 'Past' };
+var POST_STATUS = { draft: 'Draft', open: 'Open', closed: 'Closed', past: 'Past', cancelled: 'Cancelled' };
 var SIGNUP_STATUS = {
   confirmed: 'Confirmed',
   cancelled: 'Cancelled',

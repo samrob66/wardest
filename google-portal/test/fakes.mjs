@@ -656,6 +656,9 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
     fetch: () => ({ code: 200, text: '{"ok":true}' }),
     driveRemoveFails: false,
     failPermissionFor: [],
+    // A visitor calling through google.script.run: getUi() throws and nobody is signed in.
+    webContext: false,
+    activeUser: OWNER_EMAIL,
   };
 
   const spreadsheets = new Map();
@@ -717,7 +720,9 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
       return ss;
     },
     flush() {},
-    getUi: () => ({
+    getUi: () => {
+      if (state.webContext) throw new Error('Cannot call SpreadsheetApp.getUi() from this context.');
+      return {
       alert: (...a) => {
         alerts.push(a.length > 1 && typeof a[1] === 'string' ? a[0] + '\n' + a[1] : a[0]);
         return 'OK';
@@ -737,7 +742,8 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
       },
       ButtonSet: { OK: 'OK', YES_NO: 'YES_NO' },
       Button: { OK: 'OK', YES: 'YES', NO: 'NO' },
-    }),
+      };
+    },
     newDataValidation: () => recorder('validation'),
     ProtectionType: { SHEET: 'SHEET', RANGE: 'RANGE' },
   };
@@ -961,7 +967,7 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
   const Session = {
     getScriptTimeZone: () => state.scriptTz || tz,
     getEffectiveUser: () => ({ getEmail: () => OWNER_EMAIL }),
-    getActiveUser: () => ({ getEmail: () => OWNER_EMAIL }),
+    getActiveUser: () => ({ getEmail: () => state.activeUser }),
   };
 
   const UrlFetchApp = {

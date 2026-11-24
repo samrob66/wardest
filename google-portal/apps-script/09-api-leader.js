@@ -54,7 +54,7 @@ function slotOut_(sl, counts) {
   };
 }
 
-/** Posts the leader may see (not Past, or only Past with {past: true}). */
+/** Posts the leader may see: current ones, or with {past: true} the Past and Cancelled ones. */
 function apiListPosts_(data) {
   var lc = leaderCtx_(data);
   if (!lc) return relink_();
@@ -63,9 +63,12 @@ function apiListPosts_(data) {
   var slotsByPost = groupBy_(d.slots, 'Post id');
   var signupsByPost = groupBy_(d.signups, 'Post id');
   var wantPast = !!(data && data.past);
+  var now = nowLocal_();
+  var slotById = indexBy_(d.slots, 'Slot id');
   var posts = d.posts
     .filter(function (p) {
-      if ((p.Status === POST_STATUS.past) !== wantPast) return false;
+      var over = p.Status === POST_STATUS.past || p.Status === POST_STATUS.cancelled;
+      if (over !== wantPast) return false;
       return canSeePost(lc.access, p) || canEditPost(lc.access, lc.email, p);
     })
     .map(function (p) {
@@ -99,6 +102,8 @@ function apiListPosts_(data) {
               bringing: su.Bringing || '',
               status: su.Status,
               detailsSent: !!su['Details sent at'],
+              // The reminder can no longer carry the details (the role is today): offer Send details.
+              detailsDue: !!slotById[su['Slot id']] && detailsDue(su, slotById[su['Slot id']], p, now),
             };
             if (canEdit) o.email = su.Email;
             return o;
@@ -164,6 +169,7 @@ function apiSavePost_(data) {
     var existing = input.postId ? indexBy_(d.posts, 'Post id')[String(input.postId)] : null;
     if (input.postId && !existing) return { ok: false, error: TEXT.postNotFound };
     if (existing && !canEditPost(lc.access, lc.email, existing)) return { ok: false, error: TEXT.notAllowed };
+    if (existing && existing.Status === POST_STATUS.cancelled) return { ok: false, error: TEXT.postCancelled };
     var now = nowLocal_();
     var who = { 'Last changed by': lc.leader.Name, 'Last changed at': now };
 
@@ -200,6 +206,7 @@ function apiSavePost_(data) {
     var counts = countsBySlot(d.signups);
     var fields = {};
     var kept = {};
+    var moved = false;
     v.slots.forEach(function (sl, i) {
       if (!sl.slotId) return;
       if (!oldById[sl.slotId]) {
@@ -209,8 +216,16 @@ function apiSavePost_(data) {
       kept[sl.slotId] = true;
       var f = filledOf_(counts, sl.slotId);
       if (sl.needed < f) fields['slots[' + i + '].needed'] = f + ' people are signed up; needed cannot be less.';
+      // Moving a booked date or start time would leave the people signed up at the old time.
+      var old = oldById[sl.slotId];
+      if (f > 0 && (sl.date !== old.Date || sl.start !== String(old.Start || ''))) {
+        fields['slots[' + i + '].date'] = TEXT.removeSignupsFirst;
+        moved = true;
+      }
     });
-    if (Object.keys(fields).length) return { ok: false, error: 'Please fix the marked fields.', fields: fields };
+    if (Object.keys(fields).length) {
+      return { ok: false, error: moved ? TEXT.removeSignupsFirst : 'Please fix the marked fields.', fields: fields };
+    }
     var removed = oldSlots.filter(function (sl) {
       return !kept[sl['Slot id']];
     });
@@ -315,18 +330,119 @@ function apiRemoveSignup_(data) {
   return { ok: true, message: 'Removed. We emailed ' + done.signup.Name + '.' };
 }
 
+/**
+ * Emails the private details to one sign-up. The row is claimed (Details sent at stamped) under
+ * the lock from a fresh read, so a double click or the hourly reminder can't send them twice.
+ */
 function apiSendDetails_(data) {
   var lc = leaderCtx_(data);
   if (!lc) return relink_();
-  var f = editableSignup_(lc, data.signupId);
+  var now = nowLocal_();
+  var f = withLock_(function () {
+    var x = editableSignup_(lc, data.signupId);
+    if (x.error) return x;
+    if (x.signup.Status !== SIGNUP_STATUS.confirmed) return { error: 'This person is no longer signed up.' };
+    if (!x.post['Private details']) return { error: 'This opportunity has no private details to send.' };
+    if (x.signup['Details sent at']) return { error: TEXT.detailsAlreadySent };
+    serviceTab_(TAB.signups).update(x.signup, { 'Details sent at': now });
+    return x;
+  });
   if (f.error) return { ok: false, error: f.error };
-  if (f.signup.Status !== SIGNUP_STATUS.confirmed) return { ok: false, error: 'This person is no longer signed up.' };
-  if (!f.post['Private details']) return { ok: false, error: 'This opportunity has no private details to send.' };
   var t = tplDetails_(lc.s, f.post, f.slot);
   var r = sendOrQueue_({ to: f.signup.Email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  if (r === 'refused') return { ok: false, error: 'That email address does not work.' };
-  serviceTab_(TAB.signups).update(f.signup, { 'Details sent at': nowLocal_() });
+  if (r === 'refused') {
+    withLock_(function () {
+      var again = indexBy_(serviceTab_(TAB.signups).rows(), 'Sign-up id')[f.signup['Sign-up id']];
+      if (again) serviceTab_(TAB.signups).update(again, { 'Details sent at': '' });
+    });
+    return { ok: false, error: 'That email address does not work.' };
+  }
   return { ok: true, message: r === 'sent' ? 'Details sent.' : 'Details will go out within 10 minutes.' };
+}
+
+/**
+ * Calls off a whole post (data.date blank) or one of its dates (data.date set). Every Confirmed
+ * sign-up on it becomes Removed by the leader, loses its cancel link and gets one email per
+ * address. A cancelled post gets status Cancelled (off serve, no reminders, can't be reopened);
+ * a cancelled date's slots are deleted and the post stays as it was.
+ */
+function cancelPostOrDate_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var note = String(data.note == null ? '' : data.note).trim();
+  if (note.length > 300) return { ok: false, error: 'Keep the note under 300 characters.', fields: { note: 'Keep the note under 300 characters.' } };
+  var date = String(data.date == null ? '' : data.date).trim();
+  if (date && !isDateStr(date)) return { ok: false, error: 'Pick a date.' };
+  var done = withLock_(function () {
+    var d = volunteerData_();
+    var post = indexBy_(d.posts, 'Post id')[String(data.postId)];
+    if (!post) return { error: TEXT.postNotFound };
+    if (!canEditPost(lc.access, lc.email, post)) return { error: TEXT.notAllowed };
+    if (post.Status === POST_STATUS.cancelled) return { error: TEXT.postCancelled };
+    if (post.Status === POST_STATUS.past) return { error: 'This opportunity is already over.' };
+    var postSlots = d.slots.filter(function (sl) {
+      return sl['Post id'] === post['Post id'];
+    });
+    var slots = date
+      ? postSlots.filter(function (sl) {
+          return sl.Date === date;
+        })
+      : postSlots;
+    if (date && !slots.length) return { error: 'That date is not on this opportunity.' };
+    if (date && slots.length === postSlots.length) return { error: TEXT.onlyDate };
+    var slotIds = slots.map(function (sl) {
+      return sl['Slot id'];
+    });
+    var signupsT = serviceTab_(TAB.signups);
+    var hit = d.signups.filter(function (su) {
+      return su['Post id'] === post['Post id'] && su.Status === SIGNUP_STATUS.confirmed && slotIds.indexOf(su['Slot id']) >= 0;
+    });
+    hit.forEach(function (su) {
+      signupsT.update(su, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
+    });
+    var stamp = { 'Last changed by': lc.leader.Name, 'Last changed at': nowLocal_() };
+    if (date) {
+      serviceTab_(TAB.slots).removeMany(slots);
+      serviceTab_(TAB.posts).update(post, stamp);
+    } else {
+      stamp.Status = POST_STATUS.cancelled;
+      serviceTab_(TAB.posts).update(post, stamp);
+    }
+    hit.forEach(function (su) {
+      revokeTokens_('cancel', su['Sign-up id']);
+    });
+    return { post: post, slots: slots, hit: hit };
+  });
+  if (done.error) return { ok: false, error: done.error };
+  clearServeCache_();
+  var slotById = indexBy_(done.slots, 'Slot id');
+  var byEmail = {};
+  done.hit.forEach(function (su) {
+    var e = normEmail(su.Email);
+    (byEmail[e] = byEmail[e] || []).push(slotById[su['Slot id']]);
+  });
+  Object.keys(byEmail).forEach(function (to) {
+    var t = tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date);
+    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+  });
+  var n = Object.keys(byEmail).length;
+  return { ok: true, message: (date ? 'Date cancelled.' : 'Opportunity cancelled.') + (n ? ' We emailed ' + n + ' ' + (n === 1 ? 'person' : 'people') + '.' : '') };
+}
+
+/** data: {k, postId, note?}. */
+function apiCancelPost_(data) {
+  var d = {};
+  Object.keys(data || {}).forEach(function (k) {
+    d[k] = data[k];
+  });
+  d.date = '';
+  return cancelPostOrDate_(d);
+}
+
+/** data: {k, postId, date, note?}. */
+function apiCancelDate_(data) {
+  if (!data || !data.date) return { ok: false, error: 'Pick a date.' };
+  return cancelPostOrDate_(data);
 }
 
 function apiSignOutEverywhere_(data) {
