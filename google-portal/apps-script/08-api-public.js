@@ -63,12 +63,18 @@ function apiServe_() {
   var today = todayLocal_();
   var counts = countsBySlot(d.signups);
   var slotsByPost = groupBy_(d.slots, 'Post id');
+  var cats = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
   var posts = d.posts
     .filter(function (p) {
       return p.Status === POST_STATUS.open;
     })
     .map(function (p) {
-      return postSummary(p, slotsByPost[p['Post id']] || [], counts, today);
+      var sum = postSummary(p, slotsByPost[p['Post id']] || [], counts, today);
+      // The category label and icon on each card (public: categories are not private).
+      var c = cats[p.Category];
+      sum.categoryName = c ? String(c.Name || '') : '';
+      sum.categoryIcon = c ? String(c.Icon || '') : '';
+      return sum;
     })
     .filter(function (sum) {
       return sum.firstDate;

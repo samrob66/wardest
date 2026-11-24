@@ -287,3 +287,14 @@ describe('web entry', () => {
     expect(post({ action: 'withdraw', t: 'f'.repeat(64) })).toEqual({ ok: false, error: 'This link has expired or is no longer valid.' });
   });
 });
+
+describe('serve feed', () => {
+  it('carries each post category name and icon, and still no names, emails or waiting counts', () => {
+    const gp = setup();
+    signup(gp);
+    const serve = plain(gp.apiServe_());
+    expect(serve.posts.find((p) => p.publicId === 'pubmeals01')).toMatchObject({ categoryName: 'Meals', categoryIcon: '🍲', filled: 0 });
+    const json = JSON.stringify(serve);
+    for (const bad of ['Brother New', 'brother.new@example.test', 'waiting', '123 Example Lane']) expect(json).not.toContain(bad);
+  });
+});

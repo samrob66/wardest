@@ -124,6 +124,14 @@ textarea { min-height: 88px; }
 .gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }
 .gp-slot:first-child { border-top: none; }
 .gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }
+/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */
+.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }
+.gp-pair > .gp-section { min-width: 0; }
+.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }
+@media (min-width: 720px) {
+  .gp-pair { grid-template-columns: 1fr 1fr; }
+}
 .gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }
 
 .gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }

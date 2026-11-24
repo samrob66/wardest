@@ -51,8 +51,9 @@ GP.footer();
     return el('div', { class: 'gp-slot' }, [
       el('strong', {}, s.role),
       when ? el('span', { class: 'gp-meta' }, ' · ' + when) : null,
+      // Over the number is fine (a waiting sign-up approved later): say so plainly, "12 of 10".
       s.full
-        ? el('div', { class: 'gp-filled' }, 'Filled ✓')
+        ? el('div', { class: 'gp-filled' }, 'Filled ✓' + (s.filled > s.needed ? ' · ' + s.filled + ' of ' + s.needed : ''))
         : el('div', {}, [GP.fillBar(s.filled, s.needed), el('span', { class: 'gp-count' }, s.filled + ' of ' + s.needed + ' filled')]),
       s.roleNote ? el('p', { class: 'gp-meta' }, s.roleNote) : null,
     ]);
@@ -92,6 +93,38 @@ GP.footer();
     var name = el('input', { type: 'text', id: 'gp-name', autocomplete: 'name', maxlength: '80' });
     var email = el('input', { type: 'email', id: 'gp-email', autocomplete: 'email', maxlength: '254' });
     var button = el('button', { type: 'submit' }, 'Sign up');
+    // Youth and Children posts: a parent signs up themselves or a child (first name only).
+    var young = post.audiences.indexOf('Youth') >= 0 || post.audiences.indexOf('Children') >= 0;
+    var who = 'me';
+    var nameLabel = el('label', { for: 'gp-name' }, 'Your name');
+    var childWrap = young ? el('div', { class: 'gp-hidden' }) : null;
+    var child = young ? el('input', { type: 'text', id: 'gp-child', maxlength: '40', autocomplete: 'off' }) : null;
+    if (young) {
+      childWrap.appendChild(el('label', { for: 'gp-child' }, "Your child's first name"));
+      childWrap.appendChild(child);
+    }
+    function whoChoice(value, label) {
+      var input = el('input', {
+        type: 'radio',
+        name: 'gp-who',
+        value: value,
+        checked: value === 'me',
+        onchange: function () {
+          who = value;
+          childWrap.className = value === 'child' ? '' : 'gp-hidden';
+          nameLabel.textContent = value === 'child' ? 'Your name (the parent)' : 'Your name';
+        },
+      });
+      return el('label', { class: 'gp-check' }, [input, label]);
+    }
+    var whoBox = young
+      ? el('fieldset', { style: 'border:none;padding:0;margin:0.6rem 0 0' }, [
+          el('legend', { class: 'gp-meta' }, 'Who is serving?'),
+          whoChoice('me', 'Me'),
+          whoChoice('child', 'My child'),
+          el('p', { class: 'gp-meta' }, 'A parent signs up for their child. Use your own name and email; we never ask for a child\'s email. Sign up each child (and yourself) separately.'),
+        ])
+      : null;
     var form = el(
       'form',
       {
@@ -104,8 +137,13 @@ GP.footer();
             errs.slot.textContent = 'Pick a date and role.';
             return;
           }
+          var childName = young && who === 'child' ? String(child.value || '').trim() : '';
+          if (young && who === 'child' && !childName) {
+            errs.childName.textContent = "Type your child's first name.";
+            return;
+          }
           button.disabled = true;
-          GP.call('signup', { publicId: post.publicId, slotId: chosen.slotId, name: name.value, email: email.value, bringing: chosen.bringingPrompt ? bring.value : '' }).then(
+          GP.call('signup', { publicId: post.publicId, slotId: chosen.slotId, name: name.value, email: email.value, bringing: chosen.bringingPrompt ? bring.value : '', childName: childName }).then(
             function (res) {
               button.disabled = false;
               if (res && res.ok) {
@@ -136,7 +174,10 @@ GP.footer();
         el('h2', {}, 'Sign up'),
         el('fieldset', { style: 'border:none;padding:0;margin:0' }, [el('legend', { class: 'gp-meta' }, 'Pick a date and role')].concat(choices)),
         errBox('slot'),
-        el('label', { for: 'gp-name' }, 'Your name'),
+        whoBox,
+        childWrap,
+        errBox('childName'),
+        nameLabel,
         name,
         errBox('name'),
         el('label', { for: 'gp-email' }, 'Your email (for your confirmation and reminder)'),

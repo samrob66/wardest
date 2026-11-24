@@ -12,7 +12,7 @@
 <!-- GP:CSS -->
 </head>
 <body>
-<main class="gp-wrap">
+<main class="gp-wrap gp-wide">
   <header class="gp-head">
     <p class="gp-ward">{{WARD_NAME}}</p>
     <h1>{{PAGE_TITLE}}</h1>
@@ -34,6 +34,7 @@ GP.footer();
   function card(p) {
     var dates = p.firstDate === p.lastDate ? GP.fmtDate(p.firstDate) : GP.fmtDate(p.firstDate) + ' – ' + GP.fmtDate(p.lastDate);
     return el('a', { class: 'gp-card' + (p.full ? ' gp-full' : ''), href: GP.pageUrl('post', { p: p.publicId }) }, [
+      p.categoryName ? el('p', { class: 'gp-cat' }, [p.categoryIcon ? el('span', { class: 'gp-cat-icon', 'aria-hidden': 'true' }, p.categoryIcon) : null, p.categoryName]) : null,
       el('h3', {}, p.title),
       el('p', { class: 'gp-meta' }, (p.organization ? p.organization + ' · ' : '') + dates),
       p.full ? el('p', { class: 'gp-filled' }, 'Filled ✓') : GP.fillBar(p.filled, p.needed),
@@ -41,19 +42,29 @@ GP.footer();
     ]);
   }
 
+  /** One audience's heading and cards, or null when it has none. */
+  function section(groups, a) {
+    if (!groups[a].length) return null;
+    var young = a === 'Youth' || a === 'Children';
+    return el('section', { class: 'gp-section' }, [
+      el('h2', {}, a),
+      young ? el('p', { class: 'gp-meta' }, 'A parent signs up for their child') : null,
+    ].concat(groups[a].map(card)));
+  }
+
   GP.call('serve').then(
     function (res) {
       if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
       var groups = GP.groupByAudience(res.posts);
       var parts = [];
-      GP.AUDIENCES.forEach(function (a) {
-        if (!groups[a].length) return;
-        parts.push(el('h2', {}, a));
-        groups[a].forEach(function (p) {
-          parts.push(card(p));
-        });
+      // Brothers and Sisters side by side on wide screens (stacked on phones), then Youth and Children.
+      var pair = [section(groups, 'Brothers'), section(groups, 'Sisters')].filter(Boolean);
+      if (pair.length) parts.push(el('div', { class: pair.length === 2 ? 'gp-pair' : '' }, pair));
+      ['Youth', 'Children'].forEach(function (a) {
+        var sec = section(groups, a);
+        if (sec) parts.push(sec);
       });
-      if (!parts.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing to sign up for right now. Please check back soon.'));
+      if (!parts.length) parts.push(el('p', { class: 'gp-muted' }, 'No open opportunities right now. Please check back soon.'));
       parts.push(
         el('p', { style: 'margin-top:1.5rem;text-align:center' }, [
           el('a', { class: 'gp-btn gp-light', href: GP.pageUrl('help') }, 'Request help or service'),
