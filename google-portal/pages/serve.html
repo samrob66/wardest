@@ -57,14 +57,27 @@ GP.footer();
       if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
       var groups = GP.groupByAudience(res.posts);
       var parts = [];
+      // The Christmas giving card first (only when the ward ticked On Serve page for it).
+      (res.offers || []).forEach(function (o) {
+        parts.push(
+          el('a', { class: 'gp-card gp-offer', href: o.url, target: '_blank', rel: 'noopener' }, [
+            el('strong', {}, (o.icon ? o.icon + ' ' : '') + o.label),
+          ])
+        );
+      });
       // Brothers and Sisters side by side on wide screens (stacked on phones), then Youth and Children.
+      var listed = 0;
       var pair = [section(groups, 'Brothers'), section(groups, 'Sisters')].filter(Boolean);
+      listed += pair.length;
       if (pair.length) parts.push(el('div', { class: pair.length === 2 ? 'gp-pair' : '' }, pair));
       ['Youth', 'Children'].forEach(function (a) {
         var sec = section(groups, a);
-        if (sec) parts.push(sec);
+        if (sec) {
+          listed++;
+          parts.push(sec);
+        }
       });
-      if (!parts.length) parts.push(el('p', { class: 'gp-muted' }, 'No open opportunities right now. Please check back soon.'));
+      if (!listed) parts.push(el('p', { class: 'gp-muted' }, 'Nothing to sign up for right now. Please check back soon.'));
       parts.push(
         el('p', { style: 'margin-top:1.5rem;text-align:center' }, [
           el('a', { class: 'gp-btn gp-light', href: GP.pageUrl('help') }, 'Request help or service'),

@@ -5,7 +5,7 @@ Google account (Sheets, Forms, Drive, Apps Script, Gmail) plus its hub page, wit
 app and no outside service. Spec:
 `docs/superpowers/specs/2026-11-24-google-only-alternative-design.md`. Phase 1 plan:
 `docs/superpowers/plans/2026-11-24-google-portal-phase-1.md`. 1.1 plan (the whole bishopric
-edits the Service Sheet and reads the Christmas and Other requests; spec §12 decisions 14–16, with the Christmas gift coordinators, Notify and the private Christmas giving form):
+edits the Service Sheet and reads the Christmas and Other requests; spec §12 decisions 14–17, with the Christmas gift coordinators, Notify and the Christmas giving form, which 1.1.1 can show on the Service Opportunities page):
 `docs/superpowers/plans/2026-11-24-google-portal-1.1-bishopric.md`.
 Phase 2 plan (confirm your address, first-time approval, waiting counts, over-limit and
 withdraw, nudges and lapses, My sign-ups, children, coordinators and fill warnings, Needs help

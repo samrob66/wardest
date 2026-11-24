@@ -82,7 +82,7 @@ function apiServe_() {
     .sort(function (a, b) {
       return cmpLocal(a.firstDate, b.firstDate) || cmpLocal(a.title, b.title);
     });
-  var answer = { ok: true, ward: wardInfo_(s), posts: posts };
+  var answer = { ok: true, ward: wardInfo_(s), posts: posts, offers: serveOffers_() };
   var json = JSON.stringify(answer);
   if (json.length < 90000) {
     try {
@@ -92,6 +92,46 @@ function apiServe_() {
     }
   }
   return answer;
+}
+
+/** Script cache key for the giving form's published link (cleared by buildRequestForms_). */
+var GIVING_URL_CACHE_KEY = 'giving_url';
+
+/**
+ * The Christmas giving card for the Service Opportunities page (decision 17): the
+ * christmas-giving row, not archived, with On Serve page ticked and a form. On Serve page means
+ * nothing on any other row. A problem here never breaks the page; it just shows no card.
+ */
+function serveOffers_() {
+  try {
+    var c = serviceTab_(TAB.categories).find('Id', GIVING_ID);
+    if (!c || c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !isTicked(c['On Serve page'])) return [];
+    var f = systemTab_(SYS_TAB.requestFiles).find('Category id', GIVING_ID);
+    if (!f || !f['Form id']) return [];
+    // The form's published link, cached like the Help page (Set up clears it), so a Serve
+    // rebuild every minute doesn't open the form each time.
+    var url = cache_().get(GIVING_URL_CACHE_KEY);
+    if (!url) {
+      url = FormApp.openById(f['Form id']).getPublishedUrl();
+      try {
+        cache_().put(GIVING_URL_CACHE_KEY, url, HELP_CACHE_SECONDS);
+      } catch (e2) {
+        // answer anyway
+      }
+    }
+    return [{ id: GIVING_ID, label: GIVING_TEXT.offerLabel, icon: c.Icon, url: url }];
+  } catch (e) {
+    try {
+      // At most one Log line an hour (Serve is rebuilt every minute).
+      if (!cache_().get('serve_offer_logged')) {
+        cache_().put('serve_offer_logged', '1', 3600);
+        log_('serve offer missing', clip(e && e.message ? e.message : e, 200));
+      }
+    } catch (e2) {
+      // nothing more to do
+    }
+    return [];
+  }
 }
 
 function findPublicPost_(posts, publicId) {
@@ -114,7 +154,10 @@ function apiPost_(publicId) {
   return { ok: true, ward: wardInfo_(s), post: publicPost(post, slots, countsBySlot(d.signups), todayLocal_()) };
 }
 
-/** Request tiles: request categories with a form, not archived, with On Help page ticked. */
+/**
+ * Request tiles: request categories with a form, not archived, with On Help page ticked. Never
+ * the Christmas giving form (decision 17: it can only be offered on the Serve page).
+ */
 function apiHelp_() {
   var cached = cache_().get('help');
   if (cached) return JSON.parse(cached);
@@ -125,6 +168,7 @@ function apiHelp_() {
     .rows()
     .forEach(function (c) {
       if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !isTicked(c['On Help page'])) return;
+      if (c.Id === GIVING_ID) return;
       var f = files[c.Id];
       if (!f || !f['Form id']) return;
       var url = '';

@@ -45,20 +45,22 @@ How a volunteer is known (no Google account needed):
 >    both counselors, the Executive Secretary and the Ward Clerk (add a row for anyone missing),
 >    and for nobody else.
 > 4. Run **Service Portal > Set up**. It keeps everything you typed and makes whatever is still
->    missing (this is also section 3, step 7). It adds two Categories columns, **Notify** (the
->    **other** row gets `Bishop`) and **On Help page** (ticked for every row you had), and a new
->    row, **Christmas giving offers**, then makes its private form, folder and sheet. It also
->    updates the wording of request forms it made before (*Updated the wording of: …*), and
->    ends by listing the giving form's link.
+>    missing (this is also section 3, step 7). It adds three Categories columns: **Notify** (the
+>    **other** row gets `Bishop`), **On Help page** (ticked for every row you had) and **On
+>    Serve page** (unticked). It adds a new row, **Christmas giving offers**, and makes its
+>    form, folder and sheet. It also updates the wording of request forms it made before
+>    (*Updated the wording of: …*), and ends by listing the giving form's link.
 > 5. In the **Categories** tab, type the Christmas gift coordinators' emails in
->    **Coordinators** on both the **christmas** and **christmas-giving** rows (section 3, step
->    6).
+>    **Coordinators** on both the **christmas** and **christmas-giving** rows, and decide whether
+>    to tick **On Serve page** on the christmas-giving row (section 3, step 6).
 > 6. Only if you had already run Install triggers: run **Service Portal > Install triggers**
 >    again (section 5, step 1), so the new giving form gets its trigger. Otherwise skip this.
 > 7. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
 >    5, step 2), and make the giving short link (section 6, step 7). If you hadn't reached those
 >    sections yet, skip this; they come up in order.
-> 8. Carry on from where you stopped.
+> 8. Only if you already gave the hub owner the hub files: run **Make hub files** and give them
+>    the new `serve.html` (section 6, steps 1–3). The giving card needs it.
+> 9. Carry on from where you stopped.
 
 ---
 
@@ -169,7 +171,7 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | time_zone | The same zone as steps 2.3 and 2.8, as a name | `America/Denver` |
    | contact_email | The address members may write to | `help@riverbend.example` |
    | hub_url | The hub folder address (where `index.html` lives); blank if no hub | `https://example.github.io/rb1links/` |
-   | web_app_url | Leave blank for now (step 4) | |
+   | web_app_url | Leave blank for now (step 4). Later: the **Web app URL** from the Deploy box, ending in `/exec` — not a form link (docs.google.com/forms/…) | |
    | preview_image_url | Optional picture for link previews | (blank) |
    | serve_short_link | Leave blank for now (step 6) | |
    | help_short_link | Leave blank for now (step 6) | |
@@ -206,9 +208,16 @@ private window, use a separate Chrome profile signed in only to the shared accou
    - **Christmas help** and **Other help** are **Confidential**: only the bishopric (every
      Leaders row with **Bishopric** ticked) and anyone listed in **Coordinators** (emails,
      separated by commas). No other ward council member sees them unless you list them there.
-   - **Christmas giving offers** (`christmas-giving`) is a **private** form where families
-     offer gifts. It is Confidential and **not** on the public Request Help page (its **On Help
-     page** box is unticked); you share its link privately (section 6, step 7).
+   - **Christmas giving offers** (`christmas-giving`) is the form where families offer gifts.
+     It is Confidential: only the bishopric and its Coordinators see the answers. It is never on
+     the Request Help page. You choose how people find it with its **On Serve page** box (the
+     last column; if it isn't there, run Set up, which adds it):
+     - **Ticked**: the Service Opportunities page shows a small *🎁 Offer to give at Christmas*
+       card at the top, linking to the form. Once the hub has the current `serve.html` (from
+       **Make hub files**, section 6), it appears (or goes) within a minute; no Set up needed.
+     - **Unticked** (the default): it is on no public page; share its link privately (section
+       6, step 7).
+     On Serve page means nothing on any other row.
    - **Christmas gift coordinators.** If a couple outside the bishopric is called to match
      Christmas requests with givers, type both their emails in **Coordinators** on **both** the
      **christmas** and the **christmas-giving** rows, for example
@@ -264,10 +273,11 @@ You can run Set up any time; it never makes a second copy of anything.
 5. **Execute as**: **Me** (the shared account).
 6. **Who has access**: **Anyone**.
 7. Click **Deploy**. If asked, authorize again as in step 3.2.
-8. Copy the **Web app URL** (it ends in `/exec`). Click **Done**.
+8. Copy the **Web app URL** from the Deploy box, ending in `/exec` — not a form link (docs.google.com/forms/…). Click **Done**.
 9. In the Service Sheet, paste it into Settings **web_app_url**.
-10. Check it: open a new browser tab and go to that address with `?api=ping` added at the end.
-    You should see `{"ok":true,"at":"…"}`.
+10. Check it: open a new browser tab and go to that same address (the **Web app URL** from the Deploy box, ending in `/exec` — not a form link (docs.google.com/forms/…)) with `?api=ping` added at the end, for example
+    `https://script.google.com/macros/s/…/exec?api=ping`. You should see
+    `{"ok":true,"at":"…","build":"…"}`.
 
 **Updating later without changing the address** (when you paste a new `Code.gs`): **Deploy >
 Manage deployments**, select the deployment, click the **pencil** (Edit), set **Version** to
@@ -324,16 +334,19 @@ pages. The hub belongs to the ward; its owner adds the files.
    again, and give the hub owner the new `hub-sections.html` part.
 6. QR codes: download the QR code zippa.run shows for each short link, name them
    `serve-qr.png` and `help-qr.png`, and have the hub owner upload them next to `index.html`.
-7. **The private Christmas giving form.** Find its link in Set up's message (it lists *Christmas
-   giving offers (not on the Help page; share privately): …*), or in Drive > **Service Portal**
-   > the **Christmas giving offers** form > **Send** > the **link** icon > **Copy**. On
-   **app.zippa.run** make `<prefix>Give` pointing at it (Riverbend: `zippa.run/rb1Give`).
-   Share it only in a ward email with addresses in **Bcc**, or in the bulletin. **Never** put
-   it on the public hub.
+7. **The Christmas giving form.** Either tick **On Serve page** on the **christmas-giving** row
+   (section 3, step 6) so the Service Opportunities page shows an *Offer to give at Christmas*
+   card, or leave it unticked and share the link privately. Either way you can share the link:
+   find it in Set up's message (it lists *Christmas giving offers (not on any public page;
+   share privately): …* or *(on the Service Opportunities page; you can also share the link):
+   …*), or in Drive > **Service Portal** > the **Christmas giving offers** form > **Send** > the
+   **link** icon > **Copy**. On **app.zippa.run** make `<prefix>Give` pointing at it
+   (Riverbend: `zippa.run/rb1Give`). When it is unticked, share that link only in a ward email
+   with addresses in **Bcc**, or in the bulletin, and don't put it on the hub.
 
 **If there is no hub, or the hub test in Check health fails:** skip this step, leave
 **hub_url** blank, and point the two short links at the web app's own pages instead:
-`<web_app_url>?page=serve` and `<web_app_url>?page=help`. These pages work the same but show
+`<web_app_url>?page=serve` and `<web_app_url>?page=help` (web_app_url being the **Web app URL** from the Deploy box, ending in `/exec` — not a form link (docs.google.com/forms/…)). These pages work the same but show
 Google's notice *This application was created by a Google Apps Script user* at the top.
 
 ---
@@ -358,7 +371,7 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 | Line | What to do |
 |---|---|
 | Settings | Fill in the keys it names. |
-| Web app does not answer | Step 4: Execute as **Me**, access **Anyone**; web_app_url must end in `/exec`. |
+| Web app does not answer | Step 4: Execute as **Me**, access **Anyone**; web_app_url must be the **Web app URL** from the Deploy box, ending in `/exec` — not a form link (docs.google.com/forms/…). |
 | The web app is an older version | The script was saved but the web app still runs an earlier version: **Deploy > Manage deployments**, select it, click the **pencil**, **Version: New version**, **Deploy**. (The nightly health email says this too.) |
 | Hub serve.html not reachable | The hub owner hasn't uploaded the pages yet, or hub_url is wrong (it must be the folder that holds `index.html`). Or use the no-hub way in step 6. |
 | Triggers | Run **Install triggers** (signed in as the shared account). |
@@ -586,6 +599,8 @@ public pages keep using the old one until step 4.
    **If your ward set up before 1.1**, this Set up also makes the 1.1 changes (the **Notify**
    and **On Help page** columns, the **Christmas giving offers** row and its private form) and
    lists the giving form's link; a ward already on 1.1 just sees *Request forms: already made*.
+   It also adds the 1.1.1 **On Serve page** column (left unticked). A ward that already ticked
+   it on the christmas-giving row keeps its tick.
 4. **New version of the web app.** **Deploy > Manage deployments**, select the deployment,
    click the **pencil**, set **Version** to **New version**, click **Deploy**. (Not *New
    deployment*: that changes the address and breaks every link.)
@@ -604,7 +619,10 @@ public pages keep using the old one until step 4.
    council, if *Any ward council may create* is ticked) make and edit its opportunities.
 7. **New hub pages.** Run **Make hub files** and give the hub owner all six page files,
    **including the new `me.html`** (the My sign-ups page); the other five changed too, so they
-   replace the old ones. **Once the hub owner says they are uploaded**, put the **hub_url** you
+   replace the old ones. The new `serve.html` draws the Brothers and Sisters side by side, the
+   category icons and, when **On Serve page** is ticked on the christmas-giving row (section 3,
+   step 6), the *🎁 Offer to give at Christmas* card at the top. To show that card, tick the box
+   now (or later; the page picks it up within a minute). **Once the hub owner says they are uploaded**, put the **hub_url** you
    saved in step 1 back into Settings and run **Check health** (the *Hub serve.html* line must
    be OK). Until then, members simply see the script's own pages, which work the same.
 8. **Tell the leaders.** Send them the new LEADER-GUIDE: first-timers now wait under **Waiting

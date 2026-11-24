@@ -390,3 +390,17 @@ describe('review round 2: the category picker', () => {
     expect(options[0]).toBe('Pick a category');
   });
 });
+
+describe('serve.html: 1.1.1 offer card with the phase 2 layout', () => {
+  it('draws the offer card first, then Brothers and Sisters side by side, with category icons', async () => {
+    const card = (id, audiences) => ({ publicId: id, title: 'Post ' + id, organization: 'Relief Society', category: 'meals', categoryName: 'Meals', categoryIcon: '🍲', audiences, firstDate: '2026-12-03', lastDate: '2026-12-03', needed: 4, filled: 1, full: false, status: 'Open' });
+    const offer = { id: 'christmas-giving', label: 'Offer to give at Christmas', icon: '🎁', url: 'https://docs.example.test/forms/d/e/pub-form9/viewform' };
+    const doc = await renderPage('serve', '', { serve: { ok: true, ward: WARD, posts: [card('a', ['Brothers', 'Sisters'])], offers: [offer] } });
+    const main = doc.ids['gp-main'];
+    expect(main.children[0].attrs.href).toBe(offer.url);
+    expect(main.children[0].textContent).toContain('🎁 Offer to give at Christmas');
+    expect(main.children[1].className).toBe('gp-pair');
+    expect(main.textContent).toContain('🍲');
+    expect(main.textContent).not.toContain('Nothing to sign up for');
+  });
+});

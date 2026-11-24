@@ -124,12 +124,12 @@ with `google-portal/SETUP-GUIDE.md`). Spec
 Leaders row with **Bishopric** ticked (bishop, both counselors, Executive Secretary, Ward Clerk)
 edits the Service Sheet and reads the confidential requests (Christmas, Other) with that kind's
 Coordinators; `bishopricEmails()` decides, never the Calling text. Alert emails still go to
-Calling `Bishop` / `Executive Secretary`. Categories also carry **Notify** (who gets a kind's notice: blank = every reader, else `Bishop` / `Coordinators` / emails, always limited to readers; decision 15) and **On Help page** (unticked = private form, e.g. the Christmas giving offers form read by the bishopric and the Christmas gift coordinators; decision 16).
+Calling `Bishop` / `Executive Secretary`. Categories also carry **Notify** (who gets a kind's notice: blank = every reader, else `Bishop` / `Coordinators` / emails, always limited to readers; decision 15) and **On Help page** (unticked = private form, e.g. the Christmas giving offers form read by the bishopric and the Christmas gift coordinators; decision 16). The giving form is never on the Help page; its **On Serve page** box (that row only) shows an "Offer to give at Christmas" card on the Service Opportunities page (decision 17, 1.1.1).
 Phase 2 (confirm-your-address and first-time approval with records, waiting counts,
 over-limit with withdraw, 48 h nudges, lapses, My sign-ups `me.html`, children, category
 coordinators and fill warnings, Needs help soon, daily health email) built & tested in Node
-2026-11-24 on top of 1.1 (plan `docs/superpowers/plans/2026-11-24-google-portal-phase-2.md`;
-SETUP-GUIDE section 11 upgrades a phase 1 or 1.1 install).
+2026-11-24 on top of 1.1.1 (plan `docs/superpowers/plans/2026-11-24-google-portal-phase-2.md`;
+SETUP-GUIDE section 11 upgrades a phase 1, 1.1 or 1.1.1 install).
 - Every public sign-up answers the same sentence (`TEXT.signupThanks`); what happened goes
   only by email. Private details reach only Confirmed sign-ups of Approved volunteers or
   Leaders-tab addresses (confirmation, reminder, My sign-ups). Approval is by the first post's
