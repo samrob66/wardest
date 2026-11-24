@@ -9,7 +9,7 @@ const sys = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'));
 
 function withSignup() {
   const gp = loadPortal({ seed: true });
-  seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-02', Start: '17:00' }, { 'Slot id': 'm2', Date: '2026-12-05' }]);
+  seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-02', Start: '17:00' }, { 'Slot id': 'm2', Date: '2026-12-05', Needed: 3 }]);
   gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm1', name: 'Brother Volunteer', email: 'brother.volunteer@example.test' });
   gp.fakes.mail.sent.length = 0;
   return gp;
@@ -66,6 +66,23 @@ describe('gpHourly', () => {
     gp.fakes.setNow('2026-12-02 10:00');
     gp.gpHourly();
     expect(gp.fakes.mail.sent).toHaveLength(4);
+  });
+});
+
+describe('email reserve with reminders due', () => {
+  it('reminders still go at the reserve; confirmations queue and go out in order on the next 10-minute run', () => {
+    const gp = withSignup();
+    gp.fakes.setNow('2026-12-01 18:00');
+    gp.fakes.setQuota(30); // exactly the reserve
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Sister One', email: 'one@example.test' });
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Sister Two', email: 'two@example.test' });
+    gp.gpHourly();
+    expect(gp.fakes.mail.sent.map((m) => m.subject)).toEqual(['Reminder: Meals for the Sample family tomorrow']);
+    expect(gp.fakes.system.rowsOf('Outbox').map((m) => m.To)).toEqual(['one@example.test', 'two@example.test']);
+    gp.fakes.setQuota(100);
+    gp.gpTenMinute();
+    expect(gp.fakes.mail.sent.slice(1).map((m) => m.to)).toEqual(['one@example.test', 'two@example.test']);
+    expect(gp.fakes.system.rowsOf('Outbox')).toEqual([]);
   });
 });
 
