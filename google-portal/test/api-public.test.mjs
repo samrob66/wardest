@@ -81,15 +81,18 @@ describe('apiSignup_', () => {
   it('answers without private details or other names', () => {
     const gp = setup();
     const r = signup(gp);
-    expect(r).toEqual({ ok: true, message: "You're signed up. We sent a confirmation to your email." });
+    expect(r).toEqual({ ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' });
   });
 
-  it('refuses a full role, a duplicate, bad fields and a draft', () => {
+  it('a full role and a duplicate answer the same sentence (phase 2: outcomes by email); bad fields and a draft are refused', () => {
     const gp = setup();
     signup(gp);
-    expect(signup(gp, { email: 'sister.other@example.test' }).error).toBe('This role is full.');
+    gp.fakes.mail.sent.length = 0;
+    expect(signup(gp, { email: 'sister.other@example.test' })).toEqual({ ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' });
+    expect(gp.fakes.mail.sent.map((m) => [m.to, m.subject])).toEqual([['sister.other@example.test', 'This role is already filled: Meals for the Sample family']]);
     expect(signup(gp, { slotId: 'm2' }).ok).toBe(true);
-    expect(signup(gp, { slotId: 'm2' }).error).toBe("You're already signed up for this role.");
+    expect(signup(gp, { slotId: 'm2' })).toEqual({ ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' });
+    expect(gp.fakes.spreadsheet.rowsOf('Sign-ups').filter((r) => r['Slot id'] === 'm2')).toHaveLength(1);
     const bad = signup(gp, { name: '', email: 'x@y', bringing: 'b'.repeat(201), slotId: 'm3' });
     expect(bad.ok).toBe(false);
     expect(Object.keys(bad.fields).sort()).toEqual(['bringing', 'email', 'name']);
@@ -101,7 +104,8 @@ describe('apiSignup_', () => {
     signup(gp);
     const mail = gp.fakes.mail.sent[0];
     expect(mail.to).toBe('brother.volunteer@example.test');
-    expect(mail.body).not.toContain('123 Example Lane');
+    // Phase 2: an approved volunteer's confirmation carries the private details.
+    expect(mail.body).toContain('123 Example Lane');
     expect(mail.body).toContain('https://script.example.test/macros/s/EXAMPLE/exec?page=confirm#t=');
     const info = plain(gp.apiTokenInfo_({ t: tokenFrom(mail.body) }));
     expect(info).toEqual({ ok: true, kind: 'cancel', title: 'Meals for the Sample family', date: '2026-12-03', start: '17:00', role: 'Bring a meal', status: 'Confirmed' });

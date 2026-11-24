@@ -95,19 +95,26 @@ describe('templates', () => {
   const signup = { Name: 'Brother Volunteer', Email: 'brother.volunteer@example.test', Bringing: 'Soup' };
 
   it('escapes values in html', () => {
-    const t = gp.tplSignupConfirmed_(s, post, slot, signup, 'https://x.example.test/confirm.html#t=abc');
+    const t = gp.tplSignupConfirmed_(s, post, slot, signup, { cancelUrl: 'https://x.example.test/confirm.html#t=abc', details: true });
     expect(t.html).not.toContain('<script>');
     expect(t.html).toContain('&lt;script&gt;');
     expect(t.text).toContain('https://x.example.test/confirm.html#t=abc');
   });
 
-  it('keeps private details out of the confirmation and puts them in the reminder', () => {
-    const c = gp.tplSignupConfirmed_(s, post, slot, signup, 'u');
+  it('puts private details in the confirmation and reminder only when told to (confirmed and approved)', () => {
+    const c = gp.tplSignupConfirmed_(s, post, slot, signup, { cancelUrl: 'u', meUrl: 'https://x.example.test/me.html#t=m', details: false });
     expect(c.html + c.text + c.subject).not.toContain('123 Example Lane');
-    expect(c.text).toMatch(/reminder the day before/);
-    const r = gp.tplReminder_(s, post, slot, signup, 'u');
+    expect(c.text).toContain('https://x.example.test/me.html#t=m');
+    const d = gp.tplSignupConfirmed_(s, post, slot, signup, { cancelUrl: 'u', details: true, otherWays: [{ title: 'Other <b>', filled: 1, needed: 4, url: 'https://x.example.test/post.html#p=o' }] });
+    expect(d.text).toContain('123 Example Lane');
+    expect(d.text).toContain('Other <b>: 1 of 4 filled');
+    expect(d.html).toContain('Other &lt;b&gt;');
+    const r = gp.tplReminder_(s, post, slot, signup, 'u', true);
     expect(r.html).toContain('123 Example Lane');
     expect(r.text).toContain('123 Example Lane');
+    expect(gp.tplReminder_(s, post, slot, signup, 'u', false).text).not.toContain('123 Example Lane');
+    const child = gp.tplReminder_(s, post, slot, { ...signup, 'Child first name': 'Ana' }, 'u', true);
+    expect(child.text).toContain('Ana is signed up for');
     expect(gp.tplDetails_(s, post, slot).text).toContain('123 Example Lane');
   });
 

@@ -1,22 +1,26 @@
 /**
- * Tokens (cancel links) and leader links. Random 256-bit values, stored only as SHA-256 hex in
- * the System Sheet's Tokens tab, carried after # in page addresses and sent to the script only
- * in POST bodies.
+ * Tokens and leader links. Random 256-bit values, stored only as SHA-256 hex in the System
+ * Sheet's Tokens tab, carried after # in page addresses and sent to the script only in POST
+ * bodies. Kinds: cancel, withdraw and confirm (subject = sign-up id), me (subject = normalized
+ * email; My sign-ups) and leader (subject = normalized email).
  */
+
+/** Kinds where a new token replaces the subject's older ones. */
+var SINGLE_TOKEN_KINDS = ['leader', 'me'];
 
 function isRawToken_(raw) {
   return typeof raw === 'string' && /^[0-9a-f]{64}$/.test(raw);
 }
 
-/** Stores the hash and returns the raw token. A new leader link deletes that leader's older ones. */
+/** Stores the hash and returns the raw token. A new leader or My sign-ups link deletes that subject's older ones. */
 function issueToken_(kind, subject, expiresLocal) {
   var raw = newToken_();
   withLock_(function () {
     var t = systemTab_(SYS_TAB.tokens);
-    if (kind === 'leader') {
+    if (SINGLE_TOKEN_KINDS.indexOf(kind) >= 0) {
       t.removeMany(
         t.rows().filter(function (r) {
-          return r.Kind === 'leader' && String(r.Subject) === String(subject);
+          return r.Kind === kind && String(r.Subject) === String(subject);
         })
       );
     }
@@ -32,6 +36,40 @@ function readToken_(raw, kind) {
   if (!row || row.Kind !== kind) return null;
   if (!row.Expires || row.Expires <= nowLocal_()) return null;
   return { subject: String(row.Subject), expires: row.Expires };
+}
+
+/** {kind, subject, expires, expired} for a raw token still in the Tokens tab, else null. */
+function tokenRow_(raw) {
+  if (!isRawToken_(raw)) return null;
+  var row = systemTab_(SYS_TAB.tokens).find('Hash', sha256Hex_(raw));
+  if (!row) return null;
+  return { kind: String(row.Kind), subject: String(row.Subject), expires: row.Expires, expired: !row.Expires || row.Expires <= nowLocal_() };
+}
+
+/** Removes a sign-up's cancel, withdraw and confirm links. */
+function revokeSignupTokens_(signupId) {
+  withLock_(function () {
+    var t = systemTab_(SYS_TAB.tokens);
+    t.removeMany(
+      t.rows().filter(function (r) {
+        return ['cancel', 'withdraw', 'confirm'].indexOf(r.Kind) >= 0 && String(r.Subject) === String(signupId);
+      })
+    );
+  });
+}
+
+/**
+ * A My sign-ups link for this address: it lasts until 30 days after the last date the address
+ * signed up for (never less than 30 days from today) and replaces the address's older link.
+ */
+function issueMeToken_(email, signups, slotsById) {
+  var e = normEmail(email);
+  var last = todayLocal_();
+  (signups || []).forEach(function (su) {
+    var sl = slotsById[su['Slot id']];
+    if (normEmail(su.Email) === e && sl && sl.Date > last) last = sl.Date;
+  });
+  return issueToken_('me', e, addDays(last, 30) + ' 23:59');
 }
 
 function revokeTokens_(kind, subject) {

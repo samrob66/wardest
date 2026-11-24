@@ -36,6 +36,15 @@ var TEXT = {
   roleFull: 'This role is full.',
   alreadySignedUp: "You're already signed up for this role.",
   signedUp: "You're signed up. We sent a confirmation to your email.",
+  // Every public sign-up answer (sign-ups spec 6.3 item 6): never says whether the address was known.
+  signupThanks: 'Thanks. Check your email to finish or see your sign-up.',
+  noChildren: 'Children and youth can be signed up only for opportunities for youth or children.',
+  linkExpired: 'This link has expired.',
+  alreadyConfirmed: 'Your address is already confirmed.',
+  addressConfirmed: 'Thank you. Your address is confirmed. A ward leader will look at your sign-up soon, and we will email you when it counts.',
+  confirmedPassed: 'Your address is confirmed. The date you signed up for has passed, so that sign-up has ended.',
+  withdrawn: 'Your offer is withdrawn. Thank you for being willing to help.',
+  notActive: 'This sign-up is no longer active.',
   alreadyCancelled: 'This sign-up is already cancelled.',
   cancelled: 'Your sign-up is cancelled. Thank you for letting us know.',
   linkInvalid: 'This link has expired or is no longer valid.',
@@ -180,6 +189,7 @@ var LOCK_WAIT_MS = 10000;
 var SERVE_CACHE_SECONDS = 60;
 var HELP_CACHE_SECONDS = 21600;
 var LEADER_LINK_DAYS = 90;
+var CONFIRM_LINK_HOURS = 48;
 var LOG_KEEP_DAYS = 90;
 var FAILED_MAIL_KEEP_DAYS = 7;
 var REQUEST_KEEP_DAYS = 30;

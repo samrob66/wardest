@@ -69,10 +69,11 @@ function refreshAllFilled_() {
 }
 
 /**
- * Day-before reminders, with private details and a fresh cancel link. Due sign-ups are claimed
- * (Reminded at stamped) under the lock from a fresh read, so someone who cancels or is removed
- * before the claim gets nothing; the emails go out after the lock is released. Details sent at
- * is stamped only when the post has private details, so details added later still show as owed.
+ * Day-before reminders, with a fresh cancel link, and the private details only when the
+ * volunteer is approved (or on the Leaders tab) now: a revoked volunteer's sign-up stays but gets
+ * no details. Due sign-ups are claimed (Reminded at stamped) under the lock from a fresh read, so
+ * someone who cancels or is removed before the claim gets nothing; the emails go out after the
+ * lock is released. Details sent at records when details went out.
  */
 function sendReminders_() {
   var s = settings_();
@@ -83,18 +84,22 @@ function sendReminders_() {
     var postsById = indexBy_(d.posts, 'Post id');
     var byId = indexBy_(d.signups, 'Sign-up id');
     var signupsT = serviceTab_(TAB.signups);
+    var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
+    var leaderList = leaderEmails_();
     return remindersDue(d.signups, slotsById, postsById, now, s.reminder_hour).map(function (id) {
       var su = byId[id];
       var post = postsById[su['Post id']];
+      var state = volunteerState(su.Email, vols, leaderList);
+      var details = (state === 'approved' || state === 'leader') && !!post['Private details'];
       var stamp = { 'Reminded at': now };
-      if (post['Private details']) stamp['Details sent at'] = now;
+      if (details) stamp['Details sent at'] = now;
       signupsT.update(su, stamp);
-      return { su: su, slot: slotsById[su['Slot id']], post: post };
+      return { su: su, slot: slotsById[su['Slot id']], post: post, details: details };
     });
   });
   claimed.forEach(function (c) {
     var token = issueToken_('cancel', c.su['Sign-up id'], addDays(c.slot.Date, 1) + ' 23:59');
-    var t = tplReminder_(s, c.post, c.slot, c.su, pageUrl_(s, 'confirm', { t: token }));
+    var t = tplReminder_(s, c.post, c.slot, c.su, pageUrl_(s, 'confirm', { t: token }), c.details);
     sendOrQueue_({ to: c.su.Email, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
   });
   return claimed.length;

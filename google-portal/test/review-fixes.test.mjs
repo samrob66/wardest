@@ -1,6 +1,6 @@
 // Review round 1 fixes and the coordinator's decisions D1-D4.
 import { describe, it, expect } from 'vitest';
-import { loadPortal, seedPost } from './harness.mjs';
+import { loadPortal, seedPost, approveVolunteers } from './harness.mjs';
 import { formSubmitEvent } from './fakes.mjs';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
@@ -92,9 +92,11 @@ describe('details owed and Send details', () => {
 describe('D3: refused attempts count toward the limits', () => {
   it('probing "already signed up" stops after 3 tries from one address a day', () => {
     const gp = setup();
+    // Phase 2: a duplicate answers the same sentence as everything else (outcomes by email only).
+    const THANKS = { ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' };
     expect(signup(gp).ok).toBe(true); // 1
-    expect(signup(gp).error).toBe("You're already signed up for this role."); // 2
-    expect(signup(gp).error).toBe("You're already signed up for this role."); // 3
+    expect(signup(gp)).toEqual(THANKS); // 2: duplicate
+    expect(signup(gp)).toEqual(THANKS); // 3: duplicate
     expect(signup(gp).error).toBe(LIMIT);
     expect(signup(gp, { slotId: 'm3' }).error).toBe(LIMIT);
     gp.fakes.setNow('2026-12-02 08:00');
@@ -103,9 +105,12 @@ describe('D3: refused attempts count toward the limits', () => {
 
   it('full and closed refusals count too, per address and per post per minute', () => {
     const gp = setup();
+    approveVolunteers(gp, Array.from({ length: 9 }, (_, i) => `p${i}@example.test`));
     signup(gp, { email: 'first@example.test' });
     // 1 sign-up + 9 refused attempts = 10 this minute on this post: the next attempt is refused.
-    for (let i = 0; i < 9; i++) expect(signup(gp, { email: `p${i}@example.test` }).error).toBe('This role is full.');
+    // (Phase 2: an approved address on a full role is told by email; the answer is the usual sentence.)
+    for (let i = 0; i < 9; i++) expect(signup(gp, { email: `p${i}@example.test` }).ok).toBe(true);
+    expect(gp.fakes.spreadsheet.rowsOf('Sign-ups')).toHaveLength(1);
     expect(signup(gp, { slotId: 'm3', email: 'fresh@example.test' }).error).toBe(LIMIT);
     gp.fakes.setNow('2026-12-01 10:01');
     expect(signup(gp, { slotId: 'm3', email: 'fresh@example.test' }).ok).toBe(true);

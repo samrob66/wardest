@@ -89,7 +89,7 @@ describe('email reserve with reminders due', () => {
 describe('gpTenMinute', () => {
   it('drains a queued confirmation once the quota returns, and refreshes Filled', () => {
     const gp = loadPortal({ seed: true });
-    seedPost(gp, {}, [{ 'Slot id': 'm1' }]);
+    seedPost(gp, {}, [{ 'Slot id': 'm1', Needed: 2 }]);
     gp.fakes.setQuota(10);
     gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm1', name: 'Brother Volunteer', email: 'brother.volunteer@example.test' });
     expect(gp.fakes.mail.sent).toHaveLength(0);

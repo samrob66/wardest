@@ -114,11 +114,36 @@ export function seedPost(ctx, post = {}, slots = []) {
   return { post: p, slots: ss };
 }
 
-function seed(ctx, { settings = {}, leaders = LEADERS } = {}) {
+/**
+ * Volunteers the phase 1 tests sign up with, already approved (phase 2 makes a new address wait
+ * for its email click and a leader's approval). Phase 2 tests use other addresses.
+ */
+export const APPROVED_VOLUNTEERS = [
+  'brother.volunteer@example.test',
+  'sister.volunteer@example.test',
+  'sister.other@example.test',
+  'one@example.test',
+  'two@example.test',
+  'three@example.test',
+  'first@example.test',
+  'fresh@example.test',
+  'a@example.test',
+];
+
+/** Adds Approved Volunteers rows (as if a leader had approved them). */
+export function approveVolunteers(ctx, emails) {
+  ctx.serviceTab_('Volunteers').appendMany(
+    emails.map((e) => ({ Email: e, Name: 'Approved Volunteer', Status: 'Approved', 'Decided by': 'Bishop Example', 'Decided at': '2026-11-20 10:00', 'First post': 'p1', 'Email confirmed at': '2026-11-19 10:00' }))
+  );
+  ctx.gpBegin_();
+}
+
+function seed(ctx, { settings = {}, leaders = LEADERS, approved = APPROVED_VOLUNTEERS } = {}) {
   ctx.gpEnsureTabs_(ctx.fakes.spreadsheet);
   ctx.gpEnsureSystemTabs_(ctx.fakes.system);
   ctx.gpBegin_();
   for (const [k, v] of Object.entries({ ...WARD, ...settings })) setSetting(ctx, k, v);
   for (const l of leaders) addLeader(ctx, l);
+  if (approved.length) approveVolunteers(ctx, approved);
   ctx.gpBegin_();
 }

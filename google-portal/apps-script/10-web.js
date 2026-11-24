@@ -19,6 +19,8 @@ var POST_ACTIONS = [
   'signup',
   'tokenInfo',
   'cancel',
+  'confirm',
+  'withdraw',
   'requestLeaderLink',
   'whoami',
   'listPosts',
@@ -95,6 +97,12 @@ function dispatch_(action, data) {
     },
     cancel: function () {
       return apiCancel_(data);
+    },
+    confirm: function () {
+      return apiConfirm_(data);
+    },
+    withdraw: function () {
+      return apiWithdraw_(data);
     },
     requestLeaderLink: function () {
       return apiRequestLeaderLink_(data);

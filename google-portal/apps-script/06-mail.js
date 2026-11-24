@@ -194,47 +194,165 @@ function contactLine_(s) {
 
 // ---------- templates (each returns {subject, html, text}) ----------
 
-function tplSignupConfirmed_(s, post, slot, signup, cancelUrl) {
+/** "You're signed up" or "Ana is signed up" (a parent signing up a child). */
+function whoServes_(signup) {
+  var child = String(signup['Child first name'] || '').trim();
+  return child ? { text: child + ' is', html: esc(child) + ' is' } : { text: "You're", html: "You're" };
+}
+
+function detailsBlock_(post) {
+  var d = post['Private details'];
+  if (!d) return { text: '', html: '' };
+  return {
+    text: 'Details (please keep them private):\n' + d,
+    html: paras_(['<strong>Details</strong> (please keep them private):<br>' + esc(d).replace(/\n/g, '<br>')]),
+  };
+}
+
+/** otherWays: [{title, filled, needed, url}] — other open posts, fill levels only. */
+function otherWaysBlock_(otherWays) {
+  var list = (otherWays || []).slice(0, 10);
+  if (!list.length) return { text: '', html: '' };
+  var line = function (o) {
+    return o.title + ': ' + o.filled + ' of ' + o.needed + ' filled';
+  };
+  return {
+    text: 'Other ways to serve:\n' + list.map(function (o) {
+      return line(o) + ' ' + o.url;
+    }).join('\n'),
+    html: paras_([
+      '<strong>Other ways to serve</strong><br>' + list.map(function (o) {
+        return '<a href="' + esc(o.url) + '">' + esc(o.title) + '</a>: ' + esc(o.filled + ' of ' + o.needed + ' filled');
+      }).join('<br>'),
+    ]),
+  };
+}
+
+/**
+ * The sign-up counts. opts: {cancelUrl, meUrl, details (true only for a confirmed and approved
+ * volunteer or a leader), otherWays}.
+ */
+function tplSignupConfirmed_(s, post, slot, signup, opts) {
+  opts = opts || {};
   var when = fmtWhen_(slot);
+  var who = whoServes_(signup);
+  var details = opts.details ? detailsBlock_(post) : { text: '', html: '' };
+  var other = otherWaysBlock_(opts.otherWays);
   var text = [
     'Hi ' + signup.Name + ',',
-    "You're signed up for " + slot.Role + ' on ' + when + ' (' + post.Title + ').',
-    signup.Bringing ? "You're bringing: " + signup.Bringing : '',
-    'We will email you any details you need (such as an address) in a reminder the day before.',
-    "Can't make it? Cancel here: " + cancelUrl,
+    who.text + ' signed up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').',
+    signup.Bringing ? 'Bringing: ' + signup.Bringing : '',
+    details.text,
+    "Can't make it? Cancel here: " + opts.cancelUrl,
+    opts.meUrl ? 'All your sign-ups: ' + opts.meUrl : '',
+    other.text,
     'Thank you for serving.',
   ].filter(String);
   var html =
     paras_([
       'Hi ' + esc(signup.Name) + ',',
-      "You're signed up for <strong>" + esc(slot.Role) + '</strong> on ' + esc(when) + ' (' + esc(post.Title) + ').',
+      who.html + ' signed up for <strong>' + esc(slot.Role) + '</strong> on ' + esc(when) + ' (' + esc(post.Title) + ').',
     ]) +
-    (signup.Bringing ? paras_(["You're bringing: " + esc(signup.Bringing)]) : '') +
-    paras_(['We will email you any details you need (such as an address) in a reminder the day before.']) +
-    button_(cancelUrl, 'Cancel my sign-up') +
+    (signup.Bringing ? paras_(['Bringing: ' + esc(signup.Bringing)]) : '') +
+    details.html +
+    button_(opts.cancelUrl, 'Cancel my sign-up') +
+    (opts.meUrl ? paras_(['<a href="' + esc(opts.meUrl) + '">See all your sign-ups</a>']) : '') +
+    other.html +
     paras_(['Thank you for serving.']);
   return { subject: "You're signed up: " + post.Title, html: html, text: text.join('\n\n') };
 }
 
-function tplReminder_(s, post, slot, signup, cancelUrl) {
+/** The sign-up counted after the role already had its number: stay, or withdraw. */
+function tplOverLimit_(s, post, slot, signup, opts) {
+  opts = opts || {};
   var when = fmtWhen_(slot);
-  var details = post['Private details'];
+  var details = opts.details ? detailsBlock_(post) : { text: '', html: '' };
+  var line = 'Thank you! ' + slot.Role + ' on ' + when + ' (' + post.Title + ') already has the people it needs: others signed up while yours was waiting.';
+  var more = 'You are still signed up and welcome to come. If you would rather step back, withdraw your offer with the button below. Nobody is told; the role stays full.';
   var text = [
     'Hi ' + signup.Name + ',',
-    'A reminder: you signed up for ' + slot.Role + ' tomorrow, ' + when + ' (' + post.Title + ').',
-    signup.Bringing ? "You're bringing: " + signup.Bringing : '',
-    details ? 'Details (please keep them private):\n' + details : '',
+    line,
+    more,
+    'Withdraw my offer: ' + opts.withdrawUrl,
+    details.text,
+    opts.meUrl ? 'All your sign-ups: ' + opts.meUrl : '',
+  ].filter(String);
+  var html =
+    paras_(['Hi ' + esc(signup.Name) + ',', esc(line), esc(more)]) +
+    button_(opts.withdrawUrl, 'Withdraw my offer') +
+    details.html +
+    (opts.meUrl ? paras_(['<a href="' + esc(opts.meUrl) + '">See all your sign-ups</a>']) : '');
+  return { subject: 'Thank you: ' + post.Title + ' already has the people it needs', html: html, text: text.join('\n\n') };
+}
+
+/** First time: confirm this address. Nothing private. */
+function tplConfirmAddress_(s, post, slot, signup, confirmUrl) {
+  var when = fmtWhen_(slot);
+  var lines = [
+    'Hi ' + signup.Name + ',',
+    'Please confirm this is your email address so your sign-up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ') can go ahead. The link works for 48 hours.',
+    'After you confirm, one of the ward leaders looks at your sign-up, and we email you when it counts.',
+    "If you didn't sign up, ignore this email.",
+  ];
+  return {
+    subject: 'Please confirm your email: ' + post.Title,
+    html: paras_(lines.slice(0, 2).map(esc)) + button_(confirmUrl, 'Confirm my address') + paras_(lines.slice(2).map(esc)),
+    text: lines.slice(0, 2).join('\n\n') + '\n\nConfirm my address: ' + confirmUrl + '\n\n' + lines.slice(2).join('\n\n'),
+  };
+}
+
+/** A declined or revoked address tried to sign up. Says nothing else. */
+function tplContactToSignUp_(s) {
+  var line = 'Thank you for offering to help. Please contact ' + (s.contact_email || "the ward's leaders") + ' to sign up.';
+  return { subject: 'About your sign-up', html: paras_([esc(line)]), text: line };
+}
+
+/** An approved address asked for a role that was already full. */
+function tplRoleFull_(s, post, slot) {
+  var line = slot.Role + ' on ' + fmtWhen_(slot) + ' (' + post.Title + ') filled up before your sign-up arrived, so you are not signed up for it.';
+  var more = 'Thank you for offering. Other dates and roles may still need help on the same page.';
+  return { subject: 'This role is already filled: ' + post.Title, html: paras_([esc(line), esc(more)]), text: [line, more].join('\n\n') };
+}
+
+/** To approvers: someone new is waiting. Name only (they see the email on the leader page). */
+function tplWaitingNotice_(s, name, items) {
+  var list = items.map(function (it) {
+    return it.slot.Role + ', ' + fmtWhen_(it.slot) + ' (' + it.post.Title + ')';
+  });
+  var line = name + ' is waiting for your approval to serve. They signed up for:';
+  var more = 'Open your leader page and choose Waiting for approval to approve or decline.';
+  return {
+    subject: 'Waiting for approval: ' + name,
+    html: paras_([esc(line), list.map(esc).join('<br>'), esc(more)]),
+    text: [line, list.join('\n'), more].join('\n\n'),
+  };
+}
+
+/** To the post's leaders and coordinators: every role has its number. */
+function tplFullyFilled_(s, post) {
+  var line = post.Title + ' is fully filled: every role has the people it needs.';
+  return { subject: 'Fully filled: ' + post.Title, html: paras_([esc(line), 'See who is signed up on your leader page.']), text: line + '\n\nSee who is signed up on your leader page.' };
+}
+
+/** details: true only for a confirmed sign-up of an approved volunteer or a leader. */
+function tplReminder_(s, post, slot, signup, cancelUrl, details) {
+  var when = fmtWhen_(slot);
+  var who = whoServes_(signup);
+  var d = details ? detailsBlock_(post) : { text: '', html: '' };
+  var text = [
+    'Hi ' + signup.Name + ',',
+    'A reminder: ' + who.text.replace("You're", 'you are') + ' signed up for ' + slot.Role + ' tomorrow, ' + when + ' (' + post.Title + ').',
+    signup.Bringing ? 'Bringing: ' + signup.Bringing : '',
+    d.text,
     "Can't make it after all? Cancel here: " + cancelUrl,
   ].filter(String);
   var html =
     paras_([
       'Hi ' + esc(signup.Name) + ',',
-      'A reminder: you signed up for <strong>' + esc(slot.Role) + '</strong> tomorrow, ' + esc(when) + ' (' + esc(post.Title) + ').',
+      'A reminder: ' + who.html.replace("You're", 'you are') + ' signed up for <strong>' + esc(slot.Role) + '</strong> tomorrow, ' + esc(when) + ' (' + esc(post.Title) + ').',
     ]) +
-    (signup.Bringing ? paras_(["You're bringing: " + esc(signup.Bringing)]) : '') +
-    (details
-      ? paras_(['<strong>Details</strong> (please keep them private):<br>' + esc(details).replace(/\n/g, '<br>')])
-      : '') +
+    (signup.Bringing ? paras_(['Bringing: ' + esc(signup.Bringing)]) : '') +
+    d.html +
     button_(cancelUrl, 'Cancel my sign-up');
   return { subject: 'Reminder: ' + post.Title + ' tomorrow', html: html, text: text.join('\n\n') };
 }
@@ -256,10 +374,13 @@ function tplDetails_(s, post, slot) {
 function tplCancelNotice_(s, post, slot, signup, late, stillFull) {
   var short = late && !stillFull;
   var when = fmtWhen_(slot);
-  var line = signup.Name + ' cancelled ' + slot.Role + ' on ' + when + ' (' + post.Title + ').';
-  var more = short
-    ? 'This came in after the cancel cutoff, so the role is now short. You may want to find someone.'
-    : 'The role is open again on the public page.';
+  var child = String(signup['Child first name'] || '').trim();
+  var line = signup.Name + (child ? ' (for ' + child + ')' : '') + ' cancelled ' + slot.Role + ' on ' + when + ' (' + post.Title + ').';
+  var more = stillFull
+    ? 'The role still has the people it needs (it was over-filled), so nothing else is needed.'
+    : short
+      ? 'This came in after the cancel cutoff, so the role is now short. You may want to find someone.'
+      : 'The role is open again on the public page.';
   return {
     subject: (short ? "You're now short: " : 'Cancellation: ') + post.Title,
     html: paras_([esc(line), esc(more), 'See who is signed up on your leader page.']),
