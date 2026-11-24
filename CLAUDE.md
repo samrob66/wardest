@@ -109,6 +109,24 @@ is http(s)-only, normalized on write and guarded on render (`src/lib/urls.ts`).
 - `HANDOFF.md` — historical original spec.
 - `src/` (Hono Worker) + `wrangler.toml` + `db/` (schema + seeds; `db/seed-m44.sql` carries M44's
   six real zippa.run links).
+- `google-portal/` — the Google-only portal (see below).
+
+## Google-only portal (`google-portal/`)
+
+A separate, Google-only build of the volunteer sign-ups and service requests for a ward that
+stays on its own Google account (Apps Script bound to a "Service Sheet", Google Forms for
+requests, hub sub-pages that call the script's web app). Phase 1 built & tested in Node
+2026-11-24; nothing has been created in Google yet (Sam does every Google step in a browser
+with `google-portal/SETUP-GUIDE.md`). Spec
+`docs/superpowers/specs/2026-11-24-google-only-alternative-design.md`; plan
+`docs/superpowers/plans/2026-11-24-google-portal-phase-1.md`.
+- Source: `google-portal/apps-script/NN-*.js` + `pages/`. `npm run gp:build` writes the
+  paste-ready `google-portal/dist/Code.gs` + `appsscript.json`, which are **generated and
+  committed** (never hand-edited); `npm run gp:build:check` (and the gp tests) fail when `dist/`
+  is stale. `npm run gp:test` runs its Vitest suite in Node (`google-portal/vitest.config.mjs`,
+  in-memory Google fakes, no network); `npm test` runs it after the Workers suite, and
+  `vitest.config.ts` excludes `google-portal/**`.
+- Independent of `src/`: it shares no code with the Worker and touches no D1 data.
 
 ## Build order (see BLUEPRINT.md §14 for detail)
 
