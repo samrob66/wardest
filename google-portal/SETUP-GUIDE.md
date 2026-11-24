@@ -187,9 +187,16 @@ private window, use a separate Chrome profile signed in only to the shared accou
    - **Christmas help** and **Other help** are **Confidential**: only the bishopric (every
      Leaders row with **Bishopric** ticked) and anyone listed in **Coordinators** (emails,
      separated by commas). No other ward council member sees them unless you list them there.
-   - **Christmas giving offers** (`christmas-giving`) is a **private** form where families
-     offer gifts. It is Confidential and **not** on the public Request Help page (its **On Help
-     page** box is unticked); you share its link privately (section 6, step 7).
+   - **Christmas giving offers** (`christmas-giving`) is the form where families offer gifts.
+     It is Confidential: only the bishopric and its Coordinators see the answers. It is never on
+     the Request Help page. You choose how people find it with its **On Serve page** box (the
+     last column; if it isn't there, run Set up, which adds it):
+     - **Ticked**: the Service Opportunities page shows a small *🎁 Offer to give at Christmas*
+       card at the top, linking to the form. It appears (or goes) within a minute; no Set up
+       needed.
+     - **Unticked** (the default): it is on no public page; share its link privately (section
+       6, step 7).
+     On Serve page means nothing on any other row.
    - **Christmas gift coordinators.** If a couple outside the bishopric is called to match
      Christmas requests with givers, type both their emails in **Coordinators** on **both** the
      **christmas** and the **christmas-giving** rows, for example
@@ -291,12 +298,15 @@ pages. The hub belongs to the ward; its owner adds the files.
    again, and give the hub owner the new `hub-sections.html` part.
 6. QR codes: download the QR code zippa.run shows for each short link, name them
    `serve-qr.png` and `help-qr.png`, and have the hub owner upload them next to `index.html`.
-7. **The private Christmas giving form.** Find its link in Set up's message (it lists *Christmas
-   giving offers (not on the Help page; share privately): …*), or in Drive > **Service Portal**
-   > the **Christmas giving offers** form > **Send** > the **link** icon > **Copy**. On
-   **app.zippa.run** make `<prefix>Give` pointing at it (Riverbend: `zippa.run/rb1Give`).
-   Share it only in a ward email with addresses in **Bcc**, or in the bulletin. **Never** put
-   it on the public hub.
+7. **The Christmas giving form.** Either tick **On Serve page** on the **christmas-giving** row
+   (section 3, step 6) so the Service Opportunities page shows an *Offer to give at Christmas*
+   card, or leave it unticked and share the link privately. Either way you can share the link:
+   find it in Set up's message (it lists *Christmas giving offers (not on any public page;
+   share privately): …* or *(on the Service Opportunities page; you can also share the link):
+   …*), or in Drive > **Service Portal** > the **Christmas giving offers** form > **Send** > the
+   **link** icon > **Copy**. On **app.zippa.run** make `<prefix>Give` pointing at it
+   (Riverbend: `zippa.run/rb1Give`). When it is unticked, share that link only in a ward email
+   with addresses in **Bcc**, or in the bulletin, and don't put it on the hub.
 
 **If there is no hub, or the hub test in Check health fails:** skip this step, leave
 **hub_url** blank, and point the two short links at the web app's own pages instead:

@@ -63,9 +63,13 @@ Requests are removed 30 days after they are Done or Declined.
   whole bishopric can open the Other folder. Other kinds go to the leaders of the organizations
   that own them.
 
-**Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on a
-private form; each offer is a row in your **Requests – Christmas giving offers** folder, and
-each family's request is a row in **Requests – Christmas help**.
+**Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on the
+Christmas giving form, from a link the ward shares or, if the ward turned it on, from the
+*Offer to give at Christmas* card on the Service Opportunities page. Only you and the bishopric
+see the offers. Each offer is a row in your **Requests – Christmas giving offers** folder, and
+each family's request is a row in **Requests – Christmas help**. An offer can be as general as
+"I want to give to another family this Christmas"; contact them when you have a family to
+match.
 1. Open both folders' sheets.
 2. Pick a request and an offer that fit.
 3. Contact the giver yourself. Share only what they need to give well, and no more than the

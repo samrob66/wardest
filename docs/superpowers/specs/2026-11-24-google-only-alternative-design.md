@@ -141,7 +141,7 @@ done with Levels 1–3 tools (or only by a workaround outside the system).
 | Minimal forms (name, contact, optional 200-char note; moving in/out + date; Christmas: my family / another family) | Full | One Google Form per request kind. |
 | Requester's email verified by link | Changed (by choice) | Not done. Forms can only verify an email by making the person sign in to Google (Sam's rule: "not everyone has Gmail"). Instead the form asks for name and a phone or email, sends **nothing** to the requester, and the leader confirms in person. Fewer emails, nothing revealed if someone types another person's address. A fake request costs one conversation. |
 | Each form says who will see it | Full | Form description. |
-| Private Christmas giving offers (§12 decision 16) | Full | A request kind that is not on the Help page: families offer gifts on its form, shared privately by short link; offers land in their own folder read by the bishopric and the Christmas gift coordinators, who match offers to Christmas requests themselves. |
+| Christmas giving offers (§12 decisions 16, 17) | Full | A request kind that is never on the Help page: families offer gifts on its form, shared by short link or, when the ward ticks On Serve page, from an "Offer to give at Christmas" card on the Service Opportunities page. Offers land in their own folder read by the bishopric and the Christmas gift coordinators, who match offers to Christmas requests themselves. |
 | Only the responsible leaders see requests; Christmas and Other only the bishopric and those they name | Full (with one caveat) | Each request kind writes to its own spreadsheet in a Drive folder shared only with its leaders (§5.4); Christmas and Other go to the whole bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) plus that kind's Coordinators (§12 decision 14). Caveat: the shared bishopric account owns every file, so anyone who signs in to that account can open them, and so can anyone who edits the Service Sheet, through its bound script; both are the bishopric. Same as WardForward's superadmins. |
 | Inbox with status, assignee, one short private note | Full | Columns in each request sheet. |
 | Leader notice by email with no details | Full | "A new Moving request came in. Open your Requests folder." |
@@ -315,7 +315,10 @@ Rules:
   the bishop while the whole bishopric can open its folder. `Coordinators` means that kind's
   Coordinators; the Christmas giving offers kind is seeded with it.
 - A request kind with **On Help page** unticked has a form but no tile on the Help page; its
-  link is shared privately (the Christmas giving offers form, §12 decision 16).
+  link is shared privately. The Christmas giving offers form is never on the Help page; its
+  **On Serve page** box (that row only) puts an "Offer to give at Christmas" card on the
+  Service Opportunities page instead (§12 decisions 16, 17). Its readers and notices are the
+  same either way.
 - Caveat: an editor of the Service Sheet can also edit the script bound to it, which runs as the
   shared account and can open every request sheet. Only the bishopric edits it, and the bishopric
   reads the confidential requests anyway, so this gives no one more than they have.
@@ -741,6 +744,19 @@ help soon", quota reserve and health email.
     notices to the coordinators (Notify `Coordinators`), the usual 30-day purge and monthly
     rotation, and a new Offer column. The coordinators match offers to Christmas requests
     themselves; the script never copies request data anywhere else.
+17. **Christmas giving can be offered on the Service Opportunities page** (§4.3; Sam,
+    2026-11-24, in 1.1.1). A Categories checkbox, On Serve page, used only on the
+    christmas-giving row: ticked, the Service Opportunities page shows a small "🎁 Offer to give
+    at Christmas" card linking to the giving form; unticked (the default), the form is on no
+    public page and its link is shared privately. It is never on the Request Help page. Readers,
+    folders and notices don't change: only the bishopric and the Christmas gift coordinators see
+    the answers. Sam's words:
+    - "what if we want to show Christmas Giving on the public help page? Can't people offer what
+      they want to gift people for Christmas even though they can't see the specific needs? Just
+      having people volunteer (they might say "I want to give to another family this Christmas")
+      allows the Coordinators to contact them privately later with opportunities to give."
+    - "Sorry, I didn't mean to include "Want to give?" on the requesting help page... I mean to
+      include it on the Service Opportunities page."
 
 ## 13. Settled with Sam, and open questions
 
