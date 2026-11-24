@@ -38,6 +38,40 @@ function requestReaders(category, leaders) {
   return uniq_(out);
 }
 
+/**
+ * Who gets a request kind's "new request" notice: {to, dropped}. Blank Notify: every reader.
+ * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop and
+ * anything else must be an email address. Only readers of the category's folder can get the
+ * notice; everyone else, and anything that isn't an address, goes into dropped. If nobody is
+ * left, every reader gets it (a notice holds no request details, and silence would lose it).
+ */
+function requestNotifyList(category, leaders) {
+  var readers = requestReaders(category, leaders);
+  var entries = splitList(category.Notify);
+  if (!entries.length) return { to: readers, dropped: [] };
+  var wanted = [];
+  var junk = [];
+  entries.forEach(function (entry) {
+    if (String(entry).trim().toLowerCase() === 'bishop') {
+      leaders.forEach(function (l) {
+        var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
+        if (c === 'bishop' && isEmail(l.Email)) wanted.push(normEmail(l.Email));
+      });
+    } else if (isEmail(entry)) {
+      wanted.push(normEmail(entry));
+    } else {
+      junk.push(String(entry).trim());
+    }
+  });
+  var to = [];
+  var notReaders = [];
+  uniq_(wanted).forEach(function (e) {
+    if (readers.indexOf(e) >= 0) to.push(e);
+    else notReaders.push(e);
+  });
+  return { to: to.length ? to : readers, dropped: uniq_(notReaders.concat(junk)) };
+}
+
 /** Administrators for alert emails: Leaders whose Calling is Bishop or Executive Secretary. */
 function adminEmails(leaders) {
   return uniq_(

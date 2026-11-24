@@ -254,6 +254,34 @@ describe('Sync sharing', () => {
   });
 });
 
+describe('Unticking Bishopric takes access away', () => {
+  it('a counselor who keeps Ward council drops to reader and leaves the Christmas folder; a Ward Clerk with no other role loses both', () => {
+    const gp = afterSetUp();
+    for (const l of MORE_BISHOPRIC) addLeader(gp, l);
+    gp.gpBegin_();
+    gp.gpMenuSyncSharing();
+    const perms = (id) => Object.fromEntries([...gp.fakes.drive.permsOf(id).values()].map((p) => [p.emailAddress, p.role]));
+    const serviceId = gp.fakes.spreadsheet.getId();
+    const christmasFolder = sys(gp).rowsOf('Request files').find((f) => f['Category id'] === 'christmas')['Folder id'];
+    expect(perms(serviceId)['brother.counselor@example.test']).toBe('writer');
+    expect(perms(serviceId)['brother.recorder@example.test']).toBe('writer');
+    expect(perms(christmasFolder)['brother.counselor@example.test']).toBe('writer');
+    expect(perms(christmasFolder)['brother.recorder@example.test']).toBe('writer');
+
+    const t = gp.serviceTab_('Leaders');
+    t.update(t.find('Email', 'brother.counselor@example.test'), { Bishopric: false });
+    t.update(t.find('Email', 'brother.recorder@example.test'), { Bishopric: false });
+    gp.gpBegin_();
+    gp.gpMenuSyncSharing();
+    // The counselor keeps Ward council: he views the Service Sheet and no longer opens Christmas.
+    expect(perms(serviceId)['brother.counselor@example.test']).toBe('reader');
+    expect(perms(christmasFolder)['brother.counselor@example.test']).toBeUndefined();
+    // The Ward Clerk had no other role: he loses both.
+    expect(perms(serviceId)['brother.recorder@example.test']).toBeUndefined();
+    expect(perms(christmasFolder)['brother.recorder@example.test']).toBeUndefined();
+  });
+});
+
 describe('Install triggers, hub files, leader links, health', () => {
   it('installs the three timed triggers and one per form, replacing old ones', () => {
     const gp = afterSetUp();

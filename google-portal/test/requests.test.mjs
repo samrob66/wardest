@@ -129,8 +129,9 @@ describe('buildRequestForms_', () => {
     expect(moving.items[0].required).toBe(true);
     expect(moving.items[4].required).toBe(false);
     expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders see this request.');
-    expect(christmas.description).toContain('Only the bishopric and the people they name see this request.');
-    expect(christmas.description).not.toContain('the bishop and the people he names');
+    expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
+    expect(other.description).toContain('Only the bishopric and the people they name see this request.');
+    for (const f of [christmas, other]) expect(f.description).not.toContain('the bishop and the people he names');
     expect(moving.description).toContain('Nothing is emailed back to you; a leader will contact you.');
     expect(moving.description).toContain('This form is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.');
     expect(moving.description).toContain('Contact: help@riverbend.example');
@@ -154,10 +155,9 @@ describe('Set up refreshes request forms', () => {
     expect(gp.fakes.forms.size).toBe(3);
     expect(filesOf(gp)).toHaveLength(3);
     const [moving, christmas, other] = forms();
-    for (const f of [christmas, other]) {
-      expect(f.description).toContain('Only the bishopric and the people they name see this request.');
-      expect(f.description).not.toContain('he names');
-    }
+    expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
+    expect(other.description).toContain('Only the bishopric and the people they name see this request.');
+    for (const f of [christmas, other]) expect(f.description).not.toContain('he names');
     expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders see this request.');
     expect(moving.title).toBe('Moving help — Riverbend 1st Ward (example)');
   });
@@ -276,5 +276,157 @@ describe('dailyRequests_', () => {
     gp.dailyRequests_();
     expect(gp.fakes.drive.files.get(f['Sheet id']).trashed).toBe(true);
     expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test']);
+  });
+});
+
+// ---------- 1.1 addition (decision 15): Christmas gift coordinators and Notify ----------
+
+/** An invented couple called to the Christmas gift calling; not in the bishopric. */
+const COUPLE = ['brother.example.gifts@example.test', 'sister.example.gifts@example.test'];
+const BISHOPRIC5 = [
+  'bishop.example@example.test',
+  'brother.counselor@example.test',
+  'brother.clerk@example.test',
+  'brother.second@example.test',
+  'brother.recorder@example.test',
+];
+
+/** Set up and Sync sharing on a ward with a full bishopric and the couple as Christmas coordinators. */
+function wardWithCouple({ coupleLeaderRow = false } = {}) {
+  const gp = loadPortal({ seed: true });
+  gp.fakes.props.delete('SYSTEM_ID');
+  for (const l of MORE_BISHOPRIC) addLeader(gp, l);
+  if (coupleLeaderRow) {
+    addLeader(gp, { Name: 'Brother Example (gifts)', Email: COUPLE[0], Calling: 'Christmas gift coordinator', Organization: 'Bishopric', Coordinator: true });
+    addLeader(gp, { Name: 'Sister Example (gifts)', Email: COUPLE[1], Calling: 'Christmas gift coordinator', Organization: 'Bishopric', Coordinator: true });
+  }
+  gp.gpMenuSetUp();
+  const cats = gp.serviceTab_('Categories');
+  cats.update(cats.find('Id', 'christmas'), { Coordinators: COUPLE.join(', ') });
+  gp.gpBegin_();
+  gp.gpMenuSyncSharing();
+  gp.fakes.mail.sent.length = 0;
+  return gp;
+}
+const permsOf = (gp, id) => Object.fromEntries([...gp.fakes.drive.permsOf(id).values()].map((p) => [p.emailAddress, p.role]));
+const fileFor = (gp, catId) => filesOf(gp).find((f) => f['Category id'] === catId);
+function submit(gp, catId, answers) {
+  const form = gp.fakes.forms.get(fileFor(gp, catId)['Form id']);
+  gp.gpOnRequestSubmit(formSubmitEvent(form, answers));
+}
+
+describe('Christmas gift coordinators (decision 15)', () => {
+  it('a couple listed only as Christmas coordinators gets the Christmas folder and notices, and nothing else', () => {
+    const gp = wardWithCouple();
+    const serviceSheet = permsOf(gp, gp.fakes.spreadsheet.getId());
+    const christmas = permsOf(gp, fileFor(gp, 'christmas')['Folder id']);
+    const other = permsOf(gp, fileFor(gp, 'other')['Folder id']);
+    const moving = permsOf(gp, fileFor(gp, 'moving')['Folder id']);
+    for (const e of COUPLE) {
+      expect(christmas[e]).toBe('writer');
+      expect(serviceSheet[e]).toBeUndefined();
+      expect(other[e]).toBeUndefined();
+      expect(moving[e]).toBeUndefined();
+    }
+    // The Christmas folder is exactly the bishopric and the couple.
+    expect(Object.keys(christmas).sort()).toEqual(['ward.account@example.test', ...BISHOPRIC5, ...COUPLE].sort());
+
+    submit(gp, 'christmas', { Name: 'Sister Private', 'Phone or email': 'private@example.test', For: 'Another family', Note: 'gift need' });
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual([...BISHOPRIC5, ...COUPLE].sort());
+    expect(JSON.stringify(gp.fakes.mail.sent)).not.toContain('gift need');
+
+    gp.fakes.mail.sent.length = 0;
+    submit(gp, 'other', { Name: 'Brother Private', 'Phone or email': 'p2@example.test', Note: 'other need' });
+    submit(gp, 'moving', { Name: 'Sister Mover', 'Phone or email': 'p3@example.test', 'Moving in or out': 'Moving in' });
+    const to = gp.fakes.mail.sent.map((m) => m.to);
+    expect(to).toContain('bishop.example@example.test');
+    expect(to).toContain('sister.example@example.test');
+    for (const e of COUPLE) expect(to).not.toContain(e);
+  });
+
+  it('a Leaders row with only Coordinator ticked still gives the couple no Service Sheet access', () => {
+    const gp = wardWithCouple({ coupleLeaderRow: true });
+    const serviceSheet = permsOf(gp, gp.fakes.spreadsheet.getId());
+    for (const e of COUPLE) expect(serviceSheet[e]).toBeUndefined();
+    const christmas = permsOf(gp, fileFor(gp, 'christmas')['Folder id']);
+    for (const e of COUPLE) expect(christmas[e]).toBe('writer');
+  });
+});
+
+describe('Notify (decision 15)', () => {
+  const other = { Id: 'other', Coordinators: '', Confidential: true, Notify: 'Bishop' };
+  it('requestNotifyList: Bishop means Calling Bishop; limited to readers; outsiders and junk dropped', () => {
+    const leaders = [...LEADERS, ...MORE_BISHOPRIC];
+    expect(plain(gp0.requestNotifyList(other, leaders))).toEqual({ to: ['bishop.example@example.test'], dropped: [] });
+    expect(plain(gp0.requestNotifyList({ ...other, Notify: '' }, leaders)).to.sort()).toEqual([...BISHOPRIC5].sort());
+    const odd = plain(gp0.requestNotifyList({ ...other, Notify: 'bishop, Brother.Second@example.test, outsider@example.test, not an address' }, leaders));
+    expect(odd.to).toEqual(['bishop.example@example.test', 'brother.second@example.test']);
+    expect(odd.dropped).toEqual(['outsider@example.test', 'not an address']);
+    // The bishop's Bishopric box is not ticked: he can't open the folder, so no notice goes to
+    // him, and with nobody left the notice falls back to every reader.
+    const unticked = leaders.map((l) => (l.Calling === 'Bishop' ? { ...l, Bishopric: false } : l));
+    const fb = plain(gp0.requestNotifyList(other, unticked));
+    expect(fb.dropped).toEqual(['bishop.example@example.test']);
+    expect(fb.to.sort()).toEqual(BISHOPRIC5.filter((e) => e !== 'bishop.example@example.test').sort());
+  });
+
+  it('an Other notice reaches the bishop only, while the Other folder still goes to the whole bishopric', () => {
+    const gp = wardWithCouple();
+    expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'other').Notify).toBe('Bishop');
+    expect(Object.keys(permsOf(gp, fileFor(gp, 'other')['Folder id'])).sort()).toEqual(['ward.account@example.test', ...BISHOPRIC5].sort());
+    submit(gp, 'other', { Name: 'Brother Private', 'Phone or email': 'p2@example.test', Note: 'other need' });
+    expect(gp.fakes.mail.sent.map((m) => m.to)).toEqual(['bishop.example@example.test']);
+  });
+
+  it('blank Notify keeps today: every reader gets the notice, and Set up does not put Bishop back', () => {
+    const gp = wardWithCouple();
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'other'), { Notify: '' });
+    gp.gpBegin_();
+    submit(gp, 'other', { Name: 'Brother Private', 'Phone or email': 'p2@example.test' });
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual([...BISHOPRIC5].sort());
+    gp.gpMenuSetUp();
+    expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'other').Notify).toBe('');
+  });
+
+  it('an outsider email in Notify gets nothing and is logged', () => {
+    const gp = wardWithCouple();
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'other'), { Notify: 'Bishop, outsider@example.test' });
+    gp.gpBegin_();
+    submit(gp, 'other', { Name: 'Brother Private', 'Phone or email': 'p2@example.test' });
+    expect(gp.fakes.mail.sent.map((m) => m.to)).toEqual(['bishop.example@example.test']);
+    const sys = gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'));
+    const line = sys.rowsOf('Log').find((l) => l.What === 'request notice dropped');
+    expect(line.Detail).toContain('outsider@example.test');
+    // Sync sharing points out the entry too, so it can be fixed before a request comes in.
+    gp.gpMenuSyncSharing();
+    expect(gp.fakes.alerts.at(-1)).toContain('Other help');
+    expect(gp.fakes.alerts.at(-1)).toContain('outsider@example.test');
+    expect(permsOf(gp, fileFor(gp, 'other')['Folder id'])['outsider@example.test']).toBeUndefined();
+  });
+
+  it('Set up adds the Notify column to an older sheet and seeds Other with Bishop once, never over a typed value', () => {
+    // A Categories tab from before 1.1: no Notify column, Other row already there.
+    const gp = loadPortal({ seed: true });
+    const sh = gp.fakes.spreadsheet.getSheetByName('Categories');
+    const col = sh.raw()[0].indexOf('Notify') + 1;
+    for (let r = 1; r <= sh.getLastRow(); r++) sh.getRange(r, col).setValue('');
+    gp.fakes.props.delete('NOTIFY_SEEDED');
+    gp.gpBegin_();
+    expect(gp.table_(sh).headers).not.toContain('Notify');
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    const rows = gp.fakes.spreadsheet.rowsOf('Categories');
+    expect(rows.find((c) => c.Id === 'other').Notify).toBe('Bishop');
+    expect(rows.find((c) => c.Id === 'christmas').Notify).toBe('');
+    expect(rows.find((c) => c.Id === 'moving').Notify).toBe('');
+
+    // A value Sam typed before the seeding ran is kept.
+    const gp2 = loadPortal({ seed: true });
+    const t = gp2.serviceTab_('Categories');
+    t.update(t.find('Id', 'other'), { Notify: 'brother.counselor@example.test' });
+    gp2.fakes.props.delete('NOTIFY_SEEDED');
+    gp2.gpEnsureTabs_(gp2.fakes.spreadsheet);
+    expect(gp2.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'other').Notify).toBe('brother.counselor@example.test');
   });
 });

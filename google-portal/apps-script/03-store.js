@@ -264,6 +264,7 @@ function gpEnsureTabs_(ss) {
   ensureSettingsRows_(ss);
   GP_MEMO_.settings = null;
   seedCategories_(ss);
+  seedNotify_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
 }
@@ -297,6 +298,20 @@ function seedCategories_(ss) {
   p.setProperty('CATEGORIES_SEEDED', 'yes');
 }
 
+/**
+ * Once per project (1.1, decision 15): on a sheet seeded before the Notify column existed, the
+ * `other` row gets Notify = Bishop when its cell is blank. A value someone typed is kept, and a
+ * cell cleared later stays clear.
+ */
+function seedNotify_(ss) {
+  var p = props_();
+  if (p.getProperty('NOTIFY_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  var other = t.find('Id', 'other');
+  if (other && String(other.Notify == null ? '' : other.Notify).trim() === '') t.update(other, { Notify: 'Bishop' });
+  p.setProperty('NOTIFY_SEEDED', 'yes');
+}
+
 function addDropdowns_(ss) {
   var leaders = ss.getSheetByName(TAB.leaders);
   var orgs = settingsFrom_(ss).organizations;
@@ -327,7 +342,8 @@ function readMeLines_(s) {
     'Who may edit: the bishopric (every Leaders row with Bishopric ticked) edits this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so tick Bishopric only for the bishop, both counselors, the Executive Secretary and the Ward Clerk.)',
     'Settings: ward name, time zone, contact email, web addresses and limits.',
     'Leaders: who gets a leader link and which files. Tick the role boxes (Bishopric: the bishop, both counselors, the Executive Secretary and the Ward Clerk); tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
-    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators.',
+    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
+    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop) or email addresses. Only people who can open the folder are emailed.',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',
     'Volunteers, Needs help soon: for phase 2; the script fills them.',
     '',

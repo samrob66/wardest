@@ -38,7 +38,7 @@ function joinNames_(list) {
 
 function requestFormDescription_(s, c) {
   var who = isTicked(c.Confidential)
-    ? 'Only the bishopric and the people they name see this request.'
+    ? 'Only ' + (CONFIDENTIAL_WHO[c.Id] || CONFIDENTIAL_WHO_DEFAULT) + ' see this request.'
     : 'Only the ' + (joinNames_(splitList(c['Owning organizations'])) || 'bishopric') + ' leaders see this request.';
   return [
     who,
@@ -237,7 +237,9 @@ function gpOnRequestSubmit(e) {
     step = 'notify';
     var s = settings_();
     var t = tplRequestNotice_(s, filed.cat.Name, DriveApp.getFolderById(filed.file['Folder id']).getUrl());
-    requestReaders(filed.cat, leaders_()).forEach(function (to) {
+    var notify = requestNotifyList(filed.cat, leaders_());
+    if (notify.dropped.length) log_('request notice dropped', catId + ' | not readers of this kind or not addresses: ' + notify.dropped.join(', '));
+    notify.to.forEach(function (to) {
       sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
     });
   } catch (err) {

@@ -223,6 +223,13 @@ function gpMenuSyncSharing() {
       });
       applySharing_(f['Folder id'], want, owner, 'Requests – ' + cat.Name, problems);
       summary.push('Requests – ' + cat.Name + ': ' + Object.keys(want).length + ' people.');
+      var notify = requestNotifyList(cat, leaders);
+      if (notify.dropped.length) {
+        problems.push(
+          cat.Name + ' Notify: these get no request email, because they cannot open its folder or are not email addresses: ' +
+            notify.dropped.join(', ') + '. Fix Notify in Categories (blank = everyone who can open the folder).'
+        );
+      }
     });
 
   applySharing_(systemSs_().getId(), {}, owner, 'System Sheet', problems);

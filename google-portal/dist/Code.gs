@@ -92,7 +92,7 @@ var SERVICE_HEADERS = {
   'Read me': [],
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
-  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived'],
+  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify'],
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
@@ -131,7 +131,7 @@ var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id'];
+var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived'];
 
 /** Settings rows: [key, default, help]. */
@@ -158,7 +158,7 @@ var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_re
 var DEFAULT_CATEGORIES = [
   { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society' },
   { Id: 'christmas', Name: 'Christmas help', Icon: '🎄', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true },
-  { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true },
+  { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, Notify: 'Bishop' },
   { Id: 'meals', Name: 'Meals', Icon: '🍲', Kind: 'Opportunity', 'Owning organizations': 'Relief Society' },
   { Id: 'moving-help', Name: 'Moving', Icon: '📦', Kind: 'Opportunity', 'Owning organizations': 'Elders Quorum' },
   { Id: 'service-project', Name: 'Service project', Icon: '🛠️', Kind: 'Opportunity' },
@@ -168,6 +168,13 @@ var DEFAULT_CATEGORIES = [
   { Id: 'children', Name: 'Primary help', Icon: '🧸', Kind: 'Opportunity' },
   { Id: 'other-service', Name: 'Other service', Icon: '🤝', Kind: 'Opportunity' },
 ];
+
+/**
+ * Who sees a confidential request kind, as its form says ("Only <who> see this request.").
+ * By category id; any other confidential kind uses the default.
+ */
+var CONFIDENTIAL_WHO = { christmas: 'the bishopric and the Christmas gift coordinators' };
+var CONFIDENTIAL_WHO_DEFAULT = 'the bishopric and the people they name';
 
 var LOCK_WAIT_MS = 10000;
 var SERVE_CACHE_SECONDS = 60;
@@ -801,6 +808,7 @@ function gpEnsureTabs_(ss) {
   ensureSettingsRows_(ss);
   GP_MEMO_.settings = null;
   seedCategories_(ss);
+  seedNotify_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
 }
@@ -834,6 +842,20 @@ function seedCategories_(ss) {
   p.setProperty('CATEGORIES_SEEDED', 'yes');
 }
 
+/**
+ * Once per project (1.1, decision 15): on a sheet seeded before the Notify column existed, the
+ * `other` row gets Notify = Bishop when its cell is blank. A value someone typed is kept, and a
+ * cell cleared later stays clear.
+ */
+function seedNotify_(ss) {
+  var p = props_();
+  if (p.getProperty('NOTIFY_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  var other = t.find('Id', 'other');
+  if (other && String(other.Notify == null ? '' : other.Notify).trim() === '') t.update(other, { Notify: 'Bishop' });
+  p.setProperty('NOTIFY_SEEDED', 'yes');
+}
+
 function addDropdowns_(ss) {
   var leaders = ss.getSheetByName(TAB.leaders);
   var orgs = settingsFrom_(ss).organizations;
@@ -864,7 +886,8 @@ function readMeLines_(s) {
     'Who may edit: the bishopric (every Leaders row with Bishopric ticked) edits this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so tick Bishopric only for the bishop, both counselors, the Executive Secretary and the Ward Clerk.)',
     'Settings: ward name, time zone, contact email, web addresses and limits.',
     'Leaders: who gets a leader link and which files. Tick the role boxes (Bishopric: the bishop, both counselors, the Executive Secretary and the Ward Clerk); tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
-    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators.',
+    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
+    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop) or email addresses. Only people who can open the folder are emailed.',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',
     'Volunteers, Needs help soon: for phase 2; the script fills them.',
     '',
@@ -1320,6 +1343,40 @@ function requestReaders(category, leaders) {
     if (owners.indexOf(String(l.Organization == null ? '' : l.Organization).trim()) >= 0) out.push(normEmail(l.Email));
   });
   return uniq_(out);
+}
+
+/**
+ * Who gets a request kind's "new request" notice: {to, dropped}. Blank Notify: every reader.
+ * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop and
+ * anything else must be an email address. Only readers of the category's folder can get the
+ * notice; everyone else, and anything that isn't an address, goes into dropped. If nobody is
+ * left, every reader gets it (a notice holds no request details, and silence would lose it).
+ */
+function requestNotifyList(category, leaders) {
+  var readers = requestReaders(category, leaders);
+  var entries = splitList(category.Notify);
+  if (!entries.length) return { to: readers, dropped: [] };
+  var wanted = [];
+  var junk = [];
+  entries.forEach(function (entry) {
+    if (String(entry).trim().toLowerCase() === 'bishop') {
+      leaders.forEach(function (l) {
+        var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
+        if (c === 'bishop' && isEmail(l.Email)) wanted.push(normEmail(l.Email));
+      });
+    } else if (isEmail(entry)) {
+      wanted.push(normEmail(entry));
+    } else {
+      junk.push(String(entry).trim());
+    }
+  });
+  var to = [];
+  var notReaders = [];
+  uniq_(wanted).forEach(function (e) {
+    if (readers.indexOf(e) >= 0) to.push(e);
+    else notReaders.push(e);
+  });
+  return { to: to.length ? to : readers, dropped: uniq_(notReaders.concat(junk)) };
 }
 
 /** Administrators for alert emails: Leaders whose Calling is Bishop or Executive Secretary. */
@@ -2866,7 +2923,7 @@ function joinNames_(list) {
 
 function requestFormDescription_(s, c) {
   var who = isTicked(c.Confidential)
-    ? 'Only the bishopric and the people they name see this request.'
+    ? 'Only ' + (CONFIDENTIAL_WHO[c.Id] || CONFIDENTIAL_WHO_DEFAULT) + ' see this request.'
     : 'Only the ' + (joinNames_(splitList(c['Owning organizations'])) || 'bishopric') + ' leaders see this request.';
   return [
     who,
@@ -3065,7 +3122,9 @@ function gpOnRequestSubmit(e) {
     step = 'notify';
     var s = settings_();
     var t = tplRequestNotice_(s, filed.cat.Name, DriveApp.getFolderById(filed.file['Folder id']).getUrl());
-    requestReaders(filed.cat, leaders_()).forEach(function (to) {
+    var notify = requestNotifyList(filed.cat, leaders_());
+    if (notify.dropped.length) log_('request notice dropped', catId + ' | not readers of this kind or not addresses: ' + notify.dropped.join(', '));
+    notify.to.forEach(function (to) {
       sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
     });
   } catch (err) {
@@ -3359,6 +3418,13 @@ function gpMenuSyncSharing() {
       });
       applySharing_(f['Folder id'], want, owner, 'Requests – ' + cat.Name, problems);
       summary.push('Requests – ' + cat.Name + ': ' + Object.keys(want).length + ' people.');
+      var notify = requestNotifyList(cat, leaders);
+      if (notify.dropped.length) {
+        problems.push(
+          cat.Name + ' Notify: these get no request email, because they cannot open its folder or are not email addresses: ' +
+            notify.dropped.join(', ') + '. Fix Notify in Categories (blank = everyone who can open the folder).'
+        );
+      }
     });
 
   applySharing_(systemSs_().getId(), {}, owner, 'System Sheet', problems);
