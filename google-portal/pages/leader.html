@@ -135,6 +135,7 @@ GP.footer();
     return {
       postId: post.postId,
       status: post.status,
+      fromRequest: !!post.fromRequest,
       origCategory: post.category || '',
       origOrganization: post.organization,
       organization: post.organization,
@@ -449,7 +450,11 @@ GP.footer();
     var out = el('div');
     var items = [
       el('h3', {}, p.title),
-      el('p', { class: 'gp-meta' }, p.status + ' · ' + p.organization + (p.audiences.length ? ' · ' + p.audiences.join(', ') : '')),
+      el('p', { class: 'gp-meta' }, [
+        p.status + ' · ' + p.organization + (p.audiences.length ? ' · ' + p.audiences.join(', ') : ''),
+        p.fromRequest ? ' ' : null,
+        p.fromRequest ? el('span', { class: 'gp-tag' }, 'From a request') : null,
+      ]),
     ];
     if (p.status === 'Open') {
       var copyBtn = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');
@@ -632,6 +637,12 @@ GP.footer();
 
     var parts = [
       el('h2', {}, f.postId ? 'Edit opportunity' : 'New opportunity'),
+      f.fromRequest
+        ? el('p', { class: 'gp-alert', role: 'note' }, [
+            el('span', { class: 'gp-tag' }, 'From a request'),
+            " Check the date and write the public note. Never put the family's name, address or situation in the public note.",
+          ])
+        : null,
       state.formError ? GP.message('alert', state.formError) : null,
       field('Category', cat, 'category'),
       field('Organization', org, 'organization'),

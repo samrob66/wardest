@@ -475,6 +475,16 @@ function tplRequestNotice_(s, categoryName, folderUrl) {
   };
 }
 
+/** A draft was made from a request (decision 19). The kind only; nothing from the request. */
+function tplDraftFromRequest_(s, kindName) {
+  var text = 'A draft opportunity was made from a ' + kindName + ' request. Open your leader page to check the date, write the public note and publish it.';
+  return {
+    subject: 'Draft opportunity from a ' + kindName + ' request',
+    html: paras_([esc(text)]),
+    text: text,
+  };
+}
+
 function tplAdminAlert_(s, lines) {
   var intro = 'The ' + (s.ward_name || 'ward') + ' Service Portal needs attention:';
   return {

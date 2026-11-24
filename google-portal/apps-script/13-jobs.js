@@ -290,6 +290,7 @@ function gpTenMinute(e) {
       ['leader links', processLeaderLinkTicks_],
       ['counts', refreshAllFilled_],
       ['needs help soon', writeNeedsHelpTab_],
+      ['drafts from requests', makeDraftsFromRequests_],
     ]);
   });
 }

@@ -109,6 +109,7 @@ function apiListPosts_(data) {
         audiences: audiencesOf_(p.Audiences),
         status: p.Status,
         hasPrivateDetails: !!p['Private details'],
+        fromRequest: isFromRequest_(p),
         canEdit: canEdit,
         firstDate: slots.length ? slots[0].Date : '',
         slots: slots.map(function (sl) {
@@ -140,6 +141,11 @@ function apiListPosts_(data) {
   return { ok: true, posts: posts };
 }
 
+/** A draft the script made from a request (decision 19): Created by "request <id>". */
+function isFromRequest_(p) {
+  return /^request /.test(String(p['Created by'] == null ? '' : p['Created by']));
+}
+
 function postForEdit_(p, slots, counts) {
   return {
     postId: p['Post id'],
@@ -152,6 +158,7 @@ function postForEdit_(p, slots, counts) {
     privateDetails: p['Private details'],
     cutoffHours: p['Cancel cutoff hours'],
     status: p.Status,
+    fromRequest: isFromRequest_(p),
     slots: slots
       .slice()
       .sort(slotOrder_)

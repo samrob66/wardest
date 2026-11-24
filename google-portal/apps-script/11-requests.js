@@ -115,6 +115,150 @@ function requestTable_(ss, row) {
   return tabOf_(ss, REQUEST_TAB);
 }
 
+/** Adds any request-sheet column this version needs (e.g. Make opportunity) to an older sheet. */
+function ensureRequestColumns_(ss) {
+  var t = tabOf_(ss, REQUEST_TAB);
+  var missing = REQUEST_HEADERS.filter(function (h) {
+    return t.headers.indexOf(h) < 0;
+  });
+  if (missing.length) ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+}
+
+// ---------- turning a request into a draft opportunity (2.2, decision 19) ----------
+
+/** The request kind's Opportunity category row, when it names a live Opportunity category. */
+function draftCategoryFor_(kind, catsById) {
+  var id = String(kind['Opportunity category'] == null ? '' : kind['Opportunity category']).trim();
+  var oc = id ? catsById[id] : null;
+  if (!oc || oc.Kind !== CATEGORY_KIND.opportunity || isTicked(oc.Archived)) return null;
+  return oc;
+}
+
+/**
+ * The Posts and Slots rows for a draft made from request row r of request kind `kind` into
+ * opportunity category oc. Public fields come only from the category: nothing from the request
+ * but (when Copy contact is ticked) its name and contact in Private details, and its Moving date.
+ */
+function draftFromRequest_(s, kind, oc, r, todayLocal, nowLocal) {
+  var org = splitList(oc['Owning organizations'])[0] || splitList(kind['Owning organizations'])[0] || 'Bishopric';
+  var audiences = audiencesOf_(oc['Default audiences']);
+  if (!audiences.length) audiences = org === 'Relief Society' ? ['Sisters'] : org === 'Elders Quorum' ? ['Brothers'] : AUDIENCES.slice();
+  var date = isDateStr(r['Moving date']) && r['Moving date'] >= todayLocal ? r['Moving date'] : addDays(todayLocal, 7);
+  var privateDetails = isTicked(r['Copy contact to private details'])
+    ? 'Requested by ' + String(r.Name == null ? '' : r.Name).trim() + ', ' + String(r['Phone or email'] == null ? '' : r['Phone or email']).trim()
+    : '';
+  var postId = newId_('p');
+  return {
+    post: {
+      'Post id': postId,
+      'Public id': newId_(''),
+      Organization: org,
+      Category: String(oc.Id),
+      Title: oc.Name,
+      Audiences: audiences.join(', '),
+      'Public note': '',
+      'Private details': privateDetails,
+      'Cancel cutoff hours': s.default_cancel_cutoff_hours,
+      Status: POST_STATUS.draft,
+      'Created by': 'request ' + r['Request id'],
+      'Created at': nowLocal,
+      'Last changed by': 'From a request',
+      'Last changed at': nowLocal,
+    },
+    slot: { 'Slot id': newId_('t'), 'Post id': postId, Date: date, Start: '', End: '', Role: 'Help', Needed: 1, 'Role note': '', 'Bringing prompt': '', Filled: 0, Waiting: 0 },
+  };
+}
+
+/**
+ * Ten-minute job part: every request row with Make opportunity ticked and Posted as blank
+ * becomes a Draft opportunity (never Open). Each request file is handled under the script lock;
+ * Posted as is written and the box unticked, so a row is made once (a draft already made for that
+ * request is found by its Created by instead of made again). Notices go out after the lock, only
+ * to people who can edit the draft, and say nothing about the request. A file that fails is
+ * reported at the end; the others still run.
+ */
+function makeDraftsFromRequests_() {
+  var s = settings_();
+  var today = todayLocal_();
+  var categories = serviceTab_(TAB.categories).rows();
+  var catsById = indexBy_(categories, 'Id');
+  var made = [];
+  var errors = [];
+  systemTab_(SYS_TAB.requestFiles)
+    .rows()
+    .forEach(function (f) {
+      var kind = catsById[f['Category id']];
+      if (!f['Sheet id'] || !kind) return;
+      try {
+        withLock_(function () {
+          var ss = SpreadsheetApp.openById(f['Sheet id']);
+          ensureRequestColumns_(ss);
+          var t = tabOf_(ss, REQUEST_TAB);
+          var ticked = t.rows().filter(function (r) {
+            return isTicked(r['Make opportunity']);
+          });
+          if (!ticked.length) return;
+          var now = nowLocal_();
+          var postsT = serviceTab_(TAB.posts);
+          var byCreator = indexBy_(postsT.rows(), 'Created by');
+          ticked.forEach(function (r) {
+            // Already made: just untick. A "Not made: …" row may be ticked again once fixed.
+            var postedAs = String(r['Posted as'] == null ? '' : r['Posted as']).trim();
+            if (postedAs && postedAs.indexOf('Not made') !== 0) {
+              t.update(r, { 'Make opportunity': false });
+              return;
+            }
+            var oc = draftCategoryFor_(kind, catsById);
+            if (!oc) {
+              t.update(r, { 'Posted as': 'Not made: set Opportunity category for ' + kind.Name + ' in Categories', 'Make opportunity': false });
+              return;
+            }
+            var post = byCreator['request ' + r['Request id']];
+            if (!post) {
+              var d = draftFromRequest_(s, kind, oc, r, today, now);
+              postsT.append(d.post);
+              serviceTab_(TAB.slots).append(d.slot);
+              post = d.post;
+              made.push({ kind: kind, post: post });
+            }
+            t.update(r, {
+              'Posted as': 'Draft made ' + today + ' — finish and publish it on the leader page (' + post.Title + ', ' + post['Post id'] + ')',
+              'Make opportunity': false,
+            });
+          });
+        });
+      } catch (err) {
+        var msg = clip(err && err.message ? err.message : err, 200);
+        log_('draft from request error', f['Category id'] + ' | ' + msg);
+        errors.push(f['Category id'] + ': ' + msg);
+      }
+    });
+  if (made.length) {
+    var leaders = leaders_();
+    made.forEach(function (m) {
+      draftNoticeRecipients_(m.kind, m.post, leaders, s.organizations, categories).forEach(function (to) {
+        var t = tplDraftFromRequest_(s, m.kind.Name);
+        sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+      });
+    });
+  }
+  if (errors.length) throw new Error(errors.join(' ; '));
+  return made.length;
+}
+
+/** The request kind's Notify people who can edit the draft, else the post's notice recipients. */
+function draftNoticeRecipients_(kind, post, leaders, organizations, categories) {
+  var byEmail = {};
+  leaders.forEach(function (l) {
+    if (isEmail(l.Email)) byEmail[normEmail(l.Email)] = l;
+  });
+  var to = requestNotifyList(kind, leaders).to.filter(function (e) {
+    var l = byEmail[e];
+    return !!l && canEditPost(leaderAccess(l, organizations, categories), e, post);
+  });
+  return to.length ? to : noticeRecipients(post, leaders);
+}
+
 /**
  * Lines naming each request form that is not on the Help page, and always the Christmas giving
  * form, with its link and where it shows (decisions 16 and 17).
@@ -203,6 +347,11 @@ function buildRequestForms_(s, categories, refreshed, problems) {
         if (refreshRequestForm_(s, c, rec['Form id']) && refreshed) refreshed.push(c.Name);
       } catch (e) {
         if (problems) problems.push('Could not open the ' + c.Name + ' form to refresh its wording (' + clip(e && e.message ? e.message : e, 120) + ').');
+      }
+      try {
+        if (rec['Sheet id']) ensureRequestColumns_(SpreadsheetApp.openById(rec['Sheet id']));
+      } catch (e) {
+        if (problems) problems.push('Could not open the ' + c.Name + ' request sheet to add its new columns (' + clip(e && e.message ? e.message : e, 120) + ').');
       }
       return;
     }

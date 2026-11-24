@@ -267,6 +267,7 @@ function gpEnsureTabs_(ss) {
   seedGiving_(ss);
   seedNotify_(ss);
   seedMovingNotify_(ss);
+  seedMovingOpportunity_(ss);
   seedHelpPage_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
@@ -344,6 +345,22 @@ function seedMovingNotify_(ss) {
 }
 
 /**
+ * Once per project (2.2, decision 19): the `moving` request row's drafts go into the
+ * `moving-help` opportunity category when its Opportunity category cell is blank. A typed value
+ * is kept, and a cell cleared later stays clear.
+ */
+function seedMovingOpportunity_(ss) {
+  var p = props_();
+  if (p.getProperty('MOVING_OPPORTUNITY_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  var moving = t.find('Id', 'moving');
+  if (moving && String(moving['Opportunity category'] == null ? '' : moving['Opportunity category']).trim() === '') {
+    t.update(moving, { 'Opportunity category': 'moving-help' });
+  }
+  p.setProperty('MOVING_OPPORTUNITY_SEEDED', 'yes');
+}
+
+/**
  * Once per project: when the On Help page column first appears, every row but the giving form's
  * is ticked, so the request kinds already on the Help page stay there. Later unticks are kept.
  */
@@ -400,6 +417,7 @@ function readMeLines_(s) {
     GEMINI_RULE,
     '',
     'Requests are not in this sheet. Each kind of request has its own folder and sheet, shared only with its leaders.',
+    'Opportunity category (Categories, request rows): the Id of the opportunity category a request of this kind can be turned into (e.g. moving -> moving-help). Blank: it can\'t be turned. In a request sheet, tick Make opportunity on a row (and Copy contact to private details if the volunteers need the name and phone); within about 10 minutes a Draft appears on the leader page and Posted as says so. Nothing from the request goes on a public page.',
     'Contact: ' + (s.contact_email || '(fill in contact_email in Settings)'),
   ];
 }

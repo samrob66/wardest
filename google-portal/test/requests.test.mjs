@@ -744,12 +744,15 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
   it('the On Serve page column is appended to an existing sheet without changing other rows', () => {
     const gp = loadPortal({ seed: true });
     const sh = gp.fakes.spreadsheet.getSheetByName('Categories');
-    // As a sheet from before 1.1.1: no On Serve page column (it is the last one).
-    const c = sh.raw()[0].indexOf('On Serve page') + 1;
-    expect(c).toBe(sh.raw()[0].length);
-    for (let r = 1; r <= sh.getMaxRows(); r++) {
-      sh.validations.delete(`${r},${c}`);
-      if (sh.cell(r, c) !== '') sh.write(r, c, '');
+    // As a sheet from before 1.1.1: no On Serve page column, nor the columns added after it
+    // (2.2's Opportunity category).
+    const c0 = sh.raw()[0].indexOf('On Serve page') + 1;
+    const last = sh.raw()[0].length;
+    for (let c = c0; c <= last; c++) {
+      for (let r = 1; r <= sh.getMaxRows(); r++) {
+        sh.validations.delete(`${r},${c}`);
+        if (sh.cell(r, c) !== '') sh.write(r, c, '');
+      }
     }
     gp.gpBegin_();
     expect(gp.table_(sh).headers).not.toContain('On Serve page');
@@ -760,7 +763,7 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
     const before = gp.fakes.spreadsheet.rowsOf('Categories').map(({ '': gone, ...rest }) => rest);
     gp.gpEnsureTabs_(gp.fakes.spreadsheet);
     const after = gp.fakes.spreadsheet.rowsOf('Categories');
-    expect(after.map(({ 'On Serve page': x, ...rest }) => rest)).toEqual(before);
+    expect(after.map(({ 'On Serve page': x, 'Opportunity category': y, ...rest }) => rest)).toEqual(before);
     for (const r of after) expect(r['On Serve page']).toBe(false);
   });
 });
