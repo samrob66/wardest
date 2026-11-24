@@ -12,6 +12,7 @@ var REQ_Q = {
   moving: 'Moving in or out',
   date: 'Date',
   forWhom: 'For',
+  offer: 'What would you like to give?',
   note: 'Note',
 };
 
@@ -22,8 +23,17 @@ var REQ_MAP = [
   ['Moving in or out', 'Moving', 20],
   ['Date', 'Moving date', 10],
   ['For', 'For', 20],
+  ['What would you like to give?', 'Offer', 300],
   ['Note', 'Note', 200],
 ];
+
+/** The giving offer form's own words (decision 16). */
+var GIVING_TEXT = {
+  intro:
+    'Thank you for offering to help with Christmas gifts. Only the bishopric and the Christmas gift coordinators see this. A coordinator will contact you. Nothing is emailed back to you.',
+  confirmation: 'Thank you. A coordinator will contact you.',
+  offerHelp: 'Up to 300 characters. For example: how many families or children you can help, and the kinds of gifts.',
+};
 
 function portalFolder_() {
   var id = props_().getProperty('PORTAL_FOLDER_ID');
@@ -37,8 +47,11 @@ function joinNames_(list) {
 }
 
 function requestFormDescription_(s, c) {
+  if (c.Id === GIVING_ID) {
+    return [GIVING_TEXT.intro, '', FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : '')].join('\n');
+  }
   var who = isTicked(c.Confidential)
-    ? 'Only the bishop and the people he names see this request.'
+    ? 'Only ' + (CONFIDENTIAL_WHO[c.Id] || CONFIDENTIAL_WHO_DEFAULT) + ' see this request.'
     : 'Only the ' + (joinNames_(splitList(c['Owning organizations'])) || 'bishopric') + ' leaders see this request.';
   return [
     who,
@@ -61,12 +74,64 @@ function addRequestQuestions_(form, c) {
   if (c.Id === 'christmas') {
     form.addMultipleChoiceItem().setTitle(REQ_Q.forWhom).setChoiceValues(['My family', 'Another family']).setRequired(true);
   }
+  if (c.Id === GIVING_ID) {
+    form
+      .addParagraphTextItem()
+      .setTitle(REQ_Q.offer)
+      .setRequired(true)
+      .setHelpText(GIVING_TEXT.offerHelp)
+      .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(300).build());
+  }
   form
     .addParagraphTextItem()
     .setTitle(REQ_Q.note)
     .setRequired(false)
-    .setHelpText('Optional, up to 200 characters. Please leave out health or money details; a leader will ask what they need.')
+    .setHelpText(
+      c.Id === GIVING_ID
+        ? 'Optional, up to 200 characters, e.g. when you can deliver.'
+        : 'Optional, up to 200 characters. Please leave out health or money details; a leader will ask what they need.'
+    )
     .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(200).build());
+}
+
+function requestFormConfirmation_(c) {
+  return c.Id === GIVING_ID ? GIVING_TEXT.confirmation : 'Thank you. A leader will contact you.';
+}
+
+/**
+ * The request tab of a request sheet, with any header this version needs added at the end (a
+ * sheet made before a header existed, e.g. Offer, keeps working).
+ */
+function requestTable_(ss, row) {
+  var t = tabOf_(ss, REQUEST_TAB);
+  var missing = Object.keys(row || {}).filter(function (k) {
+    return t.headers.indexOf(k) < 0;
+  });
+  if (!missing.length) return t;
+  ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  return tabOf_(ss, REQUEST_TAB);
+}
+
+/**
+ * Lines naming each request form that is not on the Help page, with its link, so it can be
+ * shared privately (decision 16).
+ */
+function privateFormLines_() {
+  var files = indexBy_(systemTab_(SYS_TAB.requestFiles).rows(), 'Category id');
+  var out = [];
+  serviceTab_(TAB.categories)
+    .rows()
+    .forEach(function (c) {
+      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || isTicked(c['On Help page'])) return;
+      var f = files[c.Id];
+      if (!f || !f['Form id']) return;
+      try {
+        out.push(c.Name + ' (not on the Help page; share privately): ' + FormApp.openById(f['Form id']).getPublishedUrl());
+      } catch (e) {
+        out.push(c.Name + ': could not open its form (' + clip(e && e.message ? e.message : e, 120) + ').');
+      }
+    });
+  return out;
 }
 
 /** A new month sheet for a category in its folder. Returns the Spreadsheet. */
@@ -85,8 +150,36 @@ function newRequestSheet_(folder, categoryName, month, headers) {
   return ss;
 }
 
-/** One form, folder and month sheet per request category that has no form yet. Re-runnable. */
-function buildRequestForms_(s, categories) {
+function requestFormTitle_(s, c) {
+  return c.Name + ' — ' + s.ward_name;
+}
+
+/**
+ * A form made earlier gets the current title and description (so a ward that set up on older
+ * wording gets the new one by running Set up again). Returns true when something changed.
+ */
+function refreshRequestForm_(s, c, formId) {
+  var form = FormApp.openById(formId);
+  var changed = false;
+  var title = requestFormTitle_(s, c);
+  if (form.getTitle() !== title) {
+    form.setTitle(title);
+    changed = true;
+  }
+  var description = requestFormDescription_(s, c);
+  if (form.getDescription() !== description) {
+    form.setDescription(description);
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * One form, folder and month sheet per request category that has no form yet; forms already
+ * made get their title and description refreshed. Re-runnable. Names of refreshed forms go into
+ * refreshed and problems into problems (both optional).
+ */
+function buildRequestForms_(s, categories, refreshed, problems) {
   var portal = portalFolder_();
   var filesT = systemTab_(SYS_TAB.requestFiles);
   var have = indexBy_(filesT.rows(), 'Category id');
@@ -95,19 +188,26 @@ function buildRequestForms_(s, categories) {
   categories.forEach(function (c) {
     if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !c.Id) return;
     var rec = have[c.Id];
-    if (rec && rec['Form id']) return;
+    if (rec && rec['Form id']) {
+      try {
+        if (refreshRequestForm_(s, c, rec['Form id']) && refreshed) refreshed.push(c.Name);
+      } catch (e) {
+        if (problems) problems.push('Could not open the ' + c.Name + ' form to refresh its wording (' + clip(e && e.message ? e.message : e, 120) + ').');
+      }
+      return;
+    }
     var folderName = 'Requests – ' + c.Name;
     var existing = portal.getFoldersByName(folderName);
     var folder = existing.hasNext() ? existing.next() : portal.createFolder(folderName);
     var ss = newRequestSheet_(folder, c.Name, month);
-    var form = FormApp.create(c.Name + ' — ' + s.ward_name);
+    var form = FormApp.create(requestFormTitle_(s, c));
     form
       .setDescription(requestFormDescription_(s, c))
       .setCollectEmail(false)
       .setAllowResponseEdits(false)
       .setShowLinkToRespondAgain(false)
       .setPublishingSummary(false)
-      .setConfirmationMessage('Thank you. A leader will contact you.');
+      .setConfirmationMessage(requestFormConfirmation_(c));
     addRequestQuestions_(form, c);
     if (typeof form.setPublished === 'function') form.setPublished(true);
     form.setAcceptingResponses(true);
@@ -190,11 +290,11 @@ function gpOnRequestSubmit(e) {
       var cat = serviceTab_(TAB.categories).find('Id', catId);
       if (!cat) throw new Error('category missing from the Categories tab');
       catName = cat.Name;
-      var row = { 'Request id': newId_('r'), Received: nowLocal_(), Kind: cat.Name, Status: 'New' };
+      var row = { 'Request id': newId_(cat.Id === GIVING_ID ? 'o' : 'r'), Received: nowLocal_(), Kind: cat.Name, Status: 'New' };
       REQ_MAP.forEach(function (m) {
         if (m[0] in answers) row[m[1]] = clip(answers[m[0]].trim(), m[2]);
       });
-      tabOf_(SpreadsheetApp.openById(file['Sheet id']), REQUEST_TAB).append(row);
+      requestTable_(SpreadsheetApp.openById(file['Sheet id']), row).append(row);
       return { file: file, cat: cat };
     });
     step = 'unform';
@@ -202,7 +302,9 @@ function gpOnRequestSubmit(e) {
     step = 'notify';
     var s = settings_();
     var t = tplRequestNotice_(s, filed.cat.Name, DriveApp.getFolderById(filed.file['Folder id']).getUrl());
-    requestReaders(filed.cat, leaders_()).forEach(function (to) {
+    var notify = requestNotifyList(filed.cat, leaders_());
+    if (notify.dropped.length) log_('request notice dropped', catId + ' | not readers of this kind or not addresses: ' + notify.dropped.join(', '));
+    notify.to.forEach(function (to) {
       sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
     });
   } catch (err) {

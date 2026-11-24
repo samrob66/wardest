@@ -264,6 +264,9 @@ function gpEnsureTabs_(ss) {
   ensureSettingsRows_(ss);
   GP_MEMO_.settings = null;
   seedCategories_(ss);
+  seedGiving_(ss);
+  seedNotify_(ss);
+  seedHelpPage_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
 }
@@ -297,6 +300,47 @@ function seedCategories_(ss) {
   p.setProperty('CATEGORIES_SEEDED', 'yes');
 }
 
+/**
+ * Once per project (1.1, decision 15): on a sheet seeded before the Notify column existed, the
+ * `other` row gets Notify = Bishop when its cell is blank. A value someone typed is kept, and a
+ * cell cleared later stays clear.
+ */
+function seedNotify_(ss) {
+  var p = props_();
+  if (p.getProperty('NOTIFY_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  var other = t.find('Id', 'other');
+  if (other && String(other.Notify == null ? '' : other.Notify).trim() === '') t.update(other, { Notify: 'Bishop' });
+  p.setProperty('NOTIFY_SEEDED', 'yes');
+}
+
+/**
+ * Once per project (decision 16): a Categories tab seeded before the giving form existed gets
+ * the christmas-giving row, unless a row with that Id is already there. Never re-added after
+ * someone deletes it.
+ */
+function seedGiving_(ss) {
+  var p = props_();
+  if (p.getProperty('GIVING_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  if (!t.find('Id', GIVING_ID)) t.append(GIVING_CATEGORY);
+  p.setProperty('GIVING_SEEDED', 'yes');
+}
+
+/**
+ * Once per project: when the On Help page column first appears, every row but the giving form's
+ * is ticked, so the request kinds already on the Help page stay there. Later unticks are kept.
+ */
+function seedHelpPage_(ss) {
+  var p = props_();
+  if (p.getProperty('HELP_PAGE_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  t.rows().forEach(function (c) {
+    if (c.Id !== GIVING_ID && !isTicked(c['On Help page'])) t.update(c, { 'On Help page': true });
+  });
+  p.setProperty('HELP_PAGE_SEEDED', 'yes');
+}
+
 function addDropdowns_(ss) {
   var leaders = ss.getSheetByName(TAB.leaders);
   var orgs = settingsFrom_(ss).organizations;
@@ -324,10 +368,12 @@ function readMeLines_(s) {
     'Ward: ' + (s.ward_name || '(fill in Settings)'),
     '',
     'What each tab is for',
-    'Who may edit: only the bishop and the Executive Secretary edit this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so edit access stays with those two.)',
+    'Who may edit: the bishopric (every Leaders row with Bishopric ticked) edits this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so tick Bishopric only for the bishop, both counselors, the Executive Secretary and the Ward Clerk.)',
     'Settings: ward name, time zone, contact email, web addresses and limits.',
-    'Leaders: who gets a leader link and which files. Tick the role boxes; tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
-    'Categories: kinds of opportunities and requests, their owners and coordinators.',
+    'Leaders: who gets a leader link and which files. Tick the role boxes (Bishopric: the bishop, both counselors, the Executive Secretary and the Ward Clerk); tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
+    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
+    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop) or email addresses. Only people who can open the folder are emailed. Coordinators means the people in that row\'s Coordinators.',
+    'On Help page (Categories): ticked request kinds show on the public Request Help page. The Christmas giving offers form is left off; share its link privately (Set up shows it).',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',
     'Volunteers: everyone who has signed up, with Pending / Approved / Declined / Revoked, who decided and when. Written only by the script (approve and decline on the leader page).',
     'Needs help soon: open roles still short in the next 14 days, refreshed every 10 minutes.',

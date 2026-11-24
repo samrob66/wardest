@@ -32,6 +32,34 @@ How a volunteer is known (no Google account needed):
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
 
+> **If you set up before 1.1** (before the whole bishopric could edit the Service Sheet and
+> read the Christmas and Other requests), do this once, signed in to the shared account in a
+> private window. **Going to phase 2 at the same time?** Follow section 11 instead: it pastes
+> the script and runs Set up in the safe order and tells you which of these steps to add.
+> 1. Copy the new `Code.gs` and paste it over the old one: section 2, steps 12–14 (open it
+>    from the Service Sheet with **Extensions > Apps Script**). Save.
+> 2. Only if you already deployed the web app: **Deploy > Manage deployments**, select the
+>    deployment, click the **pencil**, set **Version** to **New version**, click **Deploy**.
+>    (If you haven't deployed yet, skip this; section 4 does it.)
+> 3. Reload the Service Sheet, then in the **Leaders** tab tick **Bishopric** for the bishop,
+>    both counselors, the Executive Secretary and the Ward Clerk (add a row for anyone missing),
+>    and for nobody else.
+> 4. Run **Service Portal > Set up**. It keeps everything you typed and makes whatever is still
+>    missing (this is also section 3, step 7). It adds two Categories columns, **Notify** (the
+>    **other** row gets `Bishop`) and **On Help page** (ticked for every row you had), and a new
+>    row, **Christmas giving offers**, then makes its private form, folder and sheet. It also
+>    updates the wording of request forms it made before (*Updated the wording of: …*), and
+>    ends by listing the giving form's link.
+> 5. In the **Categories** tab, type the Christmas gift coordinators' emails in
+>    **Coordinators** on both the **christmas** and **christmas-giving** rows (section 3, step
+>    6).
+> 6. Only if you had already run Install triggers: run **Service Portal > Install triggers**
+>    again (section 5, step 1), so the new giving form gets its trigger. Otherwise skip this.
+> 7. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
+>    5, step 2), and make the giving short link (section 6, step 7). If you hadn't reached those
+>    sections yet, skip this; they come up in order.
+> 8. Carry on from where you stopped.
+
 ---
 
 ## 1. Before you start
@@ -57,12 +85,16 @@ How a volunteer is known (no Google account needed):
 4. **Name two administrators**: the bishop and the Executive Secretary. Both should know how to
    sign in to the shared account (password and 2-step verification recovery), and both will get
    the portal's alert emails. In the Leaders tab (step 3.5) their Calling must say exactly
-   `Bishop` and `Executive Secretary`. They are also the **only two who can edit the Service
-   Sheet**: anyone who can edit it can also change the script inside it, and that script can
-   open every request sheet, including the bishop-only ones. Other bishopric members and the
-   ward council can view it, and ask the Executive Secretary to change Settings, Leaders or
-   Categories.
-5. **Agree on the Gemini rule** with every leader who will see portal data. It is also written
+   `Bishop` and `Executive Secretary`.
+5. **The bishopric edits the Service Sheet and reads the confidential requests.** The whole
+   bishopric (the bishop, both counselors, the Executive Secretary and the Ward Clerk) can edit
+   the Service Sheet and open the Christmas and Other request folders, so the counselors can act
+   when the bishop is away. You give them this by ticking **Bishopric** on their Leaders rows
+   (step 3.5); the Calling text doesn't matter for it. Anyone who can edit the Service Sheet can
+   also change the script inside it, which can open every request sheet, so tick Bishopric only
+   for those five callings. The other ward council members can view the Service Sheet, and ask
+   the Executive Secretary to change Settings, Leaders or Categories.
+6. **Agree on the Gemini rule** with every leader who will see portal data. It is also written
    in the Service Sheet's Read me tab:
    > Do not ask Gemini to read, summarize or draft from the Service Sheet, the request sheets or request notices.
 
@@ -155,24 +187,49 @@ private window, use a separate Chrome profile signed in only to the shared accou
    |---|---|
    | Name | e.g. `Sister Example` |
    | Email | The address their leader link goes to |
-   | Calling | e.g. `Relief Society President`. The bishop must be exactly `Bishop`; the Executive Secretary exactly `Executive Secretary` |
+   | Calling | e.g. `Relief Society President`. The bishop must be exactly `Bishop`; the Executive Secretary exactly `Executive Secretary` (they get the alert emails) |
    | Organization | Pick from the list |
-   | Bishopric | Tick for bishopric members: on the leader page they see and edit every opportunity, approve any volunteer, and can undo a decline or revoke an approval. (Only the bishop and Executive Secretary edit the Service Sheet itself; see section 1.) |
+   | Bishopric | Tick for the bishop, both counselors, the Executive Secretary and the Ward Clerk, and nobody else. They edit the Service Sheet, read the Christmas and Other requests, and on the leader page see and edit every opportunity, approve any volunteer, and can undo a decline or revoke an approval (see section 1, step 5) |
    | Ward council | Tick for ward council members: they see every opportunity and its names, edit their own organization's, approve volunteers whose first sign-up was in their organization, and see **Needs help soon** |
    | Org editor | Tick for leaders who make opportunities for their organization (they see only their own organization's names) and approve its first-timers |
-   | Coordinator | Tick for someone who runs a kind of opportunity (a meal coordinator, a building specialist). The tick is a reminder only: what they may do comes from the **Coordinators** column of the Categories tab (step 6). Coordinators don't approve volunteers |
+   | Coordinator | Tick for someone who runs a kind of opportunity (a meal coordinator, a building specialist). The tick is a reminder only: what they may do comes from the **Coordinators** column of an opportunity row in the Categories tab (step 6); an opportunity coordinator needs this Leaders row for their leader link. Coordinators don't approve volunteers |
    | Send leader link | Leave for now (step 7) |
    | Link sent | The script fills this |
 
-   **Your own row:** add yourself, with Calling `Executive Secretary`, Organization `Bishopric`
-   and **Ward council** ticked. Without a role box ticked, the leader page answers *Your leader
+   **Your own row:** add yourself, with Calling `Executive Secretary`, Organization `Bishopric`,
+   and **Bishopric** and **Ward council** ticked. Without a role box ticked, the leader page answers *Your leader
    role can't create opportunities yet* and you can't do the test in section 9.
 
 6. Open the **Categories** tab and check the owners. Request kinds (`moving`, `christmas`,
-   `other`) decide who reads each request folder:
+   `other`, `christmas-giving`) decide who reads each request folder:
    - **Moving help**: the Elders Quorum and Relief Society leaders (Owning organizations).
-   - **Christmas help** and **Other help** are **Confidential**: only the bishop (Calling
-     `Bishop`) and anyone listed in **Coordinators** (emails, separated by commas).
+   - **Christmas help** and **Other help** are **Confidential**: only the bishopric (every
+     Leaders row with **Bishopric** ticked) and anyone listed in **Coordinators** (emails,
+     separated by commas). No other ward council member sees them unless you list them there.
+   - **Christmas giving offers** (`christmas-giving`) is a **private** form where families
+     offer gifts. It is Confidential and **not** on the public Request Help page (its **On Help
+     page** box is unticked); you share its link privately (section 6, step 7).
+   - **Christmas gift coordinators.** If a couple outside the bishopric is called to match
+     Christmas requests with givers, type both their emails in **Coordinators** on **both** the
+     **christmas** and the **christmas-giving** rows, for example
+     `brother.example.gifts@example.test, sister.example.gifts@example.test` (Riverbend's
+     invented Brother and Sister Example). They need no Leaders row. They get those two folders
+     and their emails, and nothing else: not the Service Sheet, not Moving or Other.
+   - **Notify** says who gets the short *New … request* email. Blank means everyone who can
+     open that kind's folder. Otherwise type names separated by commas: `Bishop` (the Leaders
+     row whose Calling is `Bishop`), `Coordinators` (the people in that row's Coordinators), or
+     email addresses. The rows start like this:
+     - **other**: `Bishop`. Other requests email only the bishop, while the whole bishopric can
+       still open the Other folder. To widen it later, clear the cell (the whole bishopric is
+       emailed) or add addresses, e.g. `Bishop, brother.counselor@example.test`.
+     - **christmas-giving**: `Coordinators`. Offers email the Christmas gift coordinators. Until
+       you type their emails, the bishopric gets them.
+     - **christmas** and **moving**: blank (everyone who can open the folder).
+     Only people who can open the folder are ever emailed; Sync sharing lists anyone in Notify
+     who can't.
+   - **On Help page**: ticked request kinds show on the public Request Help page. If you add a
+     new request kind later, tick it (unticked kinds are left off). After changing On Help
+     page, run Set up (the Help page can otherwise take up to 6 hours to change).
    The **Opportunity** rows (Meals, Moving, Service project, …) are the categories leaders pick
    when they make an opportunity, and each shows its **Icon** on the Service Opportunities page.
    For each one you may fill in:
@@ -189,7 +246,8 @@ private window, use a separate Chrome profile signed in only to the shared accou
    Do not change the **Id** column.
 7. Click **Service Portal > Set up** again. It makes the **Service Portal** folder in Drive,
    moves the Service Sheet into it, makes the private **System Sheet**, and makes one request
-   form, folder and month sheet for each request kind. It ends with *Set up is done.* If it
+   form, folder and month sheet for each request kind. It ends with *Set up is done.* and the
+   link to the private **Christmas giving offers** form (keep it for section 6, step 7). If it
    also mentions the **time zone**, follow its words (Extensions > Apps Script > Project
    Settings > Time zone) and run Set up again.
 
@@ -221,13 +279,14 @@ and the old links stop working.
 ## 5. Install triggers, then Sync sharing
 
 1. Click **Service Portal > Install triggers**. It says *Triggers installed: every 10 minutes,
-   hourly, daily at 2 am, and 3 request form trigger(s).*
+   hourly, daily at 2 am, and 4 request form trigger(s).*
 2. Click **Service Portal > Sync sharing**. It shares, with Google's share emails turned off:
-   - the **Service Sheet**: the bishop and the Executive Secretary can edit; every other
-     bishopric and ward council member can view (editors can also change the script inside it,
-     which can open every request sheet, so edit access stays with those two);
+   - the **Service Sheet**: the bishopric (Bishopric ticked) can edit; every other ward
+     council member can view (editors can also change the script inside it, which can open
+     every request sheet, so Bishopric stays ticked for the five bishopric callings only);
    - each **request folder**: the leaders who read that kind of request (they can edit the
-     request sheet: Status, Assigned to, Leader note);
+     request sheet: Status, Assigned to, Leader note). Christmas and Other: the bishopric and
+     that kind's Coordinators;
    - the **System Sheet** and the **Service Portal** folder: nobody but the shared account
      (any link sharing is turned off);
    - and it **protects** Posts, Slots, Sign-ups, Volunteers and Needs help soon so only the
@@ -265,6 +324,12 @@ pages. The hub belongs to the ward; its owner adds the files.
    again, and give the hub owner the new `hub-sections.html` part.
 6. QR codes: download the QR code zippa.run shows for each short link, name them
    `serve-qr.png` and `help-qr.png`, and have the hub owner upload them next to `index.html`.
+7. **The private Christmas giving form.** Find its link in Set up's message (it lists *Christmas
+   giving offers (not on the Help page; share privately): …*), or in Drive > **Service Portal**
+   > the **Christmas giving offers** form > **Send** > the **link** icon > **Copy**. On
+   **app.zippa.run** make `<prefix>Give` pointing at it (Riverbend: `zippa.run/rb1Give`).
+   Share it only in a ward email with addresses in **Bcc**, or in the bulletin. **Never** put
+   it on the public hub.
 
 **If there is no hub, or the hub test in Check health fails:** skip this step, leave
 **hub_url** blank, and point the two short links at the web app's own pages instead:
@@ -300,6 +365,7 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 | gpTenMinute / gpHourly / gpDaily last ran … more than … minutes ago, or has not run | That job has stopped (every 10 minutes, every hour, once a night). Open **Extensions > Apps Script > Executions** and look at its recent runs and errors. Then run **Install triggers** again in a window signed in only to the shared account. Right after installing, *has not run yet* is normal. |
 | Any menu item: *works only for the account that owns this Service Sheet* | See the box at the start of section 2: use a private window signed in only to the shared account. |
 | System Sheet missing / Request forms | Run **Set up**. |
+| … Notify says Bishop, but no Leaders row has Calling Bishop | Type `Bishop` in the bishop's **Calling** in Leaders, or change that row's **Notify** in Categories. |
 | Email left today | Today's 100 emails are nearly used. Wait a day; queued mail goes out by itself. |
 | Outbox failed | Open the System Sheet's Outbox tab and read the Error column (often a mistyped address). |
 | Time zone | Do what the line says (Project Settings, or File > Settings in the Sheet). |
@@ -439,6 +505,10 @@ and click **Run**.
 - [ ] In a private window, open the Request Help page and submit each form (Moving, Christmas,
       Other) with test words. The right leaders each get a *New … request* email that names
       only the kind of request and the folder link, nothing from the form.
+- [ ] Open the **Christmas giving offers** form through its private link (section 6, step 7)
+      and submit a test offer. It lands in the **Requests – Christmas giving offers** sheet with
+      **Offer** filled; only the Christmas gift coordinators get the email (or the bishopric, if
+      no coordinators are typed yet); and it is **not** on the Request Help page.
 - [ ] Each request appears in its folder's sheet (Drive > Service Portal > Requests – …). Open
       the form itself (Drive > Service Portal > the form > **Responses** tab): it shows **0**.
       If a form says it is not accepting responses, open it and click **Publish**.
@@ -512,6 +582,9 @@ public pages keep using the old one until step 4.
    people you already accepted don't wait for approval and their reminders keep the private
    details. If it asks to authorize again, do it as in section 3 step 2. (If a timed job runs
    before you get here, it makes the same changes itself first, so nothing goes out wrong.)
+   **If your ward set up before 1.1**, this Set up also makes the 1.1 changes (the **Notify**
+   and **On Help page** columns, the **Christmas giving offers** row and its private form) and
+   lists the giving form's link; a ward already on 1.1 just sees *Request forms: already made*.
 4. **New version of the web app.** **Deploy > Manage deployments**, select the deployment,
    click the **pencil**, set **Version** to **New version**, click **Deploy**. (Not *New
    deployment*: that changes the address and breaks every link.)
@@ -520,7 +593,12 @@ public pages keep using the old one until step 4.
    and 4.
 6. **Categories and coordinators.** Fill in **Coordinators**, **Warn hours** and **Also warn**
    for the opportunity categories as in section 3 step 6, add a **Leaders** row for each
-   coordinator, tick **Send leader link** for them, then run **Sync sharing**. Remember that a
+   coordinator, tick **Send leader link** for them, then run **Sync sharing**. (Coordinators
+   of the request kinds, such as the Christmas gift coordinators, need no Leaders row and
+   aren't changed by phase 2; **Notify** still applies only to request kinds.) **If your ward
+   set up before 1.1**, first do steps 3 and 5 of the *If you set up before 1.1* box at the top
+   (tick **Bishopric** for the whole bishopric; the Christmas gift coordinators), and after Sync
+   sharing make the giving short link (section 6, step 7). Remember that a
    category with coordinators is theirs: from then on only they, the bishopric (and the ward
    council, if *Any ward council may create* is ticked) make and edit its opportunities.
 7. **New hub pages.** Run **Make hub files** and give the hub owner all six page files,

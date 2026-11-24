@@ -13,7 +13,7 @@ const PURE = [
   'postsToMarkPast', 'leaderAccess', 'canSeePost', 'canEditPost', 'noticeRecipients', 'rateCheck',
   'volunteerState', 'signupStatusFor', 'overLimitOnConfirm', 'canApprove', 'approversFor', 'nudgesDue', 'lapsesDue', 'warningsDue',
   'needsHelpSoon',
-  'requestReaders', 'adminEmails', 'stampClosed', 'rowsToPurge', 'rowsToCarry', 'needsRotation', 'sharingDiff',
+  'requestReaders', 'requestNotifyList', 'bishopricEmails', 'adminEmails', 'stampClosed', 'rowsToPurge', 'rowsToCarry', 'needsRotation', 'sharingDiff',
 ];
 /** The intended public entry points (checked below or in web.test.mjs). */
 const ENTRY = ['doGet', 'doPost', 'gpApi'];

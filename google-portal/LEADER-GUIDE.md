@@ -18,6 +18,8 @@ bringing?*
 - For **Youth** or **Children**, the sign-up form asks *Who is serving? Me / My child* and takes
   a child's first name. Every email goes to the parent; you see *Ana (signed up by …)*.
 
+Never put a family's name, address or situation in a post's public note — posts are public.
+
 **Publish and share.** **Save as draft** keeps it hidden; **Publish** puts it on the Service
 Opportunities page. Under **My opportunities**, each post shows its public link with a **Copy**
 button: paste it into a ward email (addresses in **Bcc**) or a message.
@@ -95,3 +97,24 @@ email saying a request came in; open your **Requests** folder in Google Drive, w
 request is a row. Fill in **Status** (New, In progress, Done, Declined), **Assigned to** and a
 short **Leader note**. Contact the person directly. Never copy request details into an email.
 Requests are removed 30 days after they are Done or Declined.
+- **Christmas and Other requests** go only to the bishopric (the bishop, both counselors, the
+  Executive Secretary and the Ward Clerk) and anyone they name as that kind's coordinator, such
+  as the Christmas gift coordinators. The email for a new Other request goes to the bishop; the
+  whole bishopric can open the Other folder. Other kinds go to the leaders of the organizations
+  that own them.
+
+**Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on a
+private form; each offer is a row in your **Requests – Christmas giving offers** folder, and
+each family's request is a row in **Requests – Christmas help**.
+1. Open both folders' sheets.
+2. Pick a request and an offer that fit.
+3. Contact the giver yourself. Share only what they need to give well, and no more than the
+   family agreed to.
+4. Record the match in both sheets: **Assigned to** and **Leader note** (e.g. "matched with
+   offer o…" on the request, "request r…" on the offer, using the **Request id** column). Mark both **Done** when the gifts are
+   delivered.
+5. Closed rows are deleted 30 days after they are Done or Declined.
+Never copy request or offer details into an email or into Gemini.
+
+**The Service Sheet.** The bishopric edits it; other ward council members can view it. To change
+Settings, Leaders or Categories, ask the Executive Secretary.

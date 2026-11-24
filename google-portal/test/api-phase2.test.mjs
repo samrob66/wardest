@@ -6,7 +6,8 @@ import { loadPortal, seedPost, setSetting } from './harness.mjs';
 const plain = (x) => JSON.parse(JSON.stringify(x));
 const tokenFrom = (text, page = '') => new RegExp(page + '[^\\s"]*#t=([0-9a-f]{64})').exec(text)[1];
 const THANKS = 'Thanks. Check your email to finish or see your sign-up.';
-const RS_APPROVERS = ['bishop.example@example.test', 'brother.counselor@example.test', 'sister.example@example.test'];
+// 1.1: the Bishopric tick (bishop, counselor, Executive Secretary) makes a bishopric approver.
+const RS_APPROVERS = ['bishop.example@example.test', 'brother.clerk@example.test', 'brother.counselor@example.test', 'sister.example@example.test'];
 
 function setup() {
   const gp = loadPortal({ seed: { settings: { hub_url: 'https://example.github.io/rb1links/' } } });

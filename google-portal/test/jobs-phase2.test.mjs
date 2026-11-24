@@ -8,7 +8,8 @@ const tokenFrom = (text, page) => new RegExp(page + '[^\\s"]*#t=([0-9a-f]{64})')
 const rows = (gp, tab = 'Sign-ups') => gp.fakes.spreadsheet.rowsOf(tab);
 const sys = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'));
 const NEW = 'brother.new@example.test';
-const RS_APPROVERS = ['bishop.example@example.test', 'brother.counselor@example.test', 'sister.example@example.test'];
+// 1.1: the Bishopric tick (bishop, counselor, Executive Secretary) makes a bishopric approver.
+const RS_APPROVERS = ['bishop.example@example.test', 'brother.clerk@example.test', 'brother.counselor@example.test', 'sister.example@example.test'];
 
 function setup() {
   const gp = loadPortal({ seed: true });
@@ -43,7 +44,7 @@ describe('gpHourly: nudges, lapses, warnings', () => {
     expect(nudges[0].body).not.toContain(NEW);
     gp.fakes.setNow('2026-12-01 19:00');
     gp.gpHourly();
-    expect(gp.fakes.mail.sent.filter((m) => /Urgent/.test(m.subject))).toHaveLength(3);
+    expect(gp.fakes.mail.sent.filter((m) => /Urgent/.test(m.subject))).toHaveLength(RS_APPROVERS.length);
     // The sent key is a Script Property, pruned by the daily job after 30 days.
     expect([...gp.fakes.props.keys()].filter((k) => k.startsWith('SENT_NUDGE_'))).toEqual(['SENT_NUDGE_p1|2026-12-03']);
     gp.fakes.setNow('2027-01-02 03:00');

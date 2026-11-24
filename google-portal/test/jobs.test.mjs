@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadPortal, seedPost, setSetting } from './harness.mjs';
+import { loadPortal, seedPost, setSetting, addLeader, MORE_BISHOPRIC } from './harness.mjs';
 import { OWNER_EMAIL } from './fakes.mjs';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
@@ -174,7 +174,7 @@ describe('Set up', () => {
     const systems = [...gp.fakes.spreadsheets.values()].filter((s) => s.getName() === 'Riverbend 1st Ward (example) – Service System (private)');
     expect(systems.map((s) => s.getId())).toContain(sysId);
     expect(systems.filter((s) => s.getId() !== gp.fakes.system.getId())).toHaveLength(1);
-    expect(gp.fakes.forms.size).toBe(3);
+    expect(gp.fakes.forms.size).toBe(4);
     const portals = [...gp.fakes.drive.folders.values()].filter((f) => f.name === 'Service Portal');
     expect(portals).toHaveLength(1);
     const service = gp.fakes.drive.files.get(gp.fakes.spreadsheet.getId());
@@ -208,19 +208,38 @@ describe('Sync sharing', () => {
     const sysId = gp.fakes.props.get('SYSTEM_ID');
     gp.fakes.drive.permsOf(sysId).set('leak@example.test', { id: 'py', role: 'reader', type: 'user', emailAddress: 'leak@example.test' });
     gp.fakes.state.failPermissionFor = ['sister.coordinator@example.test'];
+    for (const l of MORE_BISHOPRIC) addLeader(gp, l);
+    // Calling text alone no longer decides anything: this row says Bishop but Bishopric is not ticked.
+    addLeader(gp, { Name: 'Brother Typed', Email: 'brother.typed@example.test', Calling: 'Bishop', Organization: 'Sunday School', 'Ward council': true });
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'christmas'), { Coordinators: 'helper.coord@example.test' });
+    gp.gpBegin_();
     gp.gpMenuSyncSharing();
     expect(perms(serviceId)).toEqual({
       [OWNER_EMAIL]: 'owner',
-      // D2: only the administrators edit (Sheet editors can edit its bound script).
+      // 1.1 (decision 14): every Bishopric-ticked leader edits; other ward council members view.
       'bishop.example@example.test': 'writer',
-      'brother.counselor@example.test': 'reader',
+      'brother.counselor@example.test': 'writer',
       'brother.clerk@example.test': 'writer',
+      'brother.second@example.test': 'writer',
+      'brother.recorder@example.test': 'writer',
       'sister.example@example.test': 'reader',
       'brother.sample@example.test': 'reader',
+      'brother.typed@example.test': 'reader',
     });
     expect(perms(sysId)).toEqual({ [OWNER_EMAIL]: 'owner' });
     const files = sys(gp).rowsOf('Request files');
-    expect(perms(files[1]['Folder id'])).toEqual({ [OWNER_EMAIL]: 'owner', 'bishop.example@example.test': 'writer' });
+    expect(files[1]['Category id']).toBe('christmas');
+    // Christmas: the whole bishopric plus its coordinators.
+    expect(perms(files[1]['Folder id'])).toEqual({
+      [OWNER_EMAIL]: 'owner',
+      'bishop.example@example.test': 'writer',
+      'brother.counselor@example.test': 'writer',
+      'brother.clerk@example.test': 'writer',
+      'brother.second@example.test': 'writer',
+      'brother.recorder@example.test': 'writer',
+      'helper.coord@example.test': 'writer',
+    });
     expect(Object.keys(perms(files[0]['Folder id'])).sort()).toEqual([OWNER_EMAIL, 'brother.sample@example.test', 'sister.example@example.test'].sort());
     // Share emails are off.
     for (const p of gp.fakes.drive.permsOf(serviceId).values()) if (p.opts) expect(p.opts.sendNotificationEmail).toBe(false);
@@ -237,13 +256,41 @@ describe('Sync sharing', () => {
   });
 });
 
+describe('Unticking Bishopric takes access away', () => {
+  it('a counselor who keeps Ward council drops to reader and leaves the Christmas folder; a Ward Clerk with no other role loses both', () => {
+    const gp = afterSetUp();
+    for (const l of MORE_BISHOPRIC) addLeader(gp, l);
+    gp.gpBegin_();
+    gp.gpMenuSyncSharing();
+    const perms = (id) => Object.fromEntries([...gp.fakes.drive.permsOf(id).values()].map((p) => [p.emailAddress, p.role]));
+    const serviceId = gp.fakes.spreadsheet.getId();
+    const christmasFolder = sys(gp).rowsOf('Request files').find((f) => f['Category id'] === 'christmas')['Folder id'];
+    expect(perms(serviceId)['brother.counselor@example.test']).toBe('writer');
+    expect(perms(serviceId)['brother.recorder@example.test']).toBe('writer');
+    expect(perms(christmasFolder)['brother.counselor@example.test']).toBe('writer');
+    expect(perms(christmasFolder)['brother.recorder@example.test']).toBe('writer');
+
+    const t = gp.serviceTab_('Leaders');
+    t.update(t.find('Email', 'brother.counselor@example.test'), { Bishopric: false });
+    t.update(t.find('Email', 'brother.recorder@example.test'), { Bishopric: false });
+    gp.gpBegin_();
+    gp.gpMenuSyncSharing();
+    // The counselor keeps Ward council: he views the Service Sheet and no longer opens Christmas.
+    expect(perms(serviceId)['brother.counselor@example.test']).toBe('reader');
+    expect(perms(christmasFolder)['brother.counselor@example.test']).toBeUndefined();
+    // The Ward Clerk had no other role: he loses both.
+    expect(perms(serviceId)['brother.recorder@example.test']).toBeUndefined();
+    expect(perms(christmasFolder)['brother.recorder@example.test']).toBeUndefined();
+  });
+});
+
 describe('Install triggers, hub files, leader links, health', () => {
   it('installs the three timed triggers and one per form, replacing old ones', () => {
     const gp = afterSetUp();
     gp.gpMenuInstallTriggers();
     gp.gpMenuInstallTriggers();
     const t = gp.fakes.triggers.map((x) => [x.handler, x.kind]);
-    expect(t.filter((x) => x[0] === 'gpOnRequestSubmit')).toHaveLength(3);
+    expect(t.filter((x) => x[0] === 'gpOnRequestSubmit')).toHaveLength(4);
     expect(t.filter((x) => x[0] !== 'gpOnRequestSubmit')).toEqual([['gpTenMinute', 'CLOCK'], ['gpHourly', 'CLOCK'], ['gpDaily', 'CLOCK']]);
     expect(gp.fakes.triggers.find((x) => x.handler === 'gpTenMinute').detail.everyMinutes).toBe(10);
     expect(gp.fakes.triggers.find((x) => x.handler === 'gpDaily').detail).toMatchObject({ everyDays: 1, atHour: 2 });

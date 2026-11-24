@@ -94,10 +94,15 @@ function gpMenuSetUp() {
   var folder = ensurePortalFolder_(ss);
   ensureSystemSheet_(s, folder);
   props_().setProperty('SCHEMA_VERSION', GP_VERSION);
-  var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows());
+  var refreshed = [];
+  var problems = [];
+  var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows(), refreshed, problems);
   var lines = ['Set up is done.'];
   if (migrated) lines.push('Volunteers from before phase 2 marked Approved: ' + migrated + '.');
   lines.push(made.length ? 'New request forms: ' + made.join(', ') + '.' : 'Request forms: already made.');
+  if (refreshed.length) lines.push('Updated the wording of: ' + refreshed.join(', ') + '.');
+  lines = lines.concat(privateFormLines_());
+  if (problems.length) lines.push('Problems: ' + problems.join(' '));
   var tz = tzMismatchLine_(s);
   if (tz) lines.push('Time zone: ' + tz);
   lines.push('Next: deploy the web app, paste its address into Settings web_app_url, then run Install triggers and Sync sharing.');
@@ -195,19 +200,19 @@ function gpMenuSyncSharing() {
   var problems = [];
   var summary = [];
 
-  // Only the administrators (Bishop, Executive Secretary) may edit the Service Sheet: its editors
-  // can also edit the script bound to it, which runs as this account and can open every request
-  // sheet, including the bishop-only ones. Every other bishopric and ward council leader views it.
+  // Decision 14: the whole bishopric (Bishopric ticked) edits the Service Sheet. Its editors can
+  // also edit the bound script, which can open every request sheet; the bishopric reads the
+  // confidential requests anyway. Other ward council members view it.
   var sheetWant = {};
   leaders.forEach(function (l) {
     if (isTicked(l.Bishopric) || isTicked(l['Ward council'])) sheetWant[normEmail(l.Email)] = 'reader';
   });
-  adminEmails(leaders).forEach(function (e) {
+  bishopricEmails(leaders).forEach(function (e) {
     sheetWant[e] = 'writer';
   });
   var d = applySharing_(serviceSs_().getId(), sheetWant, owner, 'Service Sheet', problems);
   summary.push(
-    'Service Sheet: ' + Object.keys(sheetWant).length + ' people (bishop and Executive Secretary edit; other bishopric and ward council view); ' +
+    'Service Sheet: ' + Object.keys(sheetWant).length + ' people (the bishopric edits; other ward council members view); ' +
       d.add.length + ' added, ' + d.change.length + ' changed, ' + d.remove.length + ' removed.'
   );
 
@@ -223,8 +228,16 @@ function gpMenuSyncSharing() {
       });
       applySharing_(f['Folder id'], want, owner, 'Requests – ' + cat.Name, problems);
       summary.push('Requests – ' + cat.Name + ': ' + Object.keys(want).length + ' people.');
+      var notify = requestNotifyList(cat, leaders);
+      if (notify.dropped.length) {
+        problems.push(
+          cat.Name + ' Notify: these get no request email, because they cannot open its folder or are not email addresses: ' +
+            notify.dropped.join(', ') + '. Fix Notify in Categories (blank = everyone who can open the folder).'
+        );
+      }
     });
 
+  problems = problems.concat(notifyBishopProblems_(serviceTab_(TAB.categories).rows(), leaders));
   applySharing_(systemSs_().getId(), {}, owner, 'System Sheet', problems);
   applySharing_(portalFolder_().getId(), {}, owner, 'Service Portal folder', problems);
   summary.push('System Sheet and Service Portal folder: only this account.');
@@ -237,6 +250,32 @@ function gpMenuSyncSharing() {
   }
   ui_().alert(summary.join('\n'));
   return problems;
+}
+
+/**
+ * One line per request kind (not archived) whose Notify names Bishop while no Leaders row has
+ * Calling Bishop (any case): the bishop would get no request email. (An empty Coordinators list
+ * behind Notify Coordinators is intended and not reported.)
+ */
+function notifyBishopProblems_(categories, leaders) {
+  var haveBishop = leaders.some(function (l) {
+    return String(l.Calling == null ? '' : l.Calling).trim().toLowerCase() === 'bishop';
+  });
+  if (haveBishop) return [];
+  var out = [];
+  categories.forEach(function (c) {
+    if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived)) return;
+    var says = splitList(c.Notify).some(function (e) {
+      return String(e).trim().toLowerCase() === 'bishop';
+    });
+    if (says) {
+      out.push(
+        c.Name + ' Notify says Bishop, but no Leaders row has Calling Bishop, so the bishop gets no request email. ' +
+          "Type Bishop in the bishop's Calling in Leaders, or change Notify in Categories."
+      );
+    }
+  });
+  return out;
 }
 
 // ---------- triggers ----------
@@ -438,6 +477,9 @@ function healthLines_(opts) {
       return c.Kind === CATEGORY_KIND.request && !isTicked(c.Archived);
     });
   add(formCount >= reqCats.length, 'Request forms: ' + formCount + ' of ' + reqCats.length + (formCount >= reqCats.length ? '.' : '. Run Set up.'));
+  notifyBishopProblems_(reqCats, leaders_()).forEach(function (line) {
+    add(false, line);
+  });
 
   var quota = mailQuota_();
   add(quota > s.email_reserve, 'Email left today: ' + quota + ' (reserve ' + s.email_reserve + ').');

@@ -109,9 +109,9 @@ describe('canApprove and approversFor', () => {
     expect(gp.canApprove(bishop, 'brother.counselor@example.test', vol, null)).toBe(true);
   });
   it('approversFor: the organization editors and ward council leaders plus the bishopric', () => {
-    expect(plain(gp.approversFor(rsPost, LEADERS))).toEqual(['bishop.example@example.test', 'brother.counselor@example.test', 'sister.example@example.test']);
-    expect(plain(gp.approversFor(POST({ Organization: 'Primary' }), LEADERS))).toEqual(['bishop.example@example.test', 'brother.counselor@example.test', 'sister.helper@example.test']);
-    expect(plain(gp.approversFor(null, LEADERS))).toEqual(['bishop.example@example.test', 'brother.counselor@example.test']);
+    expect(plain(gp.approversFor(rsPost, LEADERS))).toEqual(['bishop.example@example.test', 'brother.counselor@example.test', 'brother.clerk@example.test', 'sister.example@example.test']);
+    expect(plain(gp.approversFor(POST({ Organization: 'Primary' }), LEADERS))).toEqual(['bishop.example@example.test', 'brother.counselor@example.test', 'brother.clerk@example.test', 'sister.helper@example.test']);
+    expect(plain(gp.approversFor(null, LEADERS))).toEqual(['bishop.example@example.test', 'brother.counselor@example.test', 'brother.clerk@example.test']);
   });
 });
 
