@@ -32,7 +32,8 @@ export default defineConfig({
   test: {
     setupFiles: ['./test/setup.ts'],
     // Build worktrees live under .claude/worktrees; never pick up their copies of the tests.
+    // google-portal/ has its own Node config (google-portal/vitest.config.mjs), run by `npm test` after this one.
     // The access equivalence harness runs on its own: `npm run test:equiv` (vitest.equiv.config.ts).
-    exclude: [...configDefaults.exclude, '.claude/**', EQUIV_TESTS],
+    exclude: [...configDefaults.exclude, '.claude/**', 'google-portal/**', EQUIV_TESTS],
   },
 });

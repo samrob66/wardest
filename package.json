@@ -12,10 +12,13 @@
     "db:seed:solutions:local": "wrangler d1 execute wardforward-db --local --file=./db/seed-solutions.sql",
     "db:seed:start-here:local": "wrangler d1 execute wardforward-db --local --file=./db/seed-start-here.sql",
     "db:reset:local": "npm run db:init:local && npm run db:seed:local",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config google-portal/vitest.config.mjs",
     "test:equiv": "vitest run --config vitest.equiv.config.ts",
     "seed:start-here": "node scripts/build-start-here-seed.mjs",
-    "seed:start-here:check": "node scripts/build-start-here-seed.mjs --check"
+    "seed:start-here:check": "node scripts/build-start-here-seed.mjs --check",
+    "gp:build": "node google-portal/build.mjs",
+    "gp:build:check": "node google-portal/build.mjs --check",
+    "gp:test": "vitest run --config google-portal/vitest.config.mjs"
   },
   "dependencies": {
     "hono": "^4.9.0",
