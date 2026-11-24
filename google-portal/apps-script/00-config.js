@@ -1,12 +1,12 @@
 /**
- * Service Portal (Google-only volunteer portal), phase 1.
+ * Service Portal (Google-only volunteer portal), phase 2.
  * Every tab name, header, status, text and default lives in this file.
  *
  * Source: google-portal/apps-script/ in the WardForward repository. Code.gs is generated from
  * these files; change them there, not in the Apps Script editor.
  */
 
-var GP_VERSION = 'phase-1';
+var GP_VERSION = 'phase-2';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -51,12 +51,21 @@ var TEXT = {
     "Private details go to volunteers in their reminder the day before. Remove anyone you don't recognize before then.",
 };
 
-/** Limits (spec section 7.3, phase 1 values). */
+/** Limits (spec section 7.3). The total of confirm emails a day is Settings confirm_limit_per_day. */
 var LIMITS = {
   signupEmailsPerAddressPerDay: 3,
   signupsPerPostPerMinute: 10,
   leaderLinksPerAddressPerDay: 3,
+  confirmEmailsPerAddressPerDay: 3,
+  meLinksPerAddressPerDay: 3,
 };
+
+/** Hours before a role starts that a sign-up still waiting for approval nudges the approvers. */
+var NUDGE_HOURS = 48;
+/** A category's Warn hours when the cell is blank (0 turns its warnings off). */
+var DEFAULT_WARN_HOURS = 48;
+/** "Needs help soon" looks this many days ahead (today included). */
+var NEEDS_HELP_DAYS = 14;
 
 /** Service Sheet tabs (people type only Settings, Leaders and Categories). */
 var TAB = {
@@ -88,7 +97,7 @@ var SERVICE_HEADERS = {
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
-  Volunteers: ['Email', 'Name', 'Status', 'Decided by', 'Decided at', 'First post'],
+  Volunteers: ['Email', 'Name', 'Status', 'Decided by', 'Decided at', 'First post', 'Email confirmed at'],
   'Needs help soon': [],
 };
 
@@ -114,13 +123,18 @@ var SIGNUP_STATUS = {
   removed: 'Removed',
   waitingEmail: 'Waiting-email',
   waitingApproval: 'Waiting-approval',
+  withdrawn: 'Withdrawn',
+  lapsed: 'Lapsed',
 };
+/** Sign-ups that hold (Confirmed) or wait for (Waiting-*) a place. */
+var ACTIVE_SIGNUP_STATUSES = ['Waiting-email', 'Waiting-approval', 'Confirmed'];
+var VOLUNTEER_STATUS = { pending: 'Pending', approved: 'Approved', declined: 'Declined', revoked: 'Revoked' };
 var CATEGORY_KIND = { opportunity: 'Opportunity', request: 'Request' };
 
 /** Column types, by header name (any tab). Read back as text; written with format '@'. */
 var DATE_COLS = ['Date', 'Moving date', 'Closed on'];
 var TIME_COLS = ['Start', 'End'];
-var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
+var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
 var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id'];
@@ -141,10 +155,11 @@ var SETTINGS_ROWS = [
   ['default_cancel_cutoff_hours', 24, 'Hours before a role starts after which a cancellation tells leaders they are short.'],
   ['email_reserve', 30, 'Emails kept back each day for reminders and leader notices.'],
   ['signup_limit_per_day', 40, 'Most sign-ups accepted in one day, all posts together.'],
+  ['confirm_limit_per_day', 20, 'Most confirm-your-address emails sent in one day, all addresses together.'],
   ['organizations', 'Bishopric, Elders Quorum, Relief Society, Young Men, Young Women, Primary, Sunday School, Ward Mission, Temple and Family History, Activities', 'Organizations, separated by commas.'],
   ['discord', 'off', 'Discord announcements (phase 2). Leave off.'],
 ];
-var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day'];
+var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day', 'confirm_limit_per_day'];
 
 /** Categories seeded once, when the tab is empty. */
 var DEFAULT_CATEGORIES = [

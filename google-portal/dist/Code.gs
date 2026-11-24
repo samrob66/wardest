@@ -7,14 +7,14 @@
 // ===== 00-config.js =====
 
 /**
- * Service Portal (Google-only volunteer portal), phase 1.
+ * Service Portal (Google-only volunteer portal), phase 2.
  * Every tab name, header, status, text and default lives in this file.
  *
  * Source: google-portal/apps-script/ in the WardForward repository. Code.gs is generated from
  * these files; change them there, not in the Apps Script editor.
  */
 
-var GP_VERSION = 'phase-1';
+var GP_VERSION = 'phase-2';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -59,12 +59,21 @@ var TEXT = {
     "Private details go to volunteers in their reminder the day before. Remove anyone you don't recognize before then.",
 };
 
-/** Limits (spec section 7.3, phase 1 values). */
+/** Limits (spec section 7.3). The total of confirm emails a day is Settings confirm_limit_per_day. */
 var LIMITS = {
   signupEmailsPerAddressPerDay: 3,
   signupsPerPostPerMinute: 10,
   leaderLinksPerAddressPerDay: 3,
+  confirmEmailsPerAddressPerDay: 3,
+  meLinksPerAddressPerDay: 3,
 };
+
+/** Hours before a role starts that a sign-up still waiting for approval nudges the approvers. */
+var NUDGE_HOURS = 48;
+/** A category's Warn hours when the cell is blank (0 turns its warnings off). */
+var DEFAULT_WARN_HOURS = 48;
+/** "Needs help soon" looks this many days ahead (today included). */
+var NEEDS_HELP_DAYS = 14;
 
 /** Service Sheet tabs (people type only Settings, Leaders and Categories). */
 var TAB = {
@@ -96,7 +105,7 @@ var SERVICE_HEADERS = {
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
-  Volunteers: ['Email', 'Name', 'Status', 'Decided by', 'Decided at', 'First post'],
+  Volunteers: ['Email', 'Name', 'Status', 'Decided by', 'Decided at', 'First post', 'Email confirmed at'],
   'Needs help soon': [],
 };
 
@@ -122,13 +131,18 @@ var SIGNUP_STATUS = {
   removed: 'Removed',
   waitingEmail: 'Waiting-email',
   waitingApproval: 'Waiting-approval',
+  withdrawn: 'Withdrawn',
+  lapsed: 'Lapsed',
 };
+/** Sign-ups that hold (Confirmed) or wait for (Waiting-*) a place. */
+var ACTIVE_SIGNUP_STATUSES = ['Waiting-email', 'Waiting-approval', 'Confirmed'];
+var VOLUNTEER_STATUS = { pending: 'Pending', approved: 'Approved', declined: 'Declined', revoked: 'Revoked' };
 var CATEGORY_KIND = { opportunity: 'Opportunity', request: 'Request' };
 
 /** Column types, by header name (any tab). Read back as text; written with format '@'. */
 var DATE_COLS = ['Date', 'Moving date', 'Closed on'];
 var TIME_COLS = ['Start', 'End'];
-var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
+var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
 var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id'];
@@ -149,10 +163,11 @@ var SETTINGS_ROWS = [
   ['default_cancel_cutoff_hours', 24, 'Hours before a role starts after which a cancellation tells leaders they are short.'],
   ['email_reserve', 30, 'Emails kept back each day for reminders and leader notices.'],
   ['signup_limit_per_day', 40, 'Most sign-ups accepted in one day, all posts together.'],
+  ['confirm_limit_per_day', 20, 'Most confirm-your-address emails sent in one day, all addresses together.'],
   ['organizations', 'Bishopric, Elders Quorum, Relief Society, Young Men, Young Women, Primary, Sunday School, Ward Mission, Temple and Family History, Activities', 'Organizations, separated by commas.'],
   ['discord', 'off', 'Discord announcements (phase 2). Leave off.'],
 ];
-var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day'];
+var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day', 'confirm_limit_per_day'];
 
 /** Categories seeded once, when the tab is empty. */
 var DEFAULT_CATEGORIES = [
@@ -1132,9 +1147,26 @@ function publicPost(post, slots, counts, todayLocal) {
   };
 }
 
+/** A child's first name as compared for duplicates ('' = the parent). */
+function childKey_(v) {
+  return str_(v).toLowerCase();
+}
+
+function isActiveSignup_(status) {
+  return ACTIVE_SIGNUP_STATUSES.indexOf(status) >= 0;
+}
+
+function isWaitingSignup_(status) {
+  return status === SIGNUP_STATUS.waitingEmail || status === SIGNUP_STATUS.waitingApproval;
+}
+
 /**
  * Can this person sign up for this slot now?
+ * a: {post, slot, counts, existing, email, childName?, state?, todayLocal, nowLocal}.
  * A slot with a start time closes at its start; one without stays open all of its day.
+ * Duplicates are per (address, role, child first name) among active sign-ups (Waiting-*,
+ * Confirmed). A full role refuses a sign-up that would count at once (state approved or leader;
+ * no state = counts at once); one that must wait for an email click or an approval may wait.
  */
 function checkSignup(a) {
   var post = a.post;
@@ -1144,12 +1176,88 @@ function checkSignup(a) {
   var passed = slot.Start ? slotStart(slot) < a.nowLocal : slot.Date < a.nowLocal.slice(0, 10);
   if (passed) return { ok: false, error: TEXT.datePassed };
   var email = normEmail(a.email);
+  var child = childKey_(a.childName);
   var dup = (a.existing || []).some(function (s) {
-    return s['Slot id'] === slot['Slot id'] && s.Status === SIGNUP_STATUS.confirmed && normEmail(s.Email) === email;
+    return (
+      s['Slot id'] === slot['Slot id'] &&
+      isActiveSignup_(s.Status) &&
+      normEmail(s.Email) === email &&
+      childKey_(s['Child first name']) === child
+    );
   });
   if (dup) return { ok: false, error: TEXT.alreadySignedUp };
-  if (filledOf_(a.counts, slot['Slot id']) >= (Number(slot.Needed) || 0)) return { ok: false, error: TEXT.roleFull };
+  var countsNow = !a.state || a.state === 'approved' || a.state === 'leader';
+  if (countsNow && filledOf_(a.counts, slot['Slot id']) >= (Number(slot.Needed) || 0)) return { ok: false, error: TEXT.roleFull };
   return { ok: true };
+}
+
+/** True when the role already has its number before this sign-up counts (over-filling). */
+function overLimitOnConfirm(slot, counts) {
+  return filledOf_(counts, slot['Slot id']) >= (Number(slot.Needed) || 0);
+}
+
+// ---------- volunteers: approval states ----------
+
+/** {normalized email: Volunteers row}. */
+function volunteersByEmail_(rows) {
+  var out = {};
+  (rows || []).forEach(function (v) {
+    var e = normEmail(v.Email);
+    if (e) out[e] = v;
+  });
+  return out;
+}
+
+/**
+ * 'leader' (on the Leaders tab: skips approval) | 'approved' | 'pending-confirmed' (clicked the
+ * confirm link, waits for a leader) | 'pending-new' (has not clicked it) | 'new' (never seen) |
+ * 'blocked' (Declined or Revoked). volunteersByEmail is keyed by normalized email; a status
+ * nobody knows counts as Pending.
+ */
+function volunteerState(email, volunteersByEmail, leaderEmails) {
+  var e = normEmail(email);
+  var leaders = (leaderEmails || []).map(normEmail);
+  if (e && leaders.indexOf(e) >= 0) return 'leader';
+  var v = volunteersByEmail ? volunteersByEmail[e] : null;
+  if (!v) return 'new';
+  var st = str_(v.Status);
+  if (st === VOLUNTEER_STATUS.approved) return 'approved';
+  if (st === VOLUNTEER_STATUS.declined || st === VOLUNTEER_STATUS.revoked) return 'blocked';
+  return str_(v['Email confirmed at']) ? 'pending-confirmed' : 'pending-new';
+}
+
+/** The status a new sign-up gets; null = blocked (nothing is stored). */
+function signupStatusFor(state) {
+  if (state === 'leader' || state === 'approved') return SIGNUP_STATUS.confirmed;
+  if (state === 'pending-confirmed') return SIGNUP_STATUS.waitingApproval;
+  if (state === 'pending-new' || state === 'new') return SIGNUP_STATUS.waitingEmail;
+  return null;
+}
+
+/**
+ * May this leader approve or decline this volunteer? The bishopric always; otherwise only a
+ * leader who edits the organization of the volunteer's first post (coordinators don't approve).
+ */
+function canApprove(access, leaderEmail, volunteer, firstPost) {
+  if (!access || !volunteer) return false;
+  if (access.isBishopric) return true;
+  if (!firstPost) return false;
+  return (access.editOrgs || []).indexOf(firstPost.Organization) >= 0;
+}
+
+/**
+ * Who may approve volunteers whose first post is this one: Leaders with Org editor or Ward
+ * council ticked in its organization, plus every Bishopric leader. Normalized, de-duplicated.
+ */
+function approversFor(post, leaders) {
+  var org = post ? str_(post.Organization) : '';
+  var out = [];
+  (leaders || []).forEach(function (l) {
+    if (!isEmail(l.Email)) return;
+    var mine = !!org && str_(l.Organization) === org && (isTicked(l['Org editor']) || isTicked(l['Ward council']));
+    if (isTicked(l.Bishopric) || mine) out.push(normEmail(l.Email));
+  });
+  return uniq_(out);
 }
 
 /** True once now is at or past (slot start − cutoff hours). */
@@ -1214,12 +1322,17 @@ function postsToMarkPast(posts, slotsByPost, todayLocal) {
 }
 
 /**
- * What a leader may do, from the Leaders tab's role boxes (phase 1):
+ * What a leader may do, from the Leaders tab's role boxes and the Categories tab:
  * Bishopric: every organization. Ward council: see every post's names; edit and create for
  * their own organization. Org editor: see, edit and create for their own organization only.
- * Coordinator alone: nothing yet (phase 2 adds their categories).
+ * Coordinator: a leader whose email is in an opportunity category's Coordinators column sees and
+ * edits that category's posts (any organization) and creates in it for the category's owning
+ * organizations (their own organization when it has none). "Any ward council may create" lets
+ * every Ward council leader create in that category the same way. The Coordinator box alone
+ * gives nothing: a category must list them.
+ * categories: Categories rows (optional).
  */
-function leaderAccess(leader, organizations) {
+function leaderAccess(leader, organizations, categories) {
   var orgs = (organizations || []).slice();
   var bishopric = isTicked(leader.Bishopric);
   var wardCouncil = isTicked(leader['Ward council']);
@@ -1227,23 +1340,54 @@ function leaderAccess(leader, organizations) {
   var own = str_(leader.Organization);
   var ownList = orgs.indexOf(own) >= 0 ? [own] : [];
   var edit = bishopric ? orgs : wardCouncil || orgEditor ? ownList : [];
+  var me = normEmail(leader.Email);
+  var coordinated = [];
+  var catOrgs = {};
+  (categories || []).forEach(function (c) {
+    var id = str_(c.Id);
+    if (!id || c.Kind !== CATEGORY_KIND.opportunity || isTicked(c.Archived)) return;
+    var listed = !!me && splitList(c.Coordinators).map(normEmail).indexOf(me) >= 0;
+    if (listed) coordinated.push(id);
+    if (!listed && !(wardCouncil && isTicked(c['Any ward council may create']))) return;
+    var owners = splitList(c['Owning organizations']).filter(function (o) {
+      return orgs.indexOf(o) >= 0;
+    });
+    catOrgs[id] = owners.length ? owners : ownList.slice();
+  });
+  var create = edit.slice();
+  Object.keys(catOrgs).forEach(function (id) {
+    create = create.concat(catOrgs[id]);
+  });
   return {
     isBishopric: bishopric,
     seeAllNames: bishopric || wardCouncil,
     editOrgs: edit.slice(),
-    createOrgs: edit.slice(),
+    createOrgs: uniq_(create),
+    baseCreateOrgs: edit.slice(),
+    categories: coordinated,
+    catOrgs: catOrgs,
   };
 }
 
-function canSeePost(access, post) {
-  return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0);
+/** Organizations a new post in this category may belong to, for this leader. */
+function allowedOrgsFor_(access, category) {
+  var extra = (access.catOrgs && access.catOrgs[str_(category)]) || [];
+  return uniq_((access.baseCreateOrgs || access.createOrgs || []).concat(extra));
 }
 
-/** The post's creator may always edit it; otherwise the organization must be one they edit. */
+function coordinates_(access, post) {
+  return !!post.Category && (access.categories || []).indexOf(String(post.Category)) >= 0;
+}
+
+function canSeePost(access, post) {
+  return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post));
+}
+
+/** The post's creator may always edit it; otherwise an organization they edit, or a category they coordinate. */
 function canEditPost(access, leaderEmail, post) {
   var me = normEmail(leaderEmail);
   if (me && normEmail(post['Created by']) === me) return true;
-  return access.editOrgs.indexOf(post.Organization) >= 0;
+  return access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post);
 }
 
 /**
@@ -1278,6 +1422,132 @@ function rateCheck(counts, limits) {
   if ((c.postMinute || 0) >= limits.perPostMinute) return 'perPostMinute';
   if ((c.leaderLinksToday || 0) >= limits.leaderLinks) return 'leaderLinks';
   return null;
+}
+
+// ---------- timed rules: nudges, lapses, warnings, Needs help soon ----------
+
+function keySent_(sentKeys, key) {
+  if (!sentKeys) return false;
+  if (Array.isArray(sentKeys)) return sentKeys.indexOf(key) >= 0;
+  return !!sentKeys[key];
+}
+
+/**
+ * [{postId, date, key}]: a post date with a Waiting-approval sign-up whose role starts within the
+ * next 48 hours (and hasn't started). One per post and date; key 'postId|date' is skipped once it
+ * is in sentKeys.
+ */
+function nudgesDue(signups, slotsById, postsById, nowLocal, sentKeys) {
+  var limit = localMinusHours(nowLocal, -NUDGE_HOURS);
+  var seen = {};
+  var out = [];
+  (signups || []).forEach(function (s) {
+    if (s.Status !== SIGNUP_STATUS.waitingApproval) return;
+    var slot = slotsById[s['Slot id']];
+    var post = postsById[s['Post id']];
+    if (!slot || !post) return;
+    if (post.Status === POST_STATUS.past || post.Status === POST_STATUS.cancelled) return;
+    var start = slotStart(slot);
+    if (start < nowLocal || start > limit) return;
+    var key = post['Post id'] + '|' + slot.Date;
+    if (seen[key] || keySent_(sentKeys, key)) return;
+    seen[key] = true;
+    out.push({ postId: post['Post id'], date: slot.Date, key: key });
+  });
+  return out;
+}
+
+/** Sign-up ids still waiting (email or approval) whose date has passed, or whose role is gone. */
+function lapsesDue(signups, slotsById, todayLocal) {
+  return (signups || [])
+    .filter(function (s) {
+      if (!isWaitingSignup_(s.Status)) return false;
+      var slot = slotsById[s['Slot id']];
+      return !slot || slot.Date < todayLocal;
+    })
+    .map(function (s) {
+      return s['Sign-up id'];
+    });
+}
+
+/** A category's warning lead time in hours: blank → 48; 0 or not a number → off (0); at most 336. */
+function warnHours_(category) {
+  var v = category ? category['Warn hours'] : '';
+  if (v === '' || v === null || v === undefined) return DEFAULT_WARN_HOURS;
+  var n = Number(v);
+  if (!isFinite(n) || n <= 0) return 0;
+  return Math.min(336, Math.floor(n));
+}
+
+/**
+ * [{postId, date, key, short: [{slotId, role, start, filled, needed}]}]: for each Open post date
+ * (its earliest start) within its category's Warn hours and not yet started, when any role on it
+ * is short. Once per post and date (key 'postId|date' in sentKeys).
+ */
+function warningsDue(posts, slotsByPost, counts, categoriesById, nowLocal, sentKeys) {
+  var out = [];
+  (posts || []).forEach(function (p) {
+    if (p.Status !== POST_STATUS.open) return;
+    var cat = categoriesById[p.Category];
+    var hours = warnHours_(cat);
+    if (!cat || !hours) return;
+    var limit = localMinusHours(nowLocal, -hours);
+    var byDate = {};
+    (slotsByPost[p['Post id']] || []).forEach(function (sl) {
+      (byDate[sl.Date] = byDate[sl.Date] || []).push(sl);
+    });
+    Object.keys(byDate)
+      .sort()
+      .forEach(function (date) {
+        var slots = byDate[date].slice().sort(slotOrder_);
+        var start = slotStart(slots[0]);
+        if (start < nowLocal || start > limit) return;
+        var key = p['Post id'] + '|' + date;
+        if (keySent_(sentKeys, key)) return;
+        var short = [];
+        slots.forEach(function (sl) {
+          var needed = Number(sl.Needed) || 0;
+          var filled = filledOf_(counts, sl['Slot id']);
+          if (filled < needed) short.push({ slotId: sl['Slot id'], role: sl.Role, start: sl.Start || '', filled: filled, needed: needed });
+        });
+        if (short.length) out.push({ postId: p['Post id'], date: date, key: key, short: short });
+      });
+  });
+  return out;
+}
+
+/**
+ * Short roles of Open posts dated today through the next 14 days, by date and time:
+ * [{postId, publicId, title, organization, category, date, start, end, role, filled, needed}].
+ */
+function needsHelpSoon(posts, slotsByPost, counts, todayLocal) {
+  var last = addDays(todayLocal, NEEDS_HELP_DAYS);
+  var rows = [];
+  (posts || []).forEach(function (p) {
+    if (p.Status !== POST_STATUS.open) return;
+    (slotsByPost[p['Post id']] || []).forEach(function (sl) {
+      if (sl.Date < todayLocal || sl.Date > last) return;
+      var needed = Number(sl.Needed) || 0;
+      var filled = filledOf_(counts, sl['Slot id']);
+      if (filled >= needed) return;
+      rows.push({
+        postId: p['Post id'],
+        publicId: p['Public id'],
+        title: p.Title,
+        organization: p.Organization,
+        category: p.Category,
+        date: sl.Date,
+        start: sl.Start || '',
+        end: sl.End || '',
+        role: sl.Role,
+        filled: filled,
+        needed: needed,
+      });
+    });
+  });
+  return rows.sort(function (a, b) {
+    return cmpLocal(a.date + ' ' + (a.start || '00:00'), b.date + ' ' + (b.start || '00:00')) || cmpLocal(a.title, b.title);
+  });
 }
 
 // ===== 05-requests-rules.js =====
