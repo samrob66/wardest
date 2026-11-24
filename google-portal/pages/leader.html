@@ -2,10 +2,590 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>leader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<base target="_top">
+<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>
+<meta property="og:title" content="{{WARD_NAME}} · {{PAGE_TITLE}}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{PREVIEW_IMAGE}}">
 <!-- GP:CSS -->
 </head>
 <body>
+<main class="gp-wrap gp-wide">
+  <header class="gp-head">
+    <p class="gp-ward">{{WARD_NAME}}</p>
+    <h1>{{PAGE_TITLE}}</h1>
+  </header>
+  <div id="gp-main"><p class="gp-loading">Loading…</p></div>
+</main>
+<footer class="gp-footer" id="gp-footer">
+  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
+  <p class="gp-contact">Contact: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></p>
+</footer>
 <!-- GP:JS -->
+<script>
+GP.init({ page: 'leader', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });
+GP.footer();
+(function () {
+  var el = GP.el;
+  var main = GP.$('gp-main');
+  var DETAILS_NOTE = "Private details go to volunteers in their reminder the day before. Remove anyone you don't recognize before then.";
+  var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var K = '';
+  var me = null;
+  var state = { tab: 'list', past: false, form: null, errors: {}, formError: '', flash: null };
+
+  // ---------- helpers ----------
+
+  function call(action, data) {
+    data = data || {};
+    data.k = K;
+    return GP.call(action, data).then(function (res) {
+      if (res && res.relink) {
+        showRequest(res.error);
+        throw { handled: true };
+      }
+      return res;
+    });
+  }
+
+  function failed(err, box) {
+    if (err && err.handled) return;
+    GP.show(box || main, GP.unreachable('leader'));
+  }
+
+  function flash(kind, text) {
+    state.flash = { kind: kind, text: text };
+  }
+
+  function uniq(list) {
+    var out = [];
+    list.forEach(function (x) {
+      if (out.indexOf(x) < 0) out.push(x);
+    });
+    return out;
+  }
+
+  function blankRole() {
+    return { slotId: '', start: '', end: '', role: '', needed: 1, roleNote: '', bringingPrompt: '' };
+  }
+
+  function copyRole(r) {
+    return { slotId: '', start: r.start, end: r.end, role: r.role, needed: r.needed, roleNote: r.roleNote, bringingPrompt: r.bringingPrompt };
+  }
+
+  function newForm() {
+    return {
+      postId: '',
+      status: '',
+      organization: me.access.createOrgs[0] || '',
+      category: '',
+      title: '',
+      audiences: [],
+      publicNote: '',
+      privateDetails: '',
+      cutoffHours: '',
+      dates: [{ date: '', roles: [blankRole()] }],
+    };
+  }
+
+  /** Server post → form model (slots grouped by date). */
+  function toForm(post) {
+    var dates = [];
+    var at = {};
+    post.slots.forEach(function (s) {
+      if (!(s.date in at)) {
+        at[s.date] = dates.length;
+        dates.push({ date: s.date, roles: [] });
+      }
+      dates[at[s.date]].roles.push({
+        slotId: s.slotId,
+        start: s.start || '',
+        end: s.end || '',
+        role: s.role,
+        needed: s.needed,
+        roleNote: s.roleNote || '',
+        bringingPrompt: s.bringingPrompt || '',
+        filled: s.filled || 0,
+      });
+    });
+    return {
+      postId: post.postId,
+      status: post.status,
+      organization: post.organization,
+      category: post.category || '',
+      title: post.title,
+      audiences: post.audiences.slice(),
+      publicNote: post.publicNote || '',
+      privateDetails: post.privateDetails || '',
+      cutoffHours: post.cutoffHours === '' || post.cutoffHours === null || post.cutoffHours === undefined ? '' : String(post.cutoffHours),
+      dates: dates.length ? dates : [{ date: '', roles: [blankRole()] }],
+    };
+  }
+
+  /** Form model → [slots], plus where each slot index sits ([dateIndex, roleIndex]). */
+  function flatten(form) {
+    var slots = [];
+    var where = [];
+    form.dates.forEach(function (d, di) {
+      d.roles.forEach(function (r, ri) {
+        slots.push({
+          slotId: r.slotId,
+          date: d.date,
+          start: r.start,
+          end: r.end,
+          role: r.role,
+          needed: r.needed,
+          roleNote: r.roleNote,
+          bringingPrompt: r.bringingPrompt,
+        });
+        where.push([di, ri]);
+      });
+    });
+    return { slots: slots, where: where };
+  }
+
+  function slotErrorKey(form, di, ri, field) {
+    var map = flatten(form).where;
+    for (var i = 0; i < map.length; i++) if (map[i][0] === di && map[i][1] === ri) return 'slots[' + i + '].' + field;
+    return '';
+  }
+
+  function err(key) {
+    var msg = state.errors[key];
+    return msg ? el('p', { class: 'gp-error', role: 'alert' }, msg) : null;
+  }
+
+  function field(label, input, key) {
+    return el('div', {}, [el('label', { for: input.id }, label), input, err(key)]);
+  }
+
+  var uid = 0;
+  function nextId(prefix) {
+    uid += 1;
+    return prefix + uid;
+  }
+
+  // ---------- request a link ----------
+
+  function showRequest(error) {
+    var email = el('input', { type: 'email', id: 'gp-req-email', autocomplete: 'email', maxlength: '254' });
+    var out = el('div');
+    var button = el('button', { type: 'submit' }, 'Email me a leader link');
+    var form = el(
+      'form',
+      {
+        onsubmit: function (e) {
+          e.preventDefault();
+          button.disabled = true;
+          GP.call('requestLeaderLink', { email: email.value }).then(
+            function (res) {
+              button.disabled = false;
+              GP.show(out, GP.message(res && res.ok ? 'ok' : 'alert', res && res.ok ? res.message : GP.errorText(res)));
+            },
+            function () {
+              button.disabled = false;
+              GP.show(out, GP.unreachable('leader'));
+            }
+          );
+        },
+      },
+      [el('label', { for: 'gp-req-email' }, 'Your email, as it is on the ward leader list'), email, el('p', {}, [button])]
+    );
+    GP.show(main, [
+      error ? GP.message('alert', error) : null,
+      el('p', {}, 'Leaders open this page with a personal link sent by email. Type your email and we will send you one.'),
+      form,
+      out,
+    ]);
+  }
+
+  // ---------- the signed-in page ----------
+
+  function render() {
+    var tabs = el('div', { class: 'gp-tabs', role: 'tablist' }, [
+      el('button', { type: 'button', role: 'tab', 'aria-selected': String(state.tab === 'list'), onclick: function () { state.tab = 'list'; render(); } }, 'My opportunities'),
+      el('button', { type: 'button', role: 'tab', 'aria-selected': String(state.tab === 'form'), onclick: function () { if (!state.form) state.form = newForm(); state.errors = {}; state.formError = ''; state.tab = 'form'; render(); } }, state.form && state.form.postId ? 'Edit opportunity' : 'New opportunity'),
+    ]);
+    var signOut = el('button', {
+      type: 'button',
+      class: 'gp-light',
+      onclick: function () {
+        if (!window.confirm('Sign out everywhere? Your current link stops working and we email you a new one.')) return;
+        call('signOutEverywhere').then(function (res) {
+          GP.show(main, GP.message(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res)));
+        }, failed);
+      },
+    }, 'Sign out everywhere');
+    var who = el('div', { class: 'gp-card' }, [
+      el('p', { style: 'margin:0' }, 'Signed in as ' + me.leader.name + (me.leader.organization ? ', ' + me.leader.organization : '')),
+      signOut,
+    ]);
+    var body = el('div');
+    var note = state.flash ? GP.message(state.flash.kind, state.flash.text) : null;
+    state.flash = null;
+    GP.show(main, [who, tabs, note, body]);
+    if (state.tab === 'list') renderList(body);
+    else renderForm(body);
+  }
+
+  // ---------- My opportunities ----------
+
+  function renderList(body) {
+    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
+    call('listPosts', { past: state.past }).then(function (res) {
+      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
+      var parts = [];
+      if (!res.posts.length) {
+        parts.push(el('p', { class: 'gp-muted' }, state.past ? 'No past opportunities.' : 'No opportunities yet. Use New opportunity to make one.'));
+      }
+      res.posts.forEach(function (p) {
+        parts.push(postCard(p));
+      });
+      parts.push(
+        el('p', {}, [
+          el('button', { type: 'button', class: 'gp-light', onclick: function () { state.past = !state.past; render(); } }, state.past ? 'Show current opportunities' : 'Show past opportunities'),
+        ])
+      );
+      GP.show(body, parts);
+    }, function (e) { failed(e, body); });
+  }
+
+  function postCard(p) {
+    var bySlot = {};
+    p.signups.forEach(function (s) {
+      (bySlot[s.slotId] = bySlot[s.slotId] || []).push(s);
+    });
+    var out = el('div');
+    var items = [
+      el('h3', {}, p.title),
+      el('p', { class: 'gp-meta' }, p.status + ' · ' + p.organization + (p.audiences.length ? ' · ' + p.audiences.join(', ') : '')),
+    ];
+    if (p.status === 'Open') {
+      var copyBtn = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');
+      items.push(el('p', { class: 'gp-meta' }, ['Public link: ', el('a', { href: p.publicUrl, target: '_blank', rel: 'noopener' }, p.publicUrl), ' ', copyBtn]));
+    }
+    if (p.signups.length) items.push(el('p', { class: 'gp-meta' }, DETAILS_NOTE));
+    p.slots.forEach(function (s) {
+      var people = (bySlot[s.slotId] || []).map(function (su) {
+        return personRow(p, s, su, out);
+      });
+      items.push(
+        el('div', { class: 'gp-slot' }, [
+          el('strong', {}, GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '') + ' · ' + s.role),
+          el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.filled >= s.needed ? ' · Filled ✓' : '')),
+        ].concat(people.length ? people : [el('div', { class: 'gp-person gp-muted' }, 'No one yet.')]))
+      );
+    });
+    if (p.canEdit) {
+      var actions = [
+        el('button', { type: 'button', onclick: function () { openForEdit(p.postId, false, out); } }, 'Edit'),
+        el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post'),
+      ];
+      if (p.status === 'Open' || p.status === 'Draft') {
+        actions.push(
+          el('button', {
+            type: 'button',
+            class: 'gp-danger',
+            onclick: function () {
+              if (!window.confirm('Close "' + p.title + '"? No one new can sign up; people already signed up stay.')) return;
+              call('savePost', { action: 'close', post: { postId: p.postId } }).then(function (res) {
+                flash(res.ok ? 'ok' : 'alert', res.ok ? 'Closed.' : GP.errorText(res));
+                render();
+              }, function (e) { failed(e, out); });
+            },
+          }, 'Close')
+        );
+      }
+      items.push(el('p', {}, actions));
+    }
+    items.push(out);
+    return el('div', { class: 'gp-card' }, items);
+  }
+
+  function personRow(p, s, su, out) {
+    var bits = [el('span', {}, su.name + (su.childName ? ' (for ' + su.childName + ')' : ''))];
+    if (su.bringing) bits.push(el('span', { class: 'gp-meta' }, 'Bringing: ' + su.bringing));
+    if (su.email) bits.push(el('span', { class: 'gp-meta' }, su.email));
+    if (p.canEdit && p.hasPrivateDetails && !su.detailsSent) {
+      bits.push(el('span', { class: 'gp-error' }, 'Details not sent'));
+      bits.push(
+        el('button', {
+          type: 'button',
+          class: 'gp-light',
+          onclick: function () {
+            call('sendDetails', { signupId: su.signupId }).then(function (res) {
+              flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));
+              render();
+            }, function (e) { failed(e, out); });
+          },
+        }, 'Send details')
+      );
+    }
+    if (p.canEdit) {
+      bits.push(
+        el('button', {
+          type: 'button',
+          class: 'gp-danger',
+          onclick: function () {
+            if (!window.confirm('Remove ' + su.name + ' from ' + s.role + ' on ' + GP.fmtDate(s.date) + '? We will email them.')) return;
+            call('removeSignup', { signupId: su.signupId }).then(function (res) {
+              flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));
+              render();
+            }, function (e) { failed(e, out); });
+          },
+        }, 'Remove')
+      );
+    }
+    return el('div', { class: 'gp-person' }, bits);
+  }
+
+  function openForEdit(postId, asCopy, out) {
+    call('getPost', { postId: postId }).then(function (res) {
+      if (!res.ok) return GP.show(out, GP.message('alert', GP.errorText(res)));
+      var f = toForm(res.post);
+      if (asCopy) {
+        f.postId = '';
+        f.status = '';
+        f.title = ('Copy of ' + f.title).slice(0, 100);
+        f.dates.forEach(function (d) {
+          d.roles = d.roles.map(copyRole);
+        });
+        if (me.access.createOrgs.indexOf(f.organization) < 0) f.organization = me.access.createOrgs[0] || '';
+      }
+      state.form = f;
+      state.errors = {};
+      state.formError = '';
+      state.tab = 'form';
+      render();
+    }, function (e) { failed(e, out); });
+  }
+
+  // ---------- New / edit opportunity ----------
+
+  function bindText(input, obj, key) {
+    input.addEventListener('input', function () {
+      obj[key] = input.value;
+    });
+    return input;
+  }
+
+  function renderForm(body) {
+    var f = state.form || (state.form = newForm());
+    var orgs = f.postId ? uniq(me.access.editOrgs.concat([f.organization])) : me.access.createOrgs;
+    if (!orgs.length) {
+      return GP.show(body, GP.message('alert', "Your leader role can't create opportunities yet. Ask the bishopric to tick Org editor for you on the Leaders tab."));
+    }
+    if (orgs.indexOf(f.organization) < 0) f.organization = orgs[0];
+
+    var org = el('select', { id: 'gp-org', onchange: function () { f.organization = org.value; } }, orgs.map(function (o) {
+      return el('option', { value: o, selected: o === f.organization ? 'selected' : null }, o);
+    }));
+    org.value = f.organization;
+    var cat = el('select', { id: 'gp-cat', onchange: function () { f.category = cat.value; } }, [el('option', { value: '' }, '(none)')].concat(
+      me.categories.map(function (c) {
+        return el('option', { value: c.id }, (c.icon ? c.icon + ' ' : '') + c.name);
+      })
+    ));
+    cat.value = f.category;
+    var title = bindText(el('input', { type: 'text', id: 'gp-title-in', maxlength: '100', value: f.title }), f, 'title');
+    var audiences = el('div', { role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {
+      var box = el('input', {
+        type: 'checkbox',
+        checked: f.audiences.indexOf(a) >= 0,
+        onchange: function () {
+          f.audiences = GP.AUDIENCES.filter(function (x) {
+            return x === a ? box.checked : f.audiences.indexOf(x) >= 0;
+          });
+        },
+      });
+      return el('label', { class: 'gp-check' }, [box, a]);
+    }));
+    var note = bindText(el('textarea', { id: 'gp-note', maxlength: '2000' }), f, 'publicNote');
+    note.value = f.publicNote;
+    var priv = bindText(el('textarea', { id: 'gp-priv', maxlength: '1000' }), f, 'privateDetails');
+    priv.value = f.privateDetails;
+    var cutoff = bindText(el('input', { type: 'number', id: 'gp-cutoff', min: '0', max: '168', step: '1', value: f.cutoffHours, placeholder: String(me.defaults.cutoffHours) }), f, 'cutoffHours');
+
+    var parts = [
+      el('h2', {}, f.postId ? 'Edit opportunity' : 'New opportunity'),
+      state.formError ? GP.message('alert', state.formError) : null,
+      field('Organization', org, 'organization'),
+      field('Category', cat, 'category'),
+      field('Title (everyone sees this)', title, 'title'),
+      el('div', {}, [el('label', {}, 'Who is it for?'), audiences, err('audiences')]),
+      field('Public note (everyone sees this)', note, 'publicNote'),
+      field('Private details: an address, a gate code (sent only to the people signed up, in their reminder the day before)', priv, 'privateDetails'),
+      field('Cancel cutoff in hours (after this, a cancellation tells you that you are short)', cutoff, 'cutoffHours'),
+      el('h2', {}, 'Dates and roles'),
+      err('slots'),
+    ];
+    f.dates.forEach(function (d, di) {
+      parts.push(dateBlock(f, d, di));
+    });
+    parts.push(
+      el('p', {}, [
+        el('button', { type: 'button', class: 'gp-light', onclick: function () {
+          var last = f.dates[f.dates.length - 1];
+          f.dates.push({ date: '', roles: last ? last.roles.map(copyRole) : [blankRole()] });
+          render();
+        } }, 'Add date'),
+      ])
+    );
+    parts.push(addDatesPanel(f));
+    var actions = [];
+    if (f.status === 'Open') {
+      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Save changes'));
+      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft (hide it)'));
+    } else if (f.status === 'Closed') {
+      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Reopen and save'));
+      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));
+    } else {
+      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));
+      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Publish'));
+    }
+    actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () {
+      if (!window.confirm('Leave this form? Changes you have not saved are lost.')) return;
+      state.form = null;
+      state.errors = {};
+      state.formError = '';
+      state.tab = 'list';
+      render();
+    } }, 'Cancel'));
+    parts.push(el('p', {}, actions));
+    GP.show(body, parts);
+  }
+
+  function dateBlock(f, d, di) {
+    var date = el('input', { type: 'date', id: nextId('gp-date-'), value: d.date });
+    date.addEventListener('input', function () {
+      d.date = date.value;
+    });
+    var roles = d.roles.map(function (r, ri) {
+      return roleBlock(f, d, di, r, ri);
+    });
+    return el('div', { class: 'gp-date' }, [
+      el('div', {}, [el('label', { for: date.id }, 'Date'), date, err(slotErrorKey(f, di, 0, 'date'))]),
+    ].concat(roles).concat([
+      el('p', {}, [
+        el('button', { type: 'button', class: 'gp-light', onclick: function () { d.roles.push(blankRole()); render(); } }, 'Add role'),
+        el('button', { type: 'button', class: 'gp-light', onclick: function () {
+          f.dates.splice(di + 1, 0, { date: '', roles: d.roles.map(copyRole) });
+          render();
+        } }, 'Copy this date'),
+        f.dates.length > 1
+          ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { f.dates.splice(di, 1); render(); } }, 'Remove date')
+          : null,
+      ]),
+    ]));
+  }
+
+  function roleBlock(f, d, di, r, ri) {
+    function input(type, key, attrs) {
+      var a = { type: type, id: nextId('gp-r-'), value: r[key] === undefined ? '' : String(r[key]) };
+      Object.keys(attrs || {}).forEach(function (k) {
+        a[k] = attrs[k];
+      });
+      return bindText(el('input', a), r, key);
+    }
+    var role = input('text', 'role', { maxlength: '60', placeholder: 'e.g. Bring a meal' });
+    var needed = input('number', 'needed', { min: '1', max: '200', step: '1' });
+    var start = input('time', 'start');
+    var end = input('time', 'end');
+    var roleNote = input('text', 'roleNote', { maxlength: '300' });
+    var prompt = input('text', 'bringingPrompt', { maxlength: '100', placeholder: 'e.g. What are you bringing?' });
+    var key = function (fieldName) {
+      return slotErrorKey(f, di, ri, fieldName);
+    };
+    return el('div', { class: 'gp-role' }, [
+      el('div', { class: 'gp-row' }, [field('Role', role, key('role')), field('How many people', needed, key('needed'))]),
+      el('div', { class: 'gp-row' }, [field('Start (optional)', start, key('start')), field('End (optional)', end, key('end'))]),
+      field('Note for this role (optional)', roleNote, key('roleNote')),
+      field('Ask volunteers (optional)', prompt, key('bringingPrompt')),
+      r.filled ? el('p', { class: 'gp-meta' }, r.filled + ' signed up') : null,
+      d.roles.length > 1
+        ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { d.roles.splice(ri, 1); render(); } }, 'Remove role')
+        : null,
+    ]);
+  }
+
+  function addDatesPanel(f) {
+    var start = el('input', { type: 'date', id: 'gp-many-start' });
+    var end = el('input', { type: 'date', id: 'gp-many-end' });
+    var boxes = WEEKDAYS.map(function (w, i) {
+      return el('input', { type: 'checkbox', value: String(i) });
+    });
+    var msg = el('div');
+    return el('details', { class: 'gp-card' }, [
+      el('summary', {}, 'Add dates (for meal trains and other repeating needs)'),
+      el('div', { class: 'gp-row' }, [field('From', start, ''), field('To', end, '')]),
+      el('p', { class: 'gp-meta' }, 'On these days (none ticked means every day):'),
+      el('div', { class: 'gp-row' }, boxes.map(function (b, i) {
+        return el('label', { class: 'gp-check' }, [b, WEEKDAYS[i]]);
+      })),
+      el('p', {}, [
+        el('button', { type: 'button', class: 'gp-light', onclick: function () {
+          var days = boxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); });
+          var list = GP.expandDates(start.value, end.value, days);
+          if (!list.length) return GP.show(msg, GP.message('alert', 'Pick a start and an end date (the end on or after the start).'));
+          var template = f.dates[f.dates.length - 1];
+          var roles = template ? template.roles : [blankRole()];
+          // Fill the first empty date block before adding new ones.
+          if (f.dates.length === 1 && !f.dates[0].date) f.dates = [];
+          list.forEach(function (day) {
+            f.dates.push({ date: day, roles: roles.map(copyRole) });
+          });
+          render();
+        } }, 'Add these dates'),
+      ]),
+      msg,
+    ]);
+  }
+
+  function save(action) {
+    var f = state.form;
+    var post = {
+      postId: f.postId,
+      organization: f.organization,
+      category: f.category,
+      title: f.title,
+      audiences: f.audiences,
+      publicNote: f.publicNote,
+      privateDetails: f.privateDetails,
+      cutoffHours: f.cutoffHours,
+      slots: flatten(f).slots,
+    };
+    call('savePost', { action: action, post: post }).then(function (res) {
+      if (!res.ok) {
+        state.errors = res.fields || {};
+        state.formError = GP.errorText(res);
+        render();
+        window.scrollTo(0, 0);
+        return;
+      }
+      state.form = null;
+      state.errors = {};
+      state.formError = '';
+      state.tab = 'list';
+      flash('ok', action === 'publish' ? 'Published. Share this link: ' + res.publicUrl : 'Saved as a draft. Nobody else sees it until you publish it.');
+      render();
+      window.scrollTo(0, 0);
+    }, function (e) { failed(e); });
+  }
+
+  // ---------- start ----------
+
+  GP.hash().then(function (h) {
+    K = h.k || '';
+    if (!K) return showRequest('');
+    call('whoami').then(function (res) {
+      if (!res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
+      me = res;
+      render();
+    }, failed);
+  });
+})();
+</script>
 </body>
 </html>

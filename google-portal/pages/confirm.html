@@ -2,10 +2,74 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>confirm</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<base target="_top">
+<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>
+<meta property="og:title" content="{{WARD_NAME}} · {{PAGE_TITLE}}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{PREVIEW_IMAGE}}">
 <!-- GP:CSS -->
 </head>
 <body>
+<main class="gp-wrap">
+  <header class="gp-head">
+    <p class="gp-ward">{{WARD_NAME}}</p>
+    <h1>{{PAGE_TITLE}}</h1>
+  </header>
+  <div id="gp-main"><p class="gp-loading">Loading…</p></div>
+</main>
+<footer class="gp-footer" id="gp-footer">
+  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
+  <p class="gp-contact">Contact: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></p>
+</footer>
 <!-- GP:JS -->
+<script>
+GP.init({ page: 'confirm', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });
+GP.footer();
+(function () {
+  var el = GP.el;
+  var main = GP.$('gp-main');
+  GP.hash().then(function (h) {
+    if (!h.t) return GP.show(main, GP.message('alert', 'This link is missing part of its address. Open it again from your email.'));
+    GP.call('tokenInfo', { t: h.t }).then(
+      function (res) {
+        if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
+        var when = GP.fmtDate(res.date) + (res.start ? ', ' + GP.fmtTime(res.start) : '');
+        var info = el('div', { class: 'gp-card' }, [el('h3', {}, res.title), el('p', {}, res.role + ' · ' + when)]);
+        if (res.status !== 'Confirmed') return GP.show(main, [info, GP.message('ok', 'This sign-up is already cancelled.')]);
+        var out = el('div');
+        // Cancelling happens only on this click (email scanners open links but never press buttons).
+        var button = el(
+          'button',
+          {
+            type: 'button',
+            class: 'gp-danger',
+            onclick: function () {
+              button.disabled = true;
+              GP.call('cancel', { t: h.t }).then(
+                function (r) {
+                  if (r && r.ok) return GP.show(main, [info, GP.message('ok', r.message)]);
+                  button.disabled = false;
+                  GP.show(out, GP.message('alert', GP.errorText(r)));
+                },
+                function () {
+                  button.disabled = false;
+                  GP.show(out, GP.unreachable('confirm'));
+                }
+              );
+            },
+          },
+          'Cancel my sign-up'
+        );
+        GP.show(main, [info, el('p', {}, "Can't make it? Cancel below so someone else can take your place."), el('p', {}, [button]), out]);
+      },
+      function () {
+        GP.show(main, GP.unreachable('confirm'));
+      }
+    );
+  });
+})();
+</script>
 </body>
 </html>

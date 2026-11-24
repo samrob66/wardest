@@ -2,10 +2,70 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>serve</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<base target="_top">
+<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>
+<meta property="og:title" content="{{WARD_NAME}} · {{PAGE_TITLE}}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{PREVIEW_IMAGE}}">
 <!-- GP:CSS -->
 </head>
 <body>
+<main class="gp-wrap">
+  <header class="gp-head">
+    <p class="gp-ward">{{WARD_NAME}}</p>
+    <h1>{{PAGE_TITLE}}</h1>
+  </header>
+  <div id="gp-main"><p class="gp-loading">Loading…</p></div>
+</main>
+<footer class="gp-footer" id="gp-footer">
+  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
+  <p class="gp-contact">Contact: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></p>
+</footer>
 <!-- GP:JS -->
+<script>
+GP.init({ page: 'serve', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });
+GP.footer();
+(function () {
+  var el = GP.el;
+  var main = GP.$('gp-main');
+
+  function card(p) {
+    var dates = p.firstDate === p.lastDate ? GP.fmtDate(p.firstDate) : GP.fmtDate(p.firstDate) + ' – ' + GP.fmtDate(p.lastDate);
+    return el('a', { class: 'gp-card' + (p.full ? ' gp-full' : ''), href: GP.pageUrl('post', { p: p.publicId }) }, [
+      el('h3', {}, p.title),
+      el('p', { class: 'gp-meta' }, (p.organization ? p.organization + ' · ' : '') + dates),
+      p.full ? el('p', { class: 'gp-filled' }, 'Filled ✓') : GP.fillBar(p.filled, p.needed),
+      p.full ? null : el('p', { class: 'gp-count' }, p.filled + ' of ' + p.needed + ' filled'),
+    ]);
+  }
+
+  GP.call('serve').then(
+    function (res) {
+      if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
+      var groups = GP.groupByAudience(res.posts);
+      var parts = [];
+      GP.AUDIENCES.forEach(function (a) {
+        if (!groups[a].length) return;
+        parts.push(el('h2', {}, a));
+        groups[a].forEach(function (p) {
+          parts.push(card(p));
+        });
+      });
+      if (!parts.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing to sign up for right now. Please check back soon.'));
+      parts.push(
+        el('p', { style: 'margin-top:1.5rem;text-align:center' }, [
+          el('a', { class: 'gp-btn gp-light', href: GP.pageUrl('help') }, 'Request help or service'),
+        ])
+      );
+      GP.show(main, parts);
+    },
+    function () {
+      GP.show(main, GP.unreachable('serve'));
+    }
+  );
+})();
+</script>
 </body>
 </html>

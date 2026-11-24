@@ -2,10 +2,177 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>post</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<base target="_top">
+<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>
+<meta property="og:title" content="{{WARD_NAME}} · {{PAGE_TITLE}}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{PREVIEW_IMAGE}}">
 <!-- GP:CSS -->
 </head>
 <body>
+<main class="gp-wrap">
+  <header class="gp-head">
+    <p class="gp-ward">{{WARD_NAME}}</p>
+    <h1 id="gp-title">{{PAGE_TITLE}}</h1>
+  </header>
+  <div id="gp-main"><p class="gp-loading">Loading…</p></div>
+  <p style="text-align:center;margin-top:1.5rem"><a id="gp-back" class="gp-btn gp-light" href="serve.html">All service opportunities</a></p>
+</main>
+<footer class="gp-footer" id="gp-footer">
+  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
+  <p class="gp-contact">Contact: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></p>
+</footer>
 <!-- GP:JS -->
+<script>
+GP.init({ page: 'post', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });
+GP.footer();
+(function () {
+  var el = GP.el;
+  var main = GP.$('gp-main');
+  GP.$('gp-back').setAttribute('href', GP.pageUrl('serve'));
+
+  function byDate(slots) {
+    var out = [];
+    var at = {};
+    slots.forEach(function (s) {
+      if (!(s.date in at)) {
+        at[s.date] = out.length;
+        out.push({ date: s.date, slots: [] });
+      }
+      out[at[s.date]].slots.push(s);
+    });
+    return out;
+  }
+
+  function slotLine(s) {
+    var when = GP.fmtTimes(s.start, s.end);
+    return el('div', { class: 'gp-slot' }, [
+      el('strong', {}, s.role),
+      when ? el('span', { class: 'gp-meta' }, ' · ' + when) : null,
+      s.full
+        ? el('div', { class: 'gp-filled' }, 'Filled ✓')
+        : el('div', {}, [GP.fillBar(s.filled, s.needed), el('span', { class: 'gp-count' }, s.filled + ' of ' + s.needed + ' filled')]),
+      s.roleNote ? el('p', { class: 'gp-meta' }, s.roleNote) : null,
+    ]);
+  }
+
+  function signupForm(post) {
+    var open = post.slots.filter(function (s) {
+      return !s.full && !s.past;
+    });
+    if (!open.length) return el('p', { class: 'gp-muted' }, 'Every role is filled. Thank you!');
+    var chosen = null;
+    var out = el('div', { id: 'gp-out' });
+    var bringWrap = el('div', { class: 'gp-hidden' });
+    var bringLabel = el('label', { for: 'gp-bring' }, 'What are you bringing?');
+    var bring = el('input', { type: 'text', id: 'gp-bring', maxlength: '200' });
+    bringWrap.appendChild(bringLabel);
+    bringWrap.appendChild(bring);
+    var errs = {};
+    function errBox(key) {
+      errs[key] = el('p', { class: 'gp-error', role: 'alert' });
+      return errs[key];
+    }
+    var choices = open.map(function (s) {
+      var input = el('input', {
+        type: 'radio',
+        name: 'gp-slot',
+        value: s.slotId,
+        onchange: function () {
+          chosen = s;
+          bringLabel.textContent = s.bringingPrompt || 'What are you bringing?';
+          bringWrap.className = s.bringingPrompt ? '' : 'gp-hidden';
+        },
+      });
+      var when = GP.fmtTimes(s.start, s.end);
+      return el('label', { class: 'gp-check' }, [input, GP.fmtDate(s.date) + (when ? ', ' + when : '') + ' · ' + s.role + ' (' + (s.needed - s.filled) + ' open)']);
+    });
+    var name = el('input', { type: 'text', id: 'gp-name', autocomplete: 'name', maxlength: '80' });
+    var email = el('input', { type: 'email', id: 'gp-email', autocomplete: 'email', maxlength: '254' });
+    var button = el('button', { type: 'submit' }, 'Sign up');
+    var form = el(
+      'form',
+      {
+        onsubmit: function (e) {
+          e.preventDefault();
+          Object.keys(errs).forEach(function (k) {
+            errs[k].textContent = '';
+          });
+          if (!chosen) {
+            errs.slot.textContent = 'Pick a date and role.';
+            return;
+          }
+          button.disabled = true;
+          GP.call('signup', { publicId: post.publicId, slotId: chosen.slotId, name: name.value, email: email.value, bringing: chosen.bringingPrompt ? bring.value : '' }).then(
+            function (res) {
+              button.disabled = false;
+              if (res && res.ok) return GP.show(formWrap, GP.message('ok', res.message));
+              Object.keys((res && res.fields) || {}).forEach(function (k) {
+                if (errs[k]) errs[k].textContent = res.fields[k];
+              });
+              GP.show(out, GP.message('alert', GP.errorText(res)));
+            },
+            function () {
+              button.disabled = false;
+              GP.show(out, GP.unreachable('post'));
+            }
+          );
+        },
+      },
+      [
+        el('h2', {}, 'Sign up'),
+        el('fieldset', { style: 'border:none;padding:0;margin:0' }, [el('legend', { class: 'gp-meta' }, 'Pick a date and role')].concat(choices)),
+        errBox('slot'),
+        el('label', { for: 'gp-name' }, 'Your name'),
+        name,
+        errBox('name'),
+        el('label', { for: 'gp-email' }, 'Your email (for your confirmation and reminder)'),
+        email,
+        errBox('email'),
+        bringWrap,
+        errBox('bringing'),
+        el('p', {}, [button]),
+        out,
+      ]
+    );
+    var formWrap = el('div', {}, [form]);
+    return formWrap;
+  }
+
+  function render(post) {
+    GP.$('gp-title').textContent = post.title;
+    document.title = post.title + ' · ' + GP.config().wardName;
+    var parts = [
+      el('div', { class: 'gp-card' }, [
+        el('p', { class: 'gp-meta' }, [post.organization, post.audiences.length ? ' · For ' + post.audiences.join(', ') : ''].join('')),
+        post.publicNote ? el('p', { class: 'gp-note' }, post.publicNote) : null,
+      ]),
+    ];
+    byDate(post.slots).forEach(function (d) {
+      parts.push(el('h2', {}, GP.fmtDate(d.date)));
+      parts.push(el('div', { class: 'gp-card' }, d.slots.map(slotLine)));
+    });
+    if (post.status === 'Open') parts.push(signupForm(post));
+    else if (post.status === 'Past') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is over. Thank you to everyone who served.'));
+    else parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is closed to new sign-ups.'));
+    GP.show(main, parts);
+  }
+
+  GP.hash().then(function (h) {
+    if (!h.p) return GP.show(main, GP.message('alert', 'This link is missing part of its address. Open it again from the list.'));
+    GP.call('post', { p: h.p }).then(
+      function (res) {
+        if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
+        render(res.post);
+      },
+      function () {
+        GP.show(main, GP.unreachable('post'));
+      }
+    );
+  });
+})();
+</script>
 </body>
 </html>

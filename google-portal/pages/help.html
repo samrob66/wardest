@@ -2,10 +2,60 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>help</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<base target="_top">
+<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>
+<meta property="og:title" content="{{WARD_NAME}} · {{PAGE_TITLE}}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="{{PREVIEW_IMAGE}}">
 <!-- GP:CSS -->
 </head>
 <body>
+<main class="gp-wrap">
+  <header class="gp-head">
+    <p class="gp-ward">{{WARD_NAME}}</p>
+    <h1>{{PAGE_TITLE}}</h1>
+  </header>
+  <p>Pick what you need. Each choice opens a short form. Nothing is emailed back to you; a leader will contact you.</p>
+  <div id="gp-main"><p class="gp-loading">Loading…</p></div>
+  <p style="text-align:center;margin-top:1.5rem"><a id="gp-serve" class="gp-btn gp-light" href="serve.html">Ways to serve</a></p>
+</main>
+<footer class="gp-footer" id="gp-footer">
+  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
+  <p class="gp-contact">Contact: <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></p>
+</footer>
 <!-- GP:JS -->
+<script>
+GP.init({ page: 'help', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });
+GP.footer();
+(function () {
+  var el = GP.el;
+  var main = GP.$('gp-main');
+  GP.$('gp-serve').setAttribute('href', GP.pageUrl('serve'));
+  GP.call('help').then(
+    function (res) {
+      if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
+      if (!res.tiles.length) return GP.show(main, el('p', { class: 'gp-muted' }, 'Requests are not open yet. Please contact a leader.'));
+      GP.show(
+        main,
+        el(
+          'div',
+          { class: 'gp-tiles' },
+          res.tiles.map(function (t) {
+            return el('a', { class: 'gp-card gp-tile', href: t.url, target: '_blank', rel: 'noopener' }, [
+              el('span', { class: 'gp-icon', 'aria-hidden': 'true' }, t.icon || '•'),
+              el('strong', {}, t.name),
+            ]);
+          })
+        )
+      );
+    },
+    function () {
+      GP.show(main, GP.unreachable('help'));
+    }
+  );
+})();
+</script>
 </body>
 </html>
