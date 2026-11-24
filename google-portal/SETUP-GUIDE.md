@@ -66,7 +66,8 @@ in that window. The Service Sheet will belong to the shared account, and the **S
 menu then works only for the account that owns the Service Sheet. If it ever says *The Service
 Portal menu works only for the account that owns this Service Sheet*, you are in a window that
 is using another account: close it, open a private window, sign in to just the shared account,
-and open the Service Sheet again.
+and open the Service Sheet again. If a dialog stays blank or authorization keeps looping in the
+private window, use a separate Chrome profile signed in only to the shared account instead.
 
 1. In the browser, go to **sheets.new**. A blank spreadsheet opens.
 2. Click **Untitled spreadsheet** at the top left, type `Service Sheet`, press **Enter**.
