@@ -240,7 +240,20 @@ describe('Sync sharing', () => {
       'brother.recorder@example.test': 'writer',
       'helper.coord@example.test': 'writer',
     });
-    expect(Object.keys(perms(files[0]['Folder id'])).sort()).toEqual([OWNER_EMAIL, 'brother.sample@example.test', 'sister.example@example.test'].sort());
+    // Moving (decision 18): the whole bishopric plus the EQ and RS leaders (Sister Coordinator's
+    // address has no Google account in this test, so she is a problem line, not a permission).
+    expect(Object.keys(perms(files[0]['Folder id'])).sort()).toEqual(
+      [
+        OWNER_EMAIL,
+        'bishop.example@example.test',
+        'brother.counselor@example.test',
+        'brother.clerk@example.test',
+        'brother.second@example.test',
+        'brother.recorder@example.test',
+        'brother.sample@example.test',
+        'sister.example@example.test',
+      ].sort()
+    );
     // Share emails are off.
     for (const p of gp.fakes.drive.permsOf(serviceId).values()) if (p.opts) expect(p.opts.sendNotificationEmail).toBe(false);
     expect(gp.fakes.alerts.at(-1)).toContain('sister.coordinator@example.test');

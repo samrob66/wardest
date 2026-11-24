@@ -6,7 +6,8 @@
  * these files; change them there, not in the Apps Script editor.
  */
 
-var GP_VERSION = 'phase-2';
+/** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
+var GP_VERSION = 'phase-2.1';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -199,7 +200,7 @@ var GIVING_CATEGORY = {
 
 /** Categories seeded once, when the tab is empty. */
 var DEFAULT_CATEGORIES = [
-  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society', 'On Help page': true },
+  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society', Notify: 'Owners, Coordinators', 'On Help page': true },
   { Id: 'christmas', Name: 'Christmas help', Icon: '🎄', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, 'On Help page': true },
   { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, Notify: 'Bishop', 'On Help page': true },
   GIVING_CATEGORY,

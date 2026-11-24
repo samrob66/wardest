@@ -266,6 +266,7 @@ function gpEnsureTabs_(ss) {
   seedCategories_(ss);
   seedGiving_(ss);
   seedNotify_(ss);
+  seedMovingNotify_(ss);
   seedHelpPage_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
@@ -328,6 +329,21 @@ function seedGiving_(ss) {
 }
 
 /**
+ * Once per project (2.1, decision 18): the bishopric now opens every request folder, so a blank
+ * Notify would email all of them about every Moving request. The `moving` row gets Notify =
+ * "Owners, Coordinators" when its cell is blank. A typed value is kept, and a cell cleared later
+ * stays clear.
+ */
+function seedMovingNotify_(ss) {
+  var p = props_();
+  if (p.getProperty('MOVING_NOTIFY_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  var moving = t.find('Id', 'moving');
+  if (moving && String(moving.Notify == null ? '' : moving.Notify).trim() === '') t.update(moving, { Notify: 'Owners, Coordinators' });
+  p.setProperty('MOVING_NOTIFY_SEEDED', 'yes');
+}
+
+/**
  * Once per project: when the On Help page column first appears, every row but the giving form's
  * is ticked, so the request kinds already on the Help page stay there. Later unticks are kept.
  */
@@ -371,8 +387,8 @@ function readMeLines_(s) {
     'Who may edit: the bishopric (every Leaders row with Bishopric ticked) edits this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so tick Bishopric only for the bishop, both counselors, the Executive Secretary and the Ward Clerk.)',
     'Settings: ward name, time zone, contact email, web addresses and limits.',
     'Leaders: who gets a leader link and which files. Tick the role boxes (Bishopric: the bishop, both counselors, the Executive Secretary and the Ward Clerk); tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
-    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
-    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop) or email addresses. Only people who can open the folder are emailed. Coordinators means the people in that row\'s Coordinators.',
+    'Categories: kinds of opportunities and requests, their owners and coordinators. The bishopric can open every request folder. Other request kinds (e.g. Moving) also go to their owning organizations\' leaders and Coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
+    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder, which includes the whole bishopric. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop), Owners (the owning organizations\' leaders with Org editor or Ward council ticked), Coordinators (the people in that row\'s Coordinators) or email addresses. Only people who can open the folder are emailed.',
     'On Help page (Categories): ticked request kinds show on the public Request Help page. The Christmas giving offers form is never shown there.',
     'On Serve page (Categories): only for the christmas-giving row (ignored on every other row). Ticked: the Service Opportunities page shows an "Offer to give at Christmas" card linking to its form. Unticked: share its link privately (Set up shows it). Either way only the bishopric and its Coordinators see the answers.',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',

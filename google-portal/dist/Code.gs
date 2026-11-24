@@ -14,7 +14,8 @@
  * these files; change them there, not in the Apps Script editor.
  */
 
-var GP_VERSION = 'phase-2';
+/** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
+var GP_VERSION = 'phase-2.1';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -207,7 +208,7 @@ var GIVING_CATEGORY = {
 
 /** Categories seeded once, when the tab is empty. */
 var DEFAULT_CATEGORIES = [
-  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society', 'On Help page': true },
+  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society', Notify: 'Owners, Coordinators', 'On Help page': true },
   { Id: 'christmas', Name: 'Christmas help', Icon: '🎄', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, 'On Help page': true },
   { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, Notify: 'Bishop', 'On Help page': true },
   GIVING_CATEGORY,
@@ -863,6 +864,7 @@ function gpEnsureTabs_(ss) {
   seedCategories_(ss);
   seedGiving_(ss);
   seedNotify_(ss);
+  seedMovingNotify_(ss);
   seedHelpPage_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
@@ -925,6 +927,21 @@ function seedGiving_(ss) {
 }
 
 /**
+ * Once per project (2.1, decision 18): the bishopric now opens every request folder, so a blank
+ * Notify would email all of them about every Moving request. The `moving` row gets Notify =
+ * "Owners, Coordinators" when its cell is blank. A typed value is kept, and a cell cleared later
+ * stays clear.
+ */
+function seedMovingNotify_(ss) {
+  var p = props_();
+  if (p.getProperty('MOVING_NOTIFY_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  var moving = t.find('Id', 'moving');
+  if (moving && String(moving.Notify == null ? '' : moving.Notify).trim() === '') t.update(moving, { Notify: 'Owners, Coordinators' });
+  p.setProperty('MOVING_NOTIFY_SEEDED', 'yes');
+}
+
+/**
  * Once per project: when the On Help page column first appears, every row but the giving form's
  * is ticked, so the request kinds already on the Help page stay there. Later unticks are kept.
  */
@@ -968,8 +985,8 @@ function readMeLines_(s) {
     'Who may edit: the bishopric (every Leaders row with Bishopric ticked) edits this sheet. Other leaders view it and ask the Executive Secretary for changes to Settings, Leaders or Categories. (Editors of this sheet can also change its script, which can open every request sheet, so tick Bishopric only for the bishop, both counselors, the Executive Secretary and the Ward Clerk.)',
     'Settings: ward name, time zone, contact email, web addresses and limits.',
     'Leaders: who gets a leader link and which files. Tick the role boxes (Bishopric: the bishop, both counselors, the Executive Secretary and the Ward Clerk); tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
-    'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
-    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop) or email addresses. Only people who can open the folder are emailed. Coordinators means the people in that row\'s Coordinators.',
+    'Categories: kinds of opportunities and requests, their owners and coordinators. The bishopric can open every request folder. Other request kinds (e.g. Moving) also go to their owning organizations\' leaders and Coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
+    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder, which includes the whole bishopric. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop), Owners (the owning organizations\' leaders with Org editor or Ward council ticked), Coordinators (the people in that row\'s Coordinators) or email addresses. Only people who can open the folder are emailed.',
     'On Help page (Categories): ticked request kinds show on the public Request Help page. The Christmas giving offers form is never shown there.',
     'On Serve page (Categories): only for the christmas-giving row (ignored on every other row). Ticked: the Service Opportunities page shows an "Offer to give at Christmas" card linking to its form. Unticked: share its link privately (Set up shows it). Either way only the bishopric and its Coordinators see the answers.',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',
@@ -1684,15 +1701,17 @@ function bishopricEmails(leaders) {
 }
 
 /**
- * Who reads a request category's folder (and gets its notices): its Coordinators, plus (when
- * confidential) the whole bishopric, otherwise the Leaders whose Organization owns the category.
- * Normalized and de-duplicated.
+ * Who reads a request category's folder: the whole bishopric and its Coordinators, plus (unless
+ * confidential) the Leaders whose Organization owns the category. Decision 18: the bishopric
+ * opens every request folder. Normalized and de-duplicated.
  */
 function requestReaders(category, leaders) {
-  var out = splitList(category.Coordinators)
-    .filter(isEmail)
-    .map(normEmail);
-  if (isTicked(category.Confidential)) return uniq_(out.concat(bishopricEmails(leaders)));
+  var out = bishopricEmails(leaders).concat(
+    splitList(category.Coordinators)
+      .filter(isEmail)
+      .map(normEmail)
+  );
+  if (isTicked(category.Confidential)) return uniq_(out);
   var owners = splitList(category['Owning organizations']);
   leaders.forEach(function (l) {
     if (!isEmail(l.Email)) return;
@@ -1701,10 +1720,27 @@ function requestReaders(category, leaders) {
   return uniq_(out);
 }
 
+/** The owning organizations' leaders: Org editor or Ward council ticked, Organization listed. */
+function ownerLeaderEmails_(category, leaders) {
+  var owners = splitList(category['Owning organizations']);
+  return leaders
+    .filter(function (l) {
+      return (
+        isEmail(l.Email) &&
+        (isTicked(l['Org editor']) || isTicked(l['Ward council'])) &&
+        owners.indexOf(String(l.Organization == null ? '' : l.Organization).trim()) >= 0
+      );
+    })
+    .map(function (l) {
+      return normEmail(l.Email);
+    });
+}
+
 /**
  * Who gets a request kind's "new request" notice: {to, dropped}. Blank Notify: every reader.
  * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop,
- * `Coordinators` means the category's Coordinators, and anything else must be an email address. Only readers of the category's folder can get the
+ * `Coordinators` means the category's Coordinators, `Owners` means the owning organizations'
+ * leaders (Org editor or Ward council ticked), and anything else must be an email address. Only readers of the category's folder can get the
  * notice; everyone else, and anything that isn't an address, goes into dropped. If nobody is
  * left, every reader gets it (a notice holds no request details, and silence would lose it).
  */
@@ -1720,6 +1756,8 @@ function requestNotifyList(category, leaders) {
         var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
         if (c === 'bishop' && isEmail(l.Email)) wanted.push(normEmail(l.Email));
       });
+    } else if (String(entry).trim().toLowerCase() === 'owners') {
+      wanted = wanted.concat(ownerLeaderEmails_(category, leaders));
     } else if (String(entry).trim().toLowerCase() === 'coordinators') {
       splitList(category.Coordinators).forEach(function (e) {
         if (isEmail(e)) wanted.push(normEmail(e));
@@ -4414,7 +4452,9 @@ function requestFormDescription_(s, c) {
   }
   var who = isTicked(c.Confidential)
     ? 'Only ' + (CONFIDENTIAL_WHO[c.Id] || CONFIDENTIAL_WHO_DEFAULT) + ' see this request.'
-    : 'Only the ' + (joinNames_(splitList(c['Owning organizations'])) || 'bishopric') + ' leaders see this request.';
+    : splitList(c['Owning organizations']).length
+    ? 'Only the ' + joinNames_(splitList(c['Owning organizations'])) + ' leaders and the bishopric see this request.'
+    : 'Only the bishopric leaders see this request.';
   return [
     who,
     'Nothing is emailed back to you; a leader will contact you.',
@@ -5707,4 +5747,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "ec008f8610bc";
+var GP_BUILD = "26796dedfcf2";

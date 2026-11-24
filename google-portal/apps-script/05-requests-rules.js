@@ -21,15 +21,17 @@ function bishopricEmails(leaders) {
 }
 
 /**
- * Who reads a request category's folder (and gets its notices): its Coordinators, plus (when
- * confidential) the whole bishopric, otherwise the Leaders whose Organization owns the category.
- * Normalized and de-duplicated.
+ * Who reads a request category's folder: the whole bishopric and its Coordinators, plus (unless
+ * confidential) the Leaders whose Organization owns the category. Decision 18: the bishopric
+ * opens every request folder. Normalized and de-duplicated.
  */
 function requestReaders(category, leaders) {
-  var out = splitList(category.Coordinators)
-    .filter(isEmail)
-    .map(normEmail);
-  if (isTicked(category.Confidential)) return uniq_(out.concat(bishopricEmails(leaders)));
+  var out = bishopricEmails(leaders).concat(
+    splitList(category.Coordinators)
+      .filter(isEmail)
+      .map(normEmail)
+  );
+  if (isTicked(category.Confidential)) return uniq_(out);
   var owners = splitList(category['Owning organizations']);
   leaders.forEach(function (l) {
     if (!isEmail(l.Email)) return;
@@ -38,10 +40,27 @@ function requestReaders(category, leaders) {
   return uniq_(out);
 }
 
+/** The owning organizations' leaders: Org editor or Ward council ticked, Organization listed. */
+function ownerLeaderEmails_(category, leaders) {
+  var owners = splitList(category['Owning organizations']);
+  return leaders
+    .filter(function (l) {
+      return (
+        isEmail(l.Email) &&
+        (isTicked(l['Org editor']) || isTicked(l['Ward council'])) &&
+        owners.indexOf(String(l.Organization == null ? '' : l.Organization).trim()) >= 0
+      );
+    })
+    .map(function (l) {
+      return normEmail(l.Email);
+    });
+}
+
 /**
  * Who gets a request kind's "new request" notice: {to, dropped}. Blank Notify: every reader.
  * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop,
- * `Coordinators` means the category's Coordinators, and anything else must be an email address. Only readers of the category's folder can get the
+ * `Coordinators` means the category's Coordinators, `Owners` means the owning organizations'
+ * leaders (Org editor or Ward council ticked), and anything else must be an email address. Only readers of the category's folder can get the
  * notice; everyone else, and anything that isn't an address, goes into dropped. If nobody is
  * left, every reader gets it (a notice holds no request details, and silence would lose it).
  */
@@ -57,6 +76,8 @@ function requestNotifyList(category, leaders) {
         var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
         if (c === 'bishop' && isEmail(l.Email)) wanted.push(normEmail(l.Email));
       });
+    } else if (String(entry).trim().toLowerCase() === 'owners') {
+      wanted = wanted.concat(ownerLeaderEmails_(category, leaders));
     } else if (String(entry).trim().toLowerCase() === 'coordinators') {
       splitList(category.Coordinators).forEach(function (e) {
         if (isEmail(e)) wanted.push(normEmail(e));

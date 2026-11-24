@@ -8,10 +8,28 @@ const gp0 = loadPortal();
 describe('requestReaders', () => {
   const moving = { Id: 'moving', 'Owning organizations': 'Elders Quorum, Relief Society', Coordinators: 'Helper.Coord@example.test, sister.example@example.test', Confidential: false };
   const christmas = { Id: 'christmas', 'Owning organizations': 'Bishopric', Coordinators: 'helper.coord@example.test', Confidential: true };
-  it('Moving: Elders Quorum and Relief Society leaders plus coordinators', () => {
+  it('Moving: the whole bishopric, the Elders Quorum and Relief Society leaders, and coordinators (decision 18)', () => {
     expect(plain(gp0.requestReaders(moving, LEADERS)).sort()).toEqual(
-      ['helper.coord@example.test', 'sister.example@example.test', 'brother.sample@example.test', 'sister.coordinator@example.test'].sort()
+      [
+        'bishop.example@example.test',
+        'brother.counselor@example.test',
+        'brother.clerk@example.test',
+        'helper.coord@example.test',
+        'sister.example@example.test',
+        'brother.sample@example.test',
+        'sister.coordinator@example.test',
+      ].sort()
     );
+  });
+  it('any request kind a ward adds later: the bishopric plus its owning organization and coordinators', () => {
+    const yard = { Id: 'yard', 'Owning organizations': 'Primary', Coordinators: 'helper.coord@example.test', Confidential: false };
+    expect(plain(gp0.requestReaders(yard, LEADERS)).sort()).toEqual(
+      ['bishop.example@example.test', 'brother.counselor@example.test', 'brother.clerk@example.test', 'sister.helper@example.test', 'helper.coord@example.test'].sort()
+    );
+  });
+  it('confidential kinds stay the bishopric and coordinators: owners are not added', () => {
+    const c = { ...christmas, 'Owning organizations': 'Elders Quorum' };
+    expect(plain(gp0.requestReaders(c, LEADERS))).not.toContain('brother.sample@example.test');
   });
   it('Christmas: the whole bishopric (Bishopric ticked) and its coordinators, no other ward council member', () => {
     const readers = plain(gp0.requestReaders(christmas, [...LEADERS, ...MORE_BISHOPRIC])).sort();
@@ -128,7 +146,7 @@ describe('buildRequestForms_', () => {
     expect(other.items.map((i) => i.title)).toEqual(['Name', 'Phone or email', 'Note']);
     expect(moving.items[0].required).toBe(true);
     expect(moving.items[4].required).toBe(false);
-    expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders see this request.');
+    expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders and the bishopric see this request.');
     expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
     expect(other.description).toContain('Only the bishopric and the people they name see this request.');
     for (const f of [christmas, other]) expect(f.description).not.toContain('the bishop and the people he names');
@@ -158,7 +176,7 @@ describe('Set up refreshes request forms', () => {
     expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
     expect(other.description).toContain('Only the bishopric and the people they name see this request.');
     for (const f of [christmas, other]) expect(f.description).not.toContain('he names');
-    expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders see this request.');
+    expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders and the bishopric see this request.');
     expect(moving.title).toBe('Moving help — Riverbend 1st Ward (example)');
   });
 });
@@ -175,7 +193,9 @@ describe('gpOnRequestSubmit', () => {
     expect(rows[0]).toMatchObject({ Kind: 'Moving help', Name: "'=1+1", 'Phone or email': '555-0100', Moving: 'Moving in', 'Moving date': '2026-12-10', Note: 'Two bedrooms, piano', Status: 'New', Received: '2026-12-01 10:00' });
     expect(form.deletedResponses).toEqual(['resp-9']);
     const to = gp.fakes.mail.sent.map((m) => m.to).sort();
-    expect(to).toEqual(['brother.sample@example.test', 'helper.coord@example.test', 'sister.coordinator@example.test', 'sister.example@example.test']);
+    // Notify "Owners, Coordinators" (decision 18): the EQ and RS leaders and the coordinators, not
+    // the bishopric (who can open the folder) and not a Leaders row with only Coordinator ticked.
+    expect(to).toEqual(['brother.sample@example.test', 'helper.coord@example.test', 'sister.example@example.test']);
     for (const m of gp.fakes.mail.sent) {
       for (const bad of ['=1+1', '555-0100', 'Two bedrooms', 'piano', '2026-12-10', 'Moving in']) {
         expect(m.body + m.htmlBody + m.subject).not.toContain(bad);
@@ -742,5 +762,86 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
     const after = gp.fakes.spreadsheet.rowsOf('Categories');
     expect(after.map(({ 'On Serve page': x, ...rest }) => rest)).toEqual(before);
     for (const r of after) expect(r['On Serve page']).toBe(false);
+  });
+});
+
+// ---------- 2.1 (decision 18): the bishopric opens every request folder; Notify Owners ----------
+
+describe('Every request folder includes the bishopric (decision 18)', () => {
+  const moving = { Id: 'moving', 'Owning organizations': 'Elders Quorum, Relief Society', Coordinators: 'helper.coord@example.test', Confidential: false };
+
+  it('Notify Owners means the owning organizations\' Org editor or Ward council leaders', () => {
+    const r = plain(gp0.requestNotifyList({ ...moving, Notify: 'Owners' }, LEADERS));
+    // Sister Coordinator is Relief Society but has only Coordinator ticked: not an owner.
+    expect(r.to.sort()).toEqual(['brother.sample@example.test', 'sister.example@example.test']);
+    const both = plain(gp0.requestNotifyList({ ...moving, Notify: 'owners, Coordinators' }, LEADERS));
+    expect(both.to.sort()).toEqual(['brother.sample@example.test', 'helper.coord@example.test', 'sister.example@example.test']);
+    expect(both.dropped).toEqual([]);
+  });
+
+  it('a blank Notify on a new kind reaches every reader, the bishopric included', () => {
+    const yard = { Id: 'yard', 'Owning organizations': 'Primary', Coordinators: '', Confidential: false, Notify: '' };
+    expect(plain(gp0.requestNotifyList(yard, LEADERS)).to.sort()).toEqual(
+      ['bishop.example@example.test', 'brother.counselor@example.test', 'brother.clerk@example.test', 'sister.helper@example.test'].sort()
+    );
+  });
+
+  it('Sync sharing: the Moving folder has the whole bishopric; the couple and an EQ president keep their limits', () => {
+    const gp = wardWithCouple();
+    const moving = permsOf(gp, fileFor(gp, 'moving')['Folder id']);
+    for (const e of BISHOPRIC5) expect(moving[e]).toBe('writer');
+    expect(moving['brother.sample@example.test']).toBe('writer');
+    expect(moving['sister.example@example.test']).toBe('writer');
+    for (const e of COUPLE) expect(moving[e]).toBeUndefined();
+    for (const id of ['christmas', 'christmas-giving', 'other']) {
+      expect(permsOf(gp, fileFor(gp, id)['Folder id'])['brother.sample@example.test']).toBeUndefined();
+    }
+  });
+
+  it('a Moving request notifies the EQ and RS leaders and coordinators, not the bishopric', () => {
+    const gp = wardWithCouple();
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'moving'), { Coordinators: 'helper.coord@example.test' });
+    gp.gpBegin_();
+    submit(gp, 'moving', { Name: 'Sister Mover', 'Phone or email': 'p3@example.test', 'Moving in or out': 'Moving in' });
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['brother.sample@example.test', 'helper.coord@example.test', 'sister.example@example.test']);
+  });
+
+  it('Moving is seeded with Notify "Owners, Coordinators" once, only when blank, never over a typed value', () => {
+    const fresh = loadPortal({ seed: true });
+    expect(fresh.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'moving').Notify).toBe('Owners, Coordinators');
+
+    // A sheet from before 2.1: blank Notify on Moving, flag not set yet.
+    const gp = loadPortal({ seed: true });
+    const t = gp.serviceTab_('Categories');
+    t.update(t.find('Id', 'moving'), { Notify: '' });
+    gp.fakes.props.delete('MOVING_NOTIFY_SEEDED');
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    const notify = () => gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'moving').Notify;
+    expect(notify()).toBe('Owners, Coordinators');
+    // Cleared later on purpose: stays clear.
+    t.update(t.find('Id', 'moving'), { Notify: '' });
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    expect(notify()).toBe('');
+
+    // A value Sam typed is kept.
+    const gp2 = loadPortal({ seed: true });
+    const t2 = gp2.serviceTab_('Categories');
+    t2.update(t2.find('Id', 'moving'), { Notify: 'brother.sample@example.test' });
+    gp2.fakes.props.delete('MOVING_NOTIFY_SEEDED');
+    gp2.gpEnsureTabs_(gp2.fakes.spreadsheet);
+    expect(gp2.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'moving').Notify).toBe('brother.sample@example.test');
+  });
+
+  it('a ward already on phase 2 gets the Moving seed from its next job, before anyone runs Set up', () => {
+    const gp = loadPortal({ seed: true });
+    const t = gp.serviceTab_('Categories');
+    t.update(t.find('Id', 'moving'), { Notify: '' });
+    gp.fakes.props.delete('MOVING_NOTIFY_SEEDED');
+    gp.fakes.props.set('SCHEMA_VERSION', 'phase-2');
+    gp.gpBegin_();
+    gp.gpTenMinute();
+    expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'moving').Notify).toBe('Owners, Coordinators');
+    expect(gp.fakes.props.get('SCHEMA_VERSION')).toBe(gp.GP_VERSION);
   });
 });
