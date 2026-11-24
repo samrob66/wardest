@@ -1,0 +1,270 @@
+import { describe, it, expect } from 'vitest';
+import { loadPortal, seedPost, setSetting } from './harness.mjs';
+import { OWNER_EMAIL } from './fakes.mjs';
+
+const plain = (x) => JSON.parse(JSON.stringify(x));
+const tokenFrom = (text) => /#t=([0-9a-f]{64})/.exec(text)[1];
+/** The System Sheet in use (Set up makes a new one). */
+const sys = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'));
+
+function withSignup() {
+  const gp = loadPortal({ seed: true });
+  seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-02', Start: '17:00' }, { 'Slot id': 'm2', Date: '2026-12-05' }]);
+  gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm1', name: 'Brother Volunteer', email: 'brother.volunteer@example.test' });
+  gp.fakes.mail.sent.length = 0;
+  return gp;
+}
+
+/** A portal after Set up has run (folder, System Sheet, forms). */
+function afterSetUp() {
+  const gp = loadPortal({ seed: true });
+  gp.fakes.props.delete('SYSTEM_ID');
+  gp.gpMenuSetUp();
+  return gp;
+}
+
+describe('gpHourly', () => {
+  it('sends the day-before reminder with private details once, at the reminder hour', () => {
+    const gp = withSignup();
+    gp.fakes.setNow('2026-12-01 17:00');
+    gp.gpHourly();
+    expect(gp.fakes.mail.sent).toHaveLength(0);
+    gp.fakes.setNow('2026-12-01 18:00');
+    gp.gpHourly();
+    expect(gp.fakes.mail.sent).toHaveLength(1);
+    const m = gp.fakes.mail.sent[0];
+    expect(m.to).toBe('brother.volunteer@example.test');
+    expect(m.body).toContain('123 Example Lane');
+    const row = gp.fakes.spreadsheet.rowsOf('Sign-ups')[0];
+    expect(row['Reminded at']).toBe('2026-12-01 18:00');
+    expect(row['Details sent at']).toBe('2026-12-01 18:00');
+    gp.fakes.setNow('2026-12-01 19:00');
+    gp.gpHourly();
+    expect(gp.fakes.mail.sent).toHaveLength(1);
+    // The reminder's cancel link works.
+    const info = plain(gp.apiTokenInfo_({ t: tokenFrom(m.body) }));
+    expect(info).toMatchObject({ ok: true, status: 'Confirmed', date: '2026-12-02' });
+    expect(plain(gp.apiCancel_({ t: tokenFrom(m.body) })).ok).toBe(true);
+  });
+
+  it('marks a post Past after its last date and it leaves serve', () => {
+    const gp = withSignup();
+    gp.fakes.setNow('2026-12-06 01:00');
+    gp.gpHourly();
+    expect(gp.fakes.spreadsheet.rowsOf('Posts')[0].Status).toBe('Past');
+    expect(plain(gp.apiServe_()).posts).toEqual([]);
+    expect(plain(gp.apiPost_('pubmeals01')).post.status).toBe('Past');
+  });
+
+  it('a job error is logged and alerts the administrators once a day', () => {
+    const gp = withSignup();
+    gp.fakes.spreadsheet.deleteSheet(gp.fakes.spreadsheet.getSheetByName('Slots'));
+    gp.gpHourly();
+    gp.gpHourly();
+    expect(gp.fakes.system.rowsOf('Log').filter((l) => l.What === 'job error')).toHaveLength(2);
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test']);
+    gp.fakes.setNow('2026-12-02 10:00');
+    gp.gpHourly();
+    expect(gp.fakes.mail.sent).toHaveLength(4);
+  });
+});
+
+describe('gpTenMinute', () => {
+  it('drains a queued confirmation once the quota returns, and refreshes Filled', () => {
+    const gp = loadPortal({ seed: true });
+    seedPost(gp, {}, [{ 'Slot id': 'm1' }]);
+    gp.fakes.setQuota(10);
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm1', name: 'Brother Volunteer', email: 'brother.volunteer@example.test' });
+    expect(gp.fakes.mail.sent).toHaveLength(0);
+    expect(gp.fakes.system.rowsOf('Outbox')).toHaveLength(1);
+    const slots = gp.fakes.spreadsheet.getSheetByName('Slots');
+    const col = slots.raw()[0].indexOf('Filled') + 1;
+    slots.getRange(2, col).setValue(7);
+    gp.fakes.setQuota(100);
+    gp.gpTenMinute();
+    expect(gp.fakes.mail.sent.map((m) => m.subject)).toEqual(["You're signed up: Meals for the Sample family"]);
+    expect(gp.fakes.system.rowsOf('Outbox')).toHaveLength(0);
+    expect(gp.fakes.spreadsheet.rowsOf('Slots')[0].Filled).toBe(1);
+  });
+
+  it('sends ticked leader links', () => {
+    const gp = loadPortal({ seed: true });
+    const t = gp.serviceTab_('Leaders');
+    t.update(t.find('Email', 'sister.helper@example.test'), { 'Send leader link': true });
+    gp.gpTenMinute();
+    expect(gp.fakes.mail.sent.map((m) => m.to)).toEqual(['sister.helper@example.test']);
+  });
+});
+
+describe('gpDaily', () => {
+  it('deletes expired tokens and keeps live ones', () => {
+    const gp = loadPortal({ seed: true });
+    gp.issueToken_('cancel', 'old', '2026-11-30 23:59');
+    gp.issueToken_('cancel', 'live', '2026-12-04 23:59');
+    gp.gpDaily();
+    expect(gp.fakes.system.rowsOf('Tokens').map((t) => t.Subject)).toEqual(['live']);
+  });
+
+  it('rotates request files on the 1st', () => {
+    const gp = afterSetUp();
+    const before = sys(gp).rowsOf('Request files')[0];
+    const t = gp.table_(gp.fakes.spreadsheets.get(before['Sheet id']).getSheetByName('Requests'));
+    t.append({ 'Request id': 'open1', Status: 'New', Name: 'Sister Requester' });
+    gp.fakes.setNow('2027-01-01 02:00');
+    gp.gpDaily();
+    const after = sys(gp).rowsOf('Request files')[0];
+    expect(gp.fakes.drive.removed).toContain(before['Sheet id']);
+    expect(gp.fakes.spreadsheets.get(after['Sheet id']).rowsOf('Requests').map((r) => r['Request id'])).toEqual(['open1']);
+  });
+
+  it('trims the Log to 90 days and reports old failed mail once before deleting it', () => {
+    const gp = loadPortal({ seed: true });
+    gp.systemTab_('Log').appendMany([
+      { At: '2026-08-01 10:00', What: 'old', Detail: '' },
+      { At: '2026-11-30 10:00', What: 'recent', Detail: '' },
+    ]);
+    gp.systemTab_('Outbox').appendMany([
+      { Id: 'm1', 'Queued at': '2026-11-20 10:00', To: 'a@example.test', Subject: 'Old failure', Status: 'Failed', Priority: 'normal' },
+      { Id: 'm2', 'Queued at': '2026-11-30 10:00', To: 'b@example.test', Subject: 'New failure', Status: 'Failed', Priority: 'normal' },
+    ]);
+    gp.gpDaily();
+    const whats = gp.fakes.system.rowsOf('Log').map((l) => l.What);
+    expect(whats).not.toContain('old');
+    expect(whats).toContain('recent');
+    expect(gp.fakes.system.rowsOf('Outbox').map((m) => m.Id)).toEqual(['m2']);
+    const alerts = gp.fakes.mail.sent.filter((m) => m.subject.includes('needs attention'));
+    expect(alerts).toHaveLength(2);
+    expect(alerts[0].body).toContain('Old failure');
+  });
+});
+
+describe('Set up', () => {
+  it('stops with a clear message until Settings are filled', () => {
+    const gp = loadPortal();
+    gp.fakes.props.delete('SYSTEM_ID');
+    gp.gpMenuSetUp();
+    expect(gp.fakes.alerts.at(-1)).toBe('Fill in Settings (ward name, time zone, contact email) and the Leaders tab, then run Set up again.');
+    expect(gp.fakes.forms.size).toBe(0);
+  });
+
+  it('twice makes one folder, one System Sheet and one form per request category', () => {
+    const gp = afterSetUp();
+    const sysId = gp.fakes.props.get('SYSTEM_ID');
+    gp.gpMenuSetUp();
+    expect(gp.fakes.props.get('SYSTEM_ID')).toBe(sysId);
+    const systems = [...gp.fakes.spreadsheets.values()].filter((s) => s.getName() === 'Riverbend 1st Ward (example) – Service System (private)');
+    expect(systems.map((s) => s.getId())).toContain(sysId);
+    expect(systems.filter((s) => s.getId() !== gp.fakes.system.getId())).toHaveLength(1);
+    expect(gp.fakes.forms.size).toBe(3);
+    const portals = [...gp.fakes.drive.folders.values()].filter((f) => f.name === 'Service Portal');
+    expect(portals).toHaveLength(1);
+    const service = gp.fakes.drive.files.get(gp.fakes.spreadsheet.getId());
+    expect(service.parents).toEqual([portals[0].id]);
+    expect(gp.fakes.drive.files.get(sysId).parents).toEqual([portals[0].id]);
+    expect(gp.fakes.menus.length).toBe(0);
+  });
+
+  it('warns when the script time zone differs from Settings', () => {
+    const gp = loadPortal({ seed: true });
+    gp.fakes.state.scriptTz = 'America/New_York';
+    gp.gpMenuSetUp();
+    expect(gp.fakes.alerts.at(-1)).toMatch(/time zone/i);
+    expect(gp.fakes.alerts.at(-1)).toContain('Project Settings');
+  });
+
+  it('adds the Service Portal menu', () => {
+    const gp = loadPortal({ seed: true });
+    gp.onOpen();
+    expect(gp.fakes.menus[0].name).toBe('Service Portal');
+    expect(gp.fakes.menus[0].items.map((i) => i[0])).toEqual(['Set up', 'Sync sharing', 'Install triggers', 'Make hub files', 'Send leader links now', 'Check health']);
+  });
+});
+
+describe('Sync sharing', () => {
+  it('shares the Service Sheet and request folders by role, keeps the System Sheet private and protects script tabs', () => {
+    const gp = afterSetUp();
+    const perms = (id) => Object.fromEntries([...gp.fakes.drive.permsOf(id).values()].map((p) => [p.emailAddress, p.role]));
+    const serviceId = gp.fakes.spreadsheet.getId();
+    gp.fakes.drive.permsOf(serviceId).set('stale@example.test', { id: 'px', role: 'reader', type: 'user', emailAddress: 'stale@example.test' });
+    const sysId = gp.fakes.props.get('SYSTEM_ID');
+    gp.fakes.drive.permsOf(sysId).set('leak@example.test', { id: 'py', role: 'reader', type: 'user', emailAddress: 'leak@example.test' });
+    gp.fakes.state.failPermissionFor = ['sister.coordinator@example.test'];
+    gp.gpMenuSyncSharing();
+    expect(perms(serviceId)).toEqual({
+      [OWNER_EMAIL]: 'owner',
+      'bishop.example@example.test': 'writer',
+      'brother.counselor@example.test': 'writer',
+      'brother.clerk@example.test': 'reader',
+      'sister.example@example.test': 'reader',
+      'brother.sample@example.test': 'reader',
+    });
+    expect(perms(sysId)).toEqual({ [OWNER_EMAIL]: 'owner' });
+    const files = sys(gp).rowsOf('Request files');
+    expect(perms(files[1]['Folder id'])).toEqual({ [OWNER_EMAIL]: 'owner', 'bishop.example@example.test': 'writer' });
+    expect(Object.keys(perms(files[0]['Folder id'])).sort()).toEqual([OWNER_EMAIL, 'brother.sample@example.test', 'sister.example@example.test'].sort());
+    // Share emails are off.
+    for (const p of gp.fakes.drive.permsOf(serviceId).values()) if (p.opts) expect(p.opts.sendNotificationEmail).toBe(false);
+    expect(gp.fakes.alerts.at(-1)).toContain('sister.coordinator@example.test');
+    for (const name of ['Posts', 'Slots', 'Sign-ups', 'Volunteers', 'Needs help soon']) {
+      const p = gp.fakes.spreadsheet.getSheetByName(name).protections;
+      expect(p).toHaveLength(1);
+      expect(p[0].editors).toEqual([OWNER_EMAIL]);
+      expect(p[0].warningOnly).toBe(false);
+    }
+    expect(gp.fakes.spreadsheet.getSheetByName('Leaders').protections).toHaveLength(0);
+    gp.gpMenuSyncSharing();
+    expect(gp.fakes.spreadsheet.getSheetByName('Posts').protections).toHaveLength(1);
+  });
+});
+
+describe('Install triggers, hub files, leader links, health', () => {
+  it('installs the three timed triggers and one per form, replacing old ones', () => {
+    const gp = afterSetUp();
+    gp.gpMenuInstallTriggers();
+    gp.gpMenuInstallTriggers();
+    const t = gp.fakes.triggers.map((x) => [x.handler, x.kind]);
+    expect(t.filter((x) => x[0] === 'gpOnRequestSubmit')).toHaveLength(3);
+    expect(t.filter((x) => x[0] !== 'gpOnRequestSubmit')).toEqual([['gpTenMinute', 'CLOCK'], ['gpHourly', 'CLOCK'], ['gpDaily', 'CLOCK']]);
+    expect(gp.fakes.triggers.find((x) => x.handler === 'gpTenMinute').detail.everyMinutes).toBe(10);
+    expect(gp.fakes.triggers.find((x) => x.handler === 'gpDaily').detail).toMatchObject({ everyDays: 1, atHour: 2 });
+  });
+
+  it('writes the hub files with the ward filled in, replacing older copies', () => {
+    const gp = afterSetUp();
+    setSetting(gp, 'serve_short_link', 'https://zippa.run/rb1Serve');
+    gp.gpMenuMakeHubFiles();
+    gp.gpMenuMakeHubFiles();
+    const live = [...gp.fakes.drive.files.values()].filter((f) => f.mime === 'text/html' && !f.trashed);
+    expect(live.map((f) => f.name).sort()).toEqual(['confirm.html', 'help.html', 'hub-sections.html', 'leader.html', 'post.html', 'serve.html']);
+    const serve = live.find((f) => f.name === 'serve.html').content;
+    expect(serve).toContain('fallback: false');
+    expect(serve).toContain('Riverbend 1st Ward (example)');
+    expect(live.find((f) => f.name === 'hub-sections.html').content).toContain('zippa.run/rb1Serve');
+    const folder = gp.fakes.drive.folders.get(live[0].parents[0]);
+    expect(folder.name).toBe('Hub files (copy to the hub)');
+    expect(gp.fakes.alerts.at(-1)).toContain(folder.getUrl());
+  });
+
+  it('Send leader links now sends ticked rows', () => {
+    const gp = loadPortal({ seed: true });
+    const t = gp.serviceTab_('Leaders');
+    t.update(t.find('Email', 'sister.helper@example.test'), { 'Send leader link': true });
+    gp.gpMenuSendLeaderLinks();
+    expect(gp.fakes.mail.sent).toHaveLength(1);
+    expect(gp.fakes.alerts.at(-1)).toMatch(/1/);
+  });
+
+  it('Check health lists one line per piece', () => {
+    const gp = afterSetUp();
+    gp.gpMenuInstallTriggers();
+    gp.fakes.state.fetch = (url) => (url.endsWith('?api=ping') ? { code: 200, text: '{"ok":true,"at":"x"}' } : { code: 404, text: '' });
+    const lines = gp.gpMenuCheckHealth();
+    expect(lines.length).toBeGreaterThanOrEqual(8);
+    for (const l of lines) expect(l).toMatch(/^(OK|PROBLEM) /);
+    expect(lines.filter((l) => l.startsWith('PROBLEM'))).toEqual([]);
+    setSetting(gp, 'hub_url', 'https://example.github.io/rb1links/');
+    const again = gp.gpMenuCheckHealth();
+    expect(again.find((l) => l.includes('Hub'))).toMatch(/^PROBLEM/);
+    expect(gp.fakes.fetches.at(-1)[0]).toBe('https://example.github.io/rb1links/serve.html');
+  });
+});
