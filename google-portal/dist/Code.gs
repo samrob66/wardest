@@ -106,7 +106,7 @@ var SYS_TAB = {
   requestFiles: 'Request files',
 };
 
-/** Exact headers, in order. Phase 2 columns exist now and stay blank. */
+/** Exact headers, in order. A header added later is appended by Set up (gpEnsureTabs_), never reordered. */
 var SERVICE_HEADERS = {
   'Read me': [],
   Settings: ['Key', 'Value', 'Help'],
@@ -116,7 +116,7 @@ var SERVICE_HEADERS = {
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
   Volunteers: ['Email', 'Name', 'Status', 'Decided by', 'Decided at', 'First post', 'Email confirmed at'],
-  'Needs help soon': [],
+  'Needs help soon': ['Date', 'Start', 'Title', 'Organization', 'Role', 'Filled', 'Needed', 'Link'],
 };
 
 var SYSTEM_HEADERS = {
@@ -155,7 +155,7 @@ var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id'];
+var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Link', 'First post'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived'];
 
 /** Settings rows: [key, default, help]. */
@@ -892,7 +892,8 @@ function readMeLines_(s) {
     'Leaders: who gets a leader link and which files. Tick the role boxes; tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
     'Categories: kinds of opportunities and requests, their owners and coordinators.',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',
-    'Volunteers, Needs help soon: for phase 2; the script fills them.',
+    'Volunteers: everyone who has signed up, with Pending / Approved / Declined / Revoked, who decided and when. Written only by the script (approve and decline on the leader page).',
+    'Needs help soon: open roles still short in the next 14 days, refreshed every 10 minutes.',
     '',
     PAGE_FOOTER,
     '',
@@ -1979,6 +1980,29 @@ function tplWaitingNotice_(s, name, items) {
   return {
     subject: 'Waiting for approval: ' + name,
     html: paras_([esc(line), list.map(esc).join('<br>'), esc(more)]),
+    text: [line, list.join('\n'), more].join('\n\n'),
+  };
+}
+
+/** To approvers, 48 hours ahead: sign-ups on this date still wait for approval. No names. */
+function tplNudge_(s, post, date, count) {
+  var line =
+    count + (count === 1 ? ' sign-up' : ' sign-ups') + ' for ' + post.Title + ' on ' + fmtDateLong_(date) +
+    (count === 1 ? ' is' : ' are') + ' still waiting for approval, and the date is less than 48 hours away.';
+  var more = 'Open your leader page and choose Waiting for approval to approve or decline.';
+  return { subject: 'Urgent: waiting for approval: ' + post.Title, html: paras_([esc(line), esc(more)]), text: [line, more].join('\n\n') };
+}
+
+/** To a category's coordinators and Also warn: a post date is still short. short: [{role, start, filled, needed}]. */
+function tplWarning_(s, post, date, short, url) {
+  var line = post.Title + ' on ' + fmtDateLong_(date) + ' is still short:';
+  var list = short.map(function (r) {
+    return (r.start ? fmtTime_(r.start) + ' ' : '') + r.role + ': ' + r.filled + ' of ' + r.needed + ' filled';
+  });
+  var more = 'The public page, to share: ' + url;
+  return {
+    subject: 'Still short: ' + post.Title + ', ' + fmtDateShort_(date),
+    html: paras_([esc(line), list.map(esc).join('<br>'), 'The public page, to share: <a href="' + esc(url) + '">' + esc(url) + '</a>']),
     text: [line, list.join('\n'), more].join('\n\n'),
   };
 }
@@ -4366,6 +4390,7 @@ function gpMenuSetUp() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   props_().setProperty('SERVICE_ID', ss.getId());
   gpEnsureTabs_(ss);
+  var migrated = migratePhase1Volunteers_();
   var s = settings_();
   if (!s.ward_name || !s.time_zone || !s.contact_email) {
     ui_().alert('Fill in Settings (ward name, time zone, contact email) and the Leaders tab, then run Set up again.');
@@ -4381,6 +4406,7 @@ function gpMenuSetUp() {
   ensureSystemSheet_(s, folder);
   var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows());
   var lines = ['Set up is done.'];
+  if (migrated) lines.push('Volunteers from before phase 2 marked Approved: ' + migrated + '.');
   lines.push(made.length ? 'New request forms: ' + made.join(', ') + '.' : 'Request forms: already made.');
   var tz = tzMismatchLine_(s);
   if (tz) lines.push('Time zone: ' + tz);
@@ -4601,6 +4627,18 @@ function fetchOk_(url) {
 /** Service Portal > Check health: one OK/PROBLEM line per piece. Returns the lines. */
 function gpMenuCheckHealth() {
   if (!menuStart_()) return;
+  var lines = healthLines_({ job: false });
+  ui_().alert(lines.join('\n'));
+  return lines;
+}
+
+/**
+ * The health checks, one 'OK …' or 'PROBLEM …' line each, with counts only (no volunteer or
+ * request data). opts.job: run from the daily job, which also checks the jobs run as the Service
+ * Sheet's owner; from the menu (owner only) it names the account the listed triggers belong to.
+ */
+function healthLines_(opts) {
+  opts = opts || {};
   var lines = [];
   var add = function (ok, text) {
     lines.push((ok ? 'OK ' : 'PROBLEM ') + text);
@@ -4652,6 +4690,40 @@ function gpMenuCheckHealth() {
     'Triggers: gpTenMinute ' + (have.gpTenMinute || 0) + ', gpHourly ' + (have.gpHourly || 0) + ', gpDaily ' + (have.gpDaily || 0) +
       ', gpOnRequestSubmit ' + (have.gpOnRequestSubmit || 0) + ' of ' + formCount + (trigOk ? '.' : '. Run Install triggers.')
   );
+  // getProjectTriggers lists only the running account's triggers: say whose they are.
+  var me = normEmail(Session.getEffectiveUser().getEmail());
+  if (opts.job) {
+    var ownerUser = null;
+    try {
+      ownerUser = DriveApp.getFileById(serviceSs_().getId()).getOwner();
+    } catch (e) {
+      ownerUser = null;
+    }
+    var sheetOwner = ownerUser ? normEmail(ownerUser.getEmail()) : '';
+    var sameOwner = !sheetOwner || sheetOwner === me;
+    add(
+      sameOwner,
+      sameOwner
+        ? 'Timed jobs run as the Service Sheet owner.'
+        : 'Timed jobs run as ' + me + ', not as the Service Sheet owner ' + sheetOwner + '. Sign in as ' + sheetOwner +
+            " and run Install triggers, then remove the other account's triggers (Extensions > Apps Script > Triggers, signed in as that account)."
+    );
+  } else {
+    var kinds = ScriptApp.getProjectTriggers().map(function (t) {
+      var src = '';
+      try {
+        src = String(t.getTriggerSource());
+      } catch (e) {
+        src = '';
+      }
+      return t.getHandlerFunction() + (src ? ' (' + src + ')' : '');
+    });
+    add(
+      true,
+      'Triggers belong to ' + me + ' (this account): ' + (kinds.length ? kinds.join(', ') : 'none') +
+        '. Triggers another account made never show here; if one is missing above, run Install triggers signed in as this account.'
+    );
+  }
   // Each job stamps LAST_RAN_<job> when it finishes; a job that stops (or whose runs are
   // refused) shows up here even though its trigger is still listed.
   var now = nowLocal_();
@@ -4696,8 +4768,43 @@ function gpMenuCheckHealth() {
     !tz && sheetTzOk,
     tz || (sheetTzOk ? 'Time zone matches (' + (s.time_zone || Session.getScriptTimeZone()) + ').' : 'The Service Sheet time zone is ' + sheetTz + '; set File > Settings > Time zone to ' + s.time_zone + '.')
   );
-  ui_().alert(lines.join('\n'));
   return lines;
+}
+
+// ---------- upgrade from phase 1 ----------
+
+/**
+ * Phase 1 had no approval step: a leader removed anyone they didn't recognize. On the first Set up
+ * after the upgrade, every address with a Confirmed sign-up and no Volunteers row (leaders aside)
+ * becomes Approved, Decided by "Phase 1 sign-up", so their reminders keep the private details.
+ * Runs once (Script Property VOLUNTEERS_MIGRATED). Returns how many rows it added.
+ */
+function migratePhase1Volunteers_() {
+  var p = props_();
+  if (p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
+  var n = withLock_(function () {
+    var volsT = serviceTab_(TAB.volunteers);
+    var have = volunteersByEmail_(volsT.rows());
+    var leaders = leaderEmails_();
+    var now = nowLocal_();
+    var add = [];
+    var seen = {};
+    serviceTab_(TAB.signups)
+      .rows()
+      .sort(function (a, b) {
+        return cmpLocal(a['Signed up at'], b['Signed up at']);
+      })
+      .forEach(function (su) {
+        var e = normEmail(su.Email);
+        if (su.Status !== SIGNUP_STATUS.confirmed || !isEmail(e) || have[e] || seen[e] || leaders.indexOf(e) >= 0) return;
+        seen[e] = true;
+        add.push({ Email: e, Name: su.Name, Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now, 'First post': su['Post id'] });
+      });
+    volsT.appendMany(add);
+    return add.length;
+  });
+  p.setProperty('VOLUNTEERS_MIGRATED', nowLocal_());
+  return n;
 }
 
 // ===== 13-jobs.js =====
@@ -4760,15 +4867,149 @@ function runJob_(name, e, fn) {
   }
 }
 
-/** Writes every slot's Filled from the Sign-ups tab (only cells that changed). */
+/** Writes every slot's Filled and Waiting from the Sign-ups tab (only cells that changed). */
 function refreshAllFilled_() {
   withLock_(function () {
     var slotsT = serviceTab_(TAB.slots);
     var counts = countsBySlot(serviceTab_(TAB.signups).rows());
     slotsT.rows().forEach(function (sl) {
-      var f = filledOf_(counts, sl['Slot id']);
-      if (Number(sl.Filled) !== f || sl.Filled === '') slotsT.update(sl, { Filled: f });
+      var c = counts[sl['Slot id']] || { filled: 0, waiting: 0 };
+      var changes = {};
+      if (Number(sl.Filled) !== c.filled || sl.Filled === '') changes.Filled = c.filled;
+      if (Number(sl.Waiting) !== c.waiting || sl.Waiting === '') changes.Waiting = c.waiting;
+      if (Object.keys(changes).length) slotsT.update(sl, changes);
     });
+  });
+}
+
+// ---------- sent keys (nudges, warnings): Script Properties SENT_<KIND>_<postId|date> = day sent ----------
+
+var SENT_NUDGE = 'SENT_NUDGE_';
+var SENT_WARN = 'SENT_WARN_';
+var SENT_KEEP_DAYS = 30;
+
+function sentKeys_(prefix) {
+  var all = props_().getProperties();
+  var out = {};
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(prefix) === 0) out[k.slice(prefix.length)] = all[k];
+  });
+  return out;
+}
+
+function markSent_(prefix, key) {
+  props_().setProperty(prefix + key, todayLocal_());
+}
+
+/** Forgets sent keys older than 30 days (their dates are long past). */
+function pruneSentKeys_(today) {
+  var cutoff = addDays(today, -SENT_KEEP_DAYS);
+  var p = props_();
+  var all = p.getProperties();
+  Object.keys(all).forEach(function (k) {
+    if ((k.indexOf(SENT_NUDGE) === 0 || k.indexOf(SENT_WARN) === 0) && String(all[k]) < cutoff) p.deleteProperty(k);
+  });
+}
+
+/** Waiting sign-ups whose date has passed (or whose role is gone) lapse. No email. */
+function lapseWaiting_() {
+  return withLock_(function () {
+    var d = volunteerData_();
+    var slotsById = indexBy_(d.slots, 'Slot id');
+    var ids = lapsesDue(d.signups, slotsById, todayLocal_());
+    if (!ids.length) return 0;
+    var signupsT = serviceTab_(TAB.signups);
+    var slotsT = serviceTab_(TAB.slots);
+    var byId = indexBy_(d.signups, 'Sign-up id');
+    var touched = {};
+    ids.forEach(function (id) {
+      signupsT.update(byId[id], { Status: SIGNUP_STATUS.lapsed });
+      touched[byId[id]['Slot id']] = true;
+    });
+    Object.keys(touched).forEach(function (slotId) {
+      if (slotsById[slotId]) refreshFilled_(slotsT, slotsById[slotId], d.signups);
+    });
+    return ids.length;
+  });
+}
+
+/**
+ * 48 hours ahead, sign-ups still waiting for approval: one urgent email per post and date to the
+ * approvers of each waiting volunteer's first post (the post's own approvers when that is gone).
+ */
+function sendNudges_() {
+  var s = settings_();
+  var d = volunteerData_();
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var postsById = indexBy_(d.posts, 'Post id');
+  var due = nudgesDue(d.signups, slotsById, postsById, nowLocal_(), sentKeys_(SENT_NUDGE));
+  if (!due.length) return 0;
+  var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
+  var leaders = leaders_();
+  due.forEach(function (n) {
+    var post = postsById[n.postId];
+    var here = d.signups.filter(function (su) {
+      var sl = slotsById[su['Slot id']];
+      return su.Status === SIGNUP_STATUS.waitingApproval && su['Post id'] === n.postId && sl && sl.Date === n.date;
+    });
+    var to = [];
+    here.forEach(function (su) {
+      var v = vols[normEmail(su.Email)];
+      var first = v ? postsById[v['First post']] : null;
+      to = to.concat(approversFor(first || post, leaders));
+    });
+    var t = tplNudge_(s, post, n.date, here.length);
+    uniq_(to).forEach(function (e) {
+      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+    });
+    markSent_(SENT_NUDGE, n.key);
+  });
+  return due.length;
+}
+
+/** Fill warnings (service spec section 4): to the category's coordinators and Also warn, once per post date. */
+function sendWarnings_() {
+  var s = settings_();
+  var d = volunteerData_();
+  var categoriesById = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
+  var postsById = indexBy_(d.posts, 'Post id');
+  var due = warningsDue(d.posts, groupBy_(d.slots, 'Post id'), countsBySlot(d.signups), categoriesById, nowLocal_(), sentKeys_(SENT_WARN));
+  due.forEach(function (w) {
+    var post = postsById[w.postId];
+    var cat = categoriesById[post.Category];
+    var to = uniq_(
+      splitList(cat.Coordinators)
+        .concat(splitList(cat['Also warn']))
+        .filter(isEmail)
+        .map(normEmail)
+    );
+    var t = tplWarning_(s, post, w.date, w.short, pageUrl_(s, 'post', { p: post['Public id'] }));
+    to.forEach(function (e) {
+      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+    });
+    markSent_(SENT_WARN, w.key);
+  });
+  return due.length;
+}
+
+/** The Needs help soon tab, rewritten from the rule only when it changed. */
+function writeNeedsHelpTab_() {
+  var want = needsHelpRows_(settings_()).map(function (r) {
+    return { Date: r.date, Start: r.start, Title: r.title, Organization: r.organization, Role: r.role, Filled: r.filled, Needed: r.needed, Link: r.publicUrl };
+  });
+  var key = function (list) {
+    return JSON.stringify(
+      list.map(function (r) {
+        return [r.Date, r.Start, String(r.Title), String(r.Organization), String(r.Role), Number(r.Filled), Number(r.Needed), String(r.Link)];
+      })
+    );
+  };
+  withLock_(function () {
+    var t = serviceTab_(TAB.needsHelp);
+    var have = t.rows();
+    if (key(have) === key(want)) return;
+    t.removeMany(have);
+    t.appendMany(want);
   });
 }
 
@@ -4826,12 +5067,16 @@ function gpTenMinute(e) {
     drainOutbox_();
     processLeaderLinkTicks_();
     refreshAllFilled_();
+    writeNeedsHelpTab_();
   });
 }
 
 function gpHourly(e) {
   runJob_('gpHourly', e, function () {
+    lapseWaiting_();
     sendReminders_();
+    sendNudges_();
+    sendWarnings_();
     markPastPosts_();
     clearServeCache_();
   });
@@ -4873,6 +5118,12 @@ function gpDaily(e) {
       }
     });
     if (problems.length) alertOncePerDay_('gpDaily-report', problems);
+    pruneSentKeys_(today);
+    // The health email: only the PROBLEM lines of Check health, and only when there is one.
+    var bad = healthLines_({ job: true }).filter(function (l) {
+      return l.indexOf('PROBLEM') === 0;
+    });
+    if (bad.length) alertOncePerDay_('health', bad);
   });
 }
 

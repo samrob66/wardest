@@ -149,7 +149,8 @@ describe('gpDaily', () => {
     expect(whats).not.toContain('old');
     expect(whats).toContain('recent');
     expect(gp.fakes.system.rowsOf('Outbox').map((m) => m.Id)).toEqual(['m2']);
-    const alerts = gp.fakes.mail.sent.filter((m) => m.subject.includes('needs attention'));
+    // (Phase 2's health email goes out too here: this portal has no triggers or web app check.)
+    const alerts = gp.fakes.mail.sent.filter((m) => m.subject.includes('needs attention') && m.body.includes('could not be sent'));
     expect(alerts).toHaveLength(2);
     expect(alerts[0].body).toContain('Old failure');
   });

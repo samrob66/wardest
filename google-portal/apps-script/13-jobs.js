@@ -56,15 +56,149 @@ function runJob_(name, e, fn) {
   }
 }
 
-/** Writes every slot's Filled from the Sign-ups tab (only cells that changed). */
+/** Writes every slot's Filled and Waiting from the Sign-ups tab (only cells that changed). */
 function refreshAllFilled_() {
   withLock_(function () {
     var slotsT = serviceTab_(TAB.slots);
     var counts = countsBySlot(serviceTab_(TAB.signups).rows());
     slotsT.rows().forEach(function (sl) {
-      var f = filledOf_(counts, sl['Slot id']);
-      if (Number(sl.Filled) !== f || sl.Filled === '') slotsT.update(sl, { Filled: f });
+      var c = counts[sl['Slot id']] || { filled: 0, waiting: 0 };
+      var changes = {};
+      if (Number(sl.Filled) !== c.filled || sl.Filled === '') changes.Filled = c.filled;
+      if (Number(sl.Waiting) !== c.waiting || sl.Waiting === '') changes.Waiting = c.waiting;
+      if (Object.keys(changes).length) slotsT.update(sl, changes);
     });
+  });
+}
+
+// ---------- sent keys (nudges, warnings): Script Properties SENT_<KIND>_<postId|date> = day sent ----------
+
+var SENT_NUDGE = 'SENT_NUDGE_';
+var SENT_WARN = 'SENT_WARN_';
+var SENT_KEEP_DAYS = 30;
+
+function sentKeys_(prefix) {
+  var all = props_().getProperties();
+  var out = {};
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(prefix) === 0) out[k.slice(prefix.length)] = all[k];
+  });
+  return out;
+}
+
+function markSent_(prefix, key) {
+  props_().setProperty(prefix + key, todayLocal_());
+}
+
+/** Forgets sent keys older than 30 days (their dates are long past). */
+function pruneSentKeys_(today) {
+  var cutoff = addDays(today, -SENT_KEEP_DAYS);
+  var p = props_();
+  var all = p.getProperties();
+  Object.keys(all).forEach(function (k) {
+    if ((k.indexOf(SENT_NUDGE) === 0 || k.indexOf(SENT_WARN) === 0) && String(all[k]) < cutoff) p.deleteProperty(k);
+  });
+}
+
+/** Waiting sign-ups whose date has passed (or whose role is gone) lapse. No email. */
+function lapseWaiting_() {
+  return withLock_(function () {
+    var d = volunteerData_();
+    var slotsById = indexBy_(d.slots, 'Slot id');
+    var ids = lapsesDue(d.signups, slotsById, todayLocal_());
+    if (!ids.length) return 0;
+    var signupsT = serviceTab_(TAB.signups);
+    var slotsT = serviceTab_(TAB.slots);
+    var byId = indexBy_(d.signups, 'Sign-up id');
+    var touched = {};
+    ids.forEach(function (id) {
+      signupsT.update(byId[id], { Status: SIGNUP_STATUS.lapsed });
+      touched[byId[id]['Slot id']] = true;
+    });
+    Object.keys(touched).forEach(function (slotId) {
+      if (slotsById[slotId]) refreshFilled_(slotsT, slotsById[slotId], d.signups);
+    });
+    return ids.length;
+  });
+}
+
+/**
+ * 48 hours ahead, sign-ups still waiting for approval: one urgent email per post and date to the
+ * approvers of each waiting volunteer's first post (the post's own approvers when that is gone).
+ */
+function sendNudges_() {
+  var s = settings_();
+  var d = volunteerData_();
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var postsById = indexBy_(d.posts, 'Post id');
+  var due = nudgesDue(d.signups, slotsById, postsById, nowLocal_(), sentKeys_(SENT_NUDGE));
+  if (!due.length) return 0;
+  var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
+  var leaders = leaders_();
+  due.forEach(function (n) {
+    var post = postsById[n.postId];
+    var here = d.signups.filter(function (su) {
+      var sl = slotsById[su['Slot id']];
+      return su.Status === SIGNUP_STATUS.waitingApproval && su['Post id'] === n.postId && sl && sl.Date === n.date;
+    });
+    var to = [];
+    here.forEach(function (su) {
+      var v = vols[normEmail(su.Email)];
+      var first = v ? postsById[v['First post']] : null;
+      to = to.concat(approversFor(first || post, leaders));
+    });
+    var t = tplNudge_(s, post, n.date, here.length);
+    uniq_(to).forEach(function (e) {
+      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+    });
+    markSent_(SENT_NUDGE, n.key);
+  });
+  return due.length;
+}
+
+/** Fill warnings (service spec section 4): to the category's coordinators and Also warn, once per post date. */
+function sendWarnings_() {
+  var s = settings_();
+  var d = volunteerData_();
+  var categoriesById = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
+  var postsById = indexBy_(d.posts, 'Post id');
+  var due = warningsDue(d.posts, groupBy_(d.slots, 'Post id'), countsBySlot(d.signups), categoriesById, nowLocal_(), sentKeys_(SENT_WARN));
+  due.forEach(function (w) {
+    var post = postsById[w.postId];
+    var cat = categoriesById[post.Category];
+    var to = uniq_(
+      splitList(cat.Coordinators)
+        .concat(splitList(cat['Also warn']))
+        .filter(isEmail)
+        .map(normEmail)
+    );
+    var t = tplWarning_(s, post, w.date, w.short, pageUrl_(s, 'post', { p: post['Public id'] }));
+    to.forEach(function (e) {
+      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+    });
+    markSent_(SENT_WARN, w.key);
+  });
+  return due.length;
+}
+
+/** The Needs help soon tab, rewritten from the rule only when it changed. */
+function writeNeedsHelpTab_() {
+  var want = needsHelpRows_(settings_()).map(function (r) {
+    return { Date: r.date, Start: r.start, Title: r.title, Organization: r.organization, Role: r.role, Filled: r.filled, Needed: r.needed, Link: r.publicUrl };
+  });
+  var key = function (list) {
+    return JSON.stringify(
+      list.map(function (r) {
+        return [r.Date, r.Start, String(r.Title), String(r.Organization), String(r.Role), Number(r.Filled), Number(r.Needed), String(r.Link)];
+      })
+    );
+  };
+  withLock_(function () {
+    var t = serviceTab_(TAB.needsHelp);
+    var have = t.rows();
+    if (key(have) === key(want)) return;
+    t.removeMany(have);
+    t.appendMany(want);
   });
 }
 
@@ -122,12 +256,16 @@ function gpTenMinute(e) {
     drainOutbox_();
     processLeaderLinkTicks_();
     refreshAllFilled_();
+    writeNeedsHelpTab_();
   });
 }
 
 function gpHourly(e) {
   runJob_('gpHourly', e, function () {
+    lapseWaiting_();
     sendReminders_();
+    sendNudges_();
+    sendWarnings_();
     markPastPosts_();
     clearServeCache_();
   });
@@ -169,5 +307,11 @@ function gpDaily(e) {
       }
     });
     if (problems.length) alertOncePerDay_('gpDaily-report', problems);
+    pruneSentKeys_(today);
+    // The health email: only the PROBLEM lines of Check health, and only when there is one.
+    var bad = healthLines_({ job: true }).filter(function (l) {
+      return l.indexOf('PROBLEM') === 0;
+    });
+    if (bad.length) alertOncePerDay_('health', bad);
   });
 }

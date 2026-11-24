@@ -328,6 +328,29 @@ function tplWaitingNotice_(s, name, items) {
   };
 }
 
+/** To approvers, 48 hours ahead: sign-ups on this date still wait for approval. No names. */
+function tplNudge_(s, post, date, count) {
+  var line =
+    count + (count === 1 ? ' sign-up' : ' sign-ups') + ' for ' + post.Title + ' on ' + fmtDateLong_(date) +
+    (count === 1 ? ' is' : ' are') + ' still waiting for approval, and the date is less than 48 hours away.';
+  var more = 'Open your leader page and choose Waiting for approval to approve or decline.';
+  return { subject: 'Urgent: waiting for approval: ' + post.Title, html: paras_([esc(line), esc(more)]), text: [line, more].join('\n\n') };
+}
+
+/** To a category's coordinators and Also warn: a post date is still short. short: [{role, start, filled, needed}]. */
+function tplWarning_(s, post, date, short, url) {
+  var line = post.Title + ' on ' + fmtDateLong_(date) + ' is still short:';
+  var list = short.map(function (r) {
+    return (r.start ? fmtTime_(r.start) + ' ' : '') + r.role + ': ' + r.filled + ' of ' + r.needed + ' filled';
+  });
+  var more = 'The public page, to share: ' + url;
+  return {
+    subject: 'Still short: ' + post.Title + ', ' + fmtDateShort_(date),
+    html: paras_([esc(line), list.map(esc).join('<br>'), 'The public page, to share: <a href="' + esc(url) + '">' + esc(url) + '</a>']),
+    text: [line, list.join('\n'), more].join('\n\n'),
+  };
+}
+
 /** "Email me my link" from the My sign-ups page. */
 function tplMeLink_(s, url) {
   var lines = [

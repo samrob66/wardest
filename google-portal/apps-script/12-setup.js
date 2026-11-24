@@ -78,6 +78,7 @@ function gpMenuSetUp() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   props_().setProperty('SERVICE_ID', ss.getId());
   gpEnsureTabs_(ss);
+  var migrated = migratePhase1Volunteers_();
   var s = settings_();
   if (!s.ward_name || !s.time_zone || !s.contact_email) {
     ui_().alert('Fill in Settings (ward name, time zone, contact email) and the Leaders tab, then run Set up again.');
@@ -93,6 +94,7 @@ function gpMenuSetUp() {
   ensureSystemSheet_(s, folder);
   var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows());
   var lines = ['Set up is done.'];
+  if (migrated) lines.push('Volunteers from before phase 2 marked Approved: ' + migrated + '.');
   lines.push(made.length ? 'New request forms: ' + made.join(', ') + '.' : 'Request forms: already made.');
   var tz = tzMismatchLine_(s);
   if (tz) lines.push('Time zone: ' + tz);
@@ -313,6 +315,18 @@ function fetchOk_(url) {
 /** Service Portal > Check health: one OK/PROBLEM line per piece. Returns the lines. */
 function gpMenuCheckHealth() {
   if (!menuStart_()) return;
+  var lines = healthLines_({ job: false });
+  ui_().alert(lines.join('\n'));
+  return lines;
+}
+
+/**
+ * The health checks, one 'OK …' or 'PROBLEM …' line each, with counts only (no volunteer or
+ * request data). opts.job: run from the daily job, which also checks the jobs run as the Service
+ * Sheet's owner; from the menu (owner only) it names the account the listed triggers belong to.
+ */
+function healthLines_(opts) {
+  opts = opts || {};
   var lines = [];
   var add = function (ok, text) {
     lines.push((ok ? 'OK ' : 'PROBLEM ') + text);
@@ -364,6 +378,40 @@ function gpMenuCheckHealth() {
     'Triggers: gpTenMinute ' + (have.gpTenMinute || 0) + ', gpHourly ' + (have.gpHourly || 0) + ', gpDaily ' + (have.gpDaily || 0) +
       ', gpOnRequestSubmit ' + (have.gpOnRequestSubmit || 0) + ' of ' + formCount + (trigOk ? '.' : '. Run Install triggers.')
   );
+  // getProjectTriggers lists only the running account's triggers: say whose they are.
+  var me = normEmail(Session.getEffectiveUser().getEmail());
+  if (opts.job) {
+    var ownerUser = null;
+    try {
+      ownerUser = DriveApp.getFileById(serviceSs_().getId()).getOwner();
+    } catch (e) {
+      ownerUser = null;
+    }
+    var sheetOwner = ownerUser ? normEmail(ownerUser.getEmail()) : '';
+    var sameOwner = !sheetOwner || sheetOwner === me;
+    add(
+      sameOwner,
+      sameOwner
+        ? 'Timed jobs run as the Service Sheet owner.'
+        : 'Timed jobs run as ' + me + ', not as the Service Sheet owner ' + sheetOwner + '. Sign in as ' + sheetOwner +
+            " and run Install triggers, then remove the other account's triggers (Extensions > Apps Script > Triggers, signed in as that account)."
+    );
+  } else {
+    var kinds = ScriptApp.getProjectTriggers().map(function (t) {
+      var src = '';
+      try {
+        src = String(t.getTriggerSource());
+      } catch (e) {
+        src = '';
+      }
+      return t.getHandlerFunction() + (src ? ' (' + src + ')' : '');
+    });
+    add(
+      true,
+      'Triggers belong to ' + me + ' (this account): ' + (kinds.length ? kinds.join(', ') : 'none') +
+        '. Triggers another account made never show here; if one is missing above, run Install triggers signed in as this account.'
+    );
+  }
   // Each job stamps LAST_RAN_<job> when it finishes; a job that stops (or whose runs are
   // refused) shows up here even though its trigger is still listed.
   var now = nowLocal_();
@@ -408,6 +456,41 @@ function gpMenuCheckHealth() {
     !tz && sheetTzOk,
     tz || (sheetTzOk ? 'Time zone matches (' + (s.time_zone || Session.getScriptTimeZone()) + ').' : 'The Service Sheet time zone is ' + sheetTz + '; set File > Settings > Time zone to ' + s.time_zone + '.')
   );
-  ui_().alert(lines.join('\n'));
   return lines;
+}
+
+// ---------- upgrade from phase 1 ----------
+
+/**
+ * Phase 1 had no approval step: a leader removed anyone they didn't recognize. On the first Set up
+ * after the upgrade, every address with a Confirmed sign-up and no Volunteers row (leaders aside)
+ * becomes Approved, Decided by "Phase 1 sign-up", so their reminders keep the private details.
+ * Runs once (Script Property VOLUNTEERS_MIGRATED). Returns how many rows it added.
+ */
+function migratePhase1Volunteers_() {
+  var p = props_();
+  if (p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
+  var n = withLock_(function () {
+    var volsT = serviceTab_(TAB.volunteers);
+    var have = volunteersByEmail_(volsT.rows());
+    var leaders = leaderEmails_();
+    var now = nowLocal_();
+    var add = [];
+    var seen = {};
+    serviceTab_(TAB.signups)
+      .rows()
+      .sort(function (a, b) {
+        return cmpLocal(a['Signed up at'], b['Signed up at']);
+      })
+      .forEach(function (su) {
+        var e = normEmail(su.Email);
+        if (su.Status !== SIGNUP_STATUS.confirmed || !isEmail(e) || have[e] || seen[e] || leaders.indexOf(e) >= 0) return;
+        seen[e] = true;
+        add.push({ Email: e, Name: su.Name, Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now, 'First post': su['Post id'] });
+      });
+    volsT.appendMany(add);
+    return add.length;
+  });
+  p.setProperty('VOLUNTEERS_MIGRATED', nowLocal_());
+  return n;
 }

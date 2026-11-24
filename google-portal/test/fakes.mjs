@@ -936,6 +936,7 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
     t.getUniqueId = () => t.id;
     t.getEventType = () => kind;
     t.getTriggerSourceId = () => detail.formId || '';
+    t.getTriggerSource = () => (kind === 'CLOCK' ? 'CLOCK' : 'FORMS');
     triggers.push(t);
     return t;
   };
