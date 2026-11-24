@@ -146,7 +146,7 @@ describe('buildRequestForms_', () => {
     expect(other.items.map((i) => i.title)).toEqual(['Name', 'Phone or email', 'Note']);
     expect(moving.items[0].required).toBe(true);
     expect(moving.items[4].required).toBe(false);
-    expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders and the bishopric see this request.');
+    expect(moving.description).toContain('Only the bishopric, the Elders Quorum and Relief Society leaders and the people they name see this request.');
     expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
     expect(other.description).toContain('Only the bishopric and the people they name see this request.');
     for (const f of [christmas, other]) expect(f.description).not.toContain('the bishop and the people he names');
@@ -176,7 +176,7 @@ describe('Set up refreshes request forms', () => {
     expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
     expect(other.description).toContain('Only the bishopric and the people they name see this request.');
     for (const f of [christmas, other]) expect(f.description).not.toContain('he names');
-    expect(moving.description).toContain('Only the Elders Quorum and Relief Society leaders and the bishopric see this request.');
+    expect(moving.description).toContain('Only the bishopric, the Elders Quorum and Relief Society leaders and the people they name see this request.');
     expect(moving.title).toBe('Moving help — Riverbend 1st Ward (example)');
   });
 });
@@ -768,6 +768,12 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
 // ---------- 2.1 (decision 18): the bishopric opens every request folder; Notify Owners ----------
 
 describe('Every request folder includes the bishopric (decision 18)', () => {
+  it('a request form with no owning organization says the bishopric and the people it names', () => {
+    const gp = loadPortal({ seed: true });
+    const d = gp.requestFormDescription_(gp.settings_(), { Id: 'yard', Name: 'Yard help', 'Owning organizations': '', Confidential: false });
+    expect(d).toContain('Only the bishopric and the people it names see this request.');
+  });
+
   const moving = { Id: 'moving', 'Owning organizations': 'Elders Quorum, Relief Society', Coordinators: 'helper.coord@example.test', Confidential: false };
 
   it('Notify Owners means the owning organizations\' Org editor or Ward council leaders', () => {

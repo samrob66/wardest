@@ -54,8 +54,8 @@ function requestFormDescription_(s, c) {
   var who = isTicked(c.Confidential)
     ? 'Only ' + (CONFIDENTIAL_WHO[c.Id] || CONFIDENTIAL_WHO_DEFAULT) + ' see this request.'
     : splitList(c['Owning organizations']).length
-    ? 'Only the ' + joinNames_(splitList(c['Owning organizations'])) + ' leaders and the bishopric see this request.'
-    : 'Only the bishopric leaders see this request.';
+    ? 'Only the bishopric, the ' + joinNames_(splitList(c['Owning organizations'])) + ' leaders and the people they name see this request.'
+    : 'Only the bishopric and the people it names see this request.';
   return [
     who,
     'Nothing is emailed back to you; a leader will contact you.',

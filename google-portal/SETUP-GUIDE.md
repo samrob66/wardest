@@ -40,7 +40,8 @@ How a volunteer is known (no Google account needed):
 > 3. Run **Service Portal > Set up**. It sets the **moving** row's **Notify** to
 >    `Owners, Coordinators` (only if that cell was blank), so Moving emails keep going to the
 >    Elders Quorum and Relief Society leaders and the coordinators, not the whole bishopric. It
->    also updates the request forms' wording (*… leaders and the bishopric see this request*).
+>    also updates the request forms' wording (*Only the bishopric, the Elders Quorum and Relief
+>    Society leaders and the people they name see this request.*).
 > 4. Run **Service Portal > Sync sharing**. The whole bishopric now gets the Moving folder.
 >
 > If your ward is also before 1.1 or still on phase 1, do the box below or section 11 first;
