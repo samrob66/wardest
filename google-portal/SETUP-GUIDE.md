@@ -27,8 +27,10 @@ What you are building:
 >    both counselors, the Executive Secretary and the Ward Clerk (add a row for anyone missing),
 >    and for nobody else.
 > 4. Run **Service Portal > Set up**. It keeps everything you typed, makes whatever is still
->    missing (this is also section 3, step 7), and updates the wording of any request forms it
->    made before (*Updated the wording of: …*).
+>    missing (this is also section 3, step 7), adds the **Notify** column to the Categories tab
+>    (the **other** row gets `Bishop`), and updates the wording of any request forms it made
+>    before (*Updated the wording of: …*). Then check the Categories tab as in section 3, step
+>    6: Christmas coordinators in **Coordinators**, and **Notify**.
 > 5. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
 >    5, step 2). If you hadn't reached section 5 yet, skip this; section 5 runs it.
 > 6. Carry on from where you stopped.
@@ -178,6 +180,21 @@ private window, use a separate Chrome profile signed in only to the shared accou
    - **Christmas help** and **Other help** are **Confidential**: only the bishopric (every
      Leaders row with **Bishopric** ticked) and anyone listed in **Coordinators** (emails,
      separated by commas). No other ward council member sees them unless you list them there.
+   - **Christmas gift coordinators.** If a couple outside the bishopric is called to match
+     Christmas requests with givers, type both their emails in the **christmas** row's
+     **Coordinators** cell, for example
+     `brother.example.gifts@example.test, sister.example.gifts@example.test` (Riverbend's
+     invented Brother and Sister Example). They need no Leaders row. They get the Christmas
+     folder and its request emails, and nothing else: not the Service Sheet, not Moving or
+     Other.
+   - **Notify** (the last column) says who gets the short *New … request* email. Blank means
+     everyone who can open that kind's folder. Otherwise type names separated by commas:
+     `Bishop` (the Leaders row whose Calling is `Bishop`) or email addresses. The **other** row
+     starts as `Bishop`: Other requests email only the bishop, while the whole bishopric can
+     still open the Other folder. To widen it later, clear the cell (the whole bishopric is
+     emailed) or add addresses, e.g. `Bishop, brother.counselor@example.test`. Only people who
+     can open the folder are ever emailed; Sync sharing lists anyone in Notify who can't.
+     Leave **christmas** and **moving** blank.
    Do not change the **Id** column.
 7. Click **Service Portal > Set up** again. It makes the **Service Portal** folder in Drive,
    moves the Service Sheet into it, makes the private **System Sheet**, and makes one request
