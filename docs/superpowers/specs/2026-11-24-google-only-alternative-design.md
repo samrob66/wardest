@@ -142,7 +142,7 @@ done with Levels 1–3 tools (or only by a workaround outside the system).
 | Requester's email verified by link | Changed (by choice) | Not done. Forms can only verify an email by making the person sign in to Google (Sam's rule: "not everyone has Gmail"). Instead the form asks for name and a phone or email, sends **nothing** to the requester, and the leader confirms in person. Fewer emails, nothing revealed if someone types another person's address. A fake request costs one conversation. |
 | Each form says who will see it | Full | Form description. |
 | Christmas giving offers (§12 decisions 16, 17) | Full | A request kind that is never on the Help page: families offer gifts on its form, shared by short link or, when the ward ticks On Serve page, from an "Offer to give at Christmas" card on the Service Opportunities page. Offers land in their own folder read by the bishopric and the Christmas gift coordinators, who match offers to Christmas requests themselves. |
-| Only the responsible leaders see requests; Christmas and Other only the bishopric and those they name | Full (with one caveat) | Each request kind writes to its own spreadsheet in a Drive folder shared only with its leaders (§5.4); Christmas and Other go to the whole bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) plus that kind's Coordinators (§12 decision 14). Caveat: the shared bishopric account owns every file, so anyone who signs in to that account can open them, and so can anyone who edits the Service Sheet, through its bound script; both are the bishopric. Same as WardForward's superadmins. |
+| Only the responsible leaders see requests; Christmas and Other only the bishopric and those they name | Full (with one caveat) | Each request kind writes to its own spreadsheet in a Drive folder shared only with its leaders (§5.4). The whole bishopric opens every request folder (§12 decision 18); Moving and other non-confidential kinds also go to their owning organizations' leaders and Coordinators. Christmas and Other go to the whole bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) plus that kind's Coordinators (§12 decision 14). Caveat: the shared bishopric account owns every file, so anyone who signs in to that account can open them, and so can anyone who edits the Service Sheet, through its bound script; both are the bishopric. Same as WardForward's superadmins. |
 | Inbox with status, assignee, one short private note | Full | Columns in each request sheet. |
 | Leader notice by email with no details | Full | "A new Moving request came in. Open your Requests folder." |
 | "Turn into a service opportunity" | Partial | A checkbox in the request sheet makes a draft opportunity with the dates on the leader page; the leader writes the public note and publishes. |
@@ -198,7 +198,7 @@ Of the 56 features in §4.1–4.5 (not counting the two rows marked "not counted
 | **Service script** | The same script, deployed as a web app: Execute as **me** (the shared account), access **Anyone**. It is a data service for the hub pages, and also serves the same pages itself as a fallback | Public, through the pages |
 | **Hub sub-pages** | Static HTML + JavaScript files in the ward's hub (GitHub Pages for M44): `serve.html`, `post.html`, `help.html`, `confirm.html`, `me.html`, `leader.html` | Public. The files hold no data; data comes from the script |
 | **Request forms** (Moving, Christmas, Other; more later) | Google Forms, not linked to a response sheet | Anyone with the link can answer; only the shared account edits |
-| **Request folders and sheets** (one folder per request kind, e.g. "Requests – Moving help", "Requests – Christmas help"), each holding that month's request sheet | Drive | The folder is shared with that kind's leaders only (Christmas/Other: the whole bishopric and that kind's Coordinators, e.g. the Christmas gift coordinators) |
+| **Request folders and sheets** (one folder per request kind, e.g. "Requests – Moving help", "Requests – Christmas help"), each holding that month's request sheet | Drive | The folder is shared with the whole bishopric and that kind's leaders only (Moving and other non-confidential kinds: also its owning organizations' leaders and Coordinators; Christmas/Other: only the bishopric and that kind's Coordinators, e.g. the Christmas gift coordinators) |
 | **System Sheet** | Google Sheet: hashed tokens, leader links, rate counters, email outbox, log, Discord webhook URL | Nobody but the shared account |
 
 Why one script: one place to update, one owner, one set of triggers. Why the System Sheet is
@@ -291,8 +291,8 @@ promise by Google; it is the first item in the §11 test.
 
 | Person | Service Sheet | Leader page | Request folders | Public pages |
 |---|---|---|---|---|
-| Bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) | Edit Settings, Leaders, Categories; read the rest | All organizations; approve, undo, revoke anywhere | Christmas and Other: **the whole bishopric** (+ that kind's coordinators); others only if added | Yes |
-| Ward council | Read all | All organizations (read); edit and approve for their own organization | A request kind's folder if their organization owns it | Yes |
+| Bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) | Edit Settings, Leaders, Categories; read the rest | All organizations; approve, undo, revoke anywhere | **Every** request folder (§12 decision 18) | Yes |
+| Ward council | Read all | All organizations (read); edit and approve for their own organization | A non-confidential request kind's folder if their organization owns it | Yes |
 | Org volunteer editors, category coordinators (not on ward council) | **No** | Only their organization's or categories' posts and names | A request kind's folder if named in its Coordinators (e.g. the Christmas gift coordinators: the Christmas help and Christmas giving offers folders and their notices, and nothing else) | Yes |
 | Volunteer | No | No | No | Public pages + their own My sign-ups |
 | Requester | No | No | No | Help page and form |
@@ -303,15 +303,20 @@ Rules:
   for the bishop, both counselors, the Executive Secretary and the Ward Clerk. The Calling text
   decides no access (it only names the two administrators who get alert emails: `Bishop` and
   `Executive Secretary`). §12 decision 14.
+- Every request folder is read by the whole bishopric and that kind's Coordinators (§12
+  decision 18). Non-confidential kinds (Moving, and any kind a ward adds) are also read by the
+  leaders of their owning organizations.
 - Confidential request kinds (Confidential ticked: Christmas, Other) are read by the bishopric
-  plus that kind's Coordinators. No other ward council or organization leader gets them unless
+  plus that kind's Coordinators only. No other ward council or organization leader gets them unless
   named a Coordinator. Coordinators need no Leaders row: the Christmas gift coordinators (a
   couple outside the bishopric) are listed there by email, on both Christmas rows, and get the
   Christmas help and Christmas giving offers folders and their notices, and nothing else (§12
   decisions 15 and 16).
 - Each request kind's **Notify** (Categories) narrows who gets its "new request" email. Blank:
-  every reader. Otherwise `Bishop` (Calling Bishop) and email addresses, always limited to that
-  kind's readers; anyone else is dropped and logged. Other is seeded `Bishop`: its email goes to
+  every reader, which includes the whole bishopric. Otherwise `Bishop` (Calling Bishop),
+  `Owners` (the owning organizations' leaders with Org editor or Ward council ticked),
+  `Coordinators` and email addresses, always limited to that kind's readers. Moving is seeded
+  `Owners, Coordinators`, so its emails don't reach the whole bishopric; anyone else is dropped and logged. Other is seeded `Bishop`: its email goes to
   the bishop while the whole bishopric can open its folder. `Coordinators` means that kind's
   Coordinators; the Christmas giving offers kind is seeded with it.
 - A request kind with **On Help page** unticked has a form but no tile on the Help page; its
@@ -757,6 +762,14 @@ help soon", quota reserve and health email.
       allows the Coordinators to contact them privately later with opportunities to give."
     - "Sorry, I didn't mean to include "Want to give?" on the requesting help page... I mean to
       include it on the Service Opportunities page."
+18. **The whole bishopric opens every request folder** (§4.3, §5.4; Sam, 2026-11-24, in 2.1).
+    Asked whether the whole bishopric should be able to open every request folder, Moving
+    included, Sam said: "Yes, bishopric should see all of them". Every request kind's readers
+    are the bishopric, its Coordinators and (unless confidential) its owning organizations'
+    leaders; confidential kinds are unchanged. So that Moving notices don't newly reach all five
+    bishopric members, a Notify token `Owners` (the owning organizations' Org editor or Ward
+    council leaders) was added and Moving is seeded `Owners, Coordinators` (once, only when
+    blank). A blank Notify still means every reader.
 
 ## 13. Settled with Sam, and open questions
 

@@ -32,6 +32,20 @@ How a volunteer is known (no Google account needed):
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
 
+> **If you already set up before 2.1** (before the bishopric could open every request folder,
+> Moving included), do this once, signed in to the shared account in a private window:
+> 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
+> 2. **Deploy > Manage deployments**, select the deployment, click the **pencil**, set
+>    **Version** to **New version**, click **Deploy** (skip if you haven't deployed yet).
+> 3. Run **Service Portal > Set up**. It sets the **moving** row's **Notify** to
+>    `Owners, Coordinators` (only if that cell was blank), so Moving emails keep going to the
+>    Elders Quorum and Relief Society leaders and the coordinators, not the whole bishopric. It
+>    also updates the request forms' wording (*… leaders and the bishopric see this request*).
+> 4. Run **Service Portal > Sync sharing**. The whole bishopric now gets the Moving folder.
+>
+> If your ward is also before 1.1 or still on phase 1, do the box below or section 11 first;
+> their Set up and Sync sharing steps cover these.
+
 > **If you set up before 1.1** (before the whole bishopric could edit the Service Sheet and
 > read the Christmas and Other requests), do this once, signed in to the shared account in a
 > private window. **Going to phase 2 at the same time?** Follow section 11 instead: it pastes
@@ -203,8 +217,11 @@ private window, use a separate Chrome profile signed in only to the shared accou
    role can't create opportunities yet* and you can't do the test in section 9.
 
 6. Open the **Categories** tab and check the owners. Request kinds (`moving`, `christmas`,
-   `other`, `christmas-giving`) decide who reads each request folder:
-   - **Moving help**: the Elders Quorum and Relief Society leaders (Owning organizations).
+   `other`, `christmas-giving`) decide who reads each request folder. The whole bishopric
+   (every Leaders row with **Bishopric** ticked) can open **every** request folder; the rows
+   decide who else can:
+   - **Moving help**: the Elders Quorum and Relief Society leaders (Owning organizations) and
+     anyone in its **Coordinators**. The same goes for any request kind you add later.
    - **Christmas help** and **Other help** are **Confidential**: only the bishopric (every
      Leaders row with **Bishopric** ticked) and anyone listed in **Coordinators** (emails,
      separated by commas). No other ward council member sees them unless you list them there.
@@ -225,15 +242,23 @@ private window, use a separate Chrome profile signed in only to the shared accou
      invented Brother and Sister Example). They need no Leaders row. They get those two folders
      and their emails, and nothing else: not the Service Sheet, not Moving or Other.
    - **Notify** says who gets the short *New … request* email. Blank means everyone who can
-     open that kind's folder. Otherwise type names separated by commas: `Bishop` (the Leaders
-     row whose Calling is `Bishop`), `Coordinators` (the people in that row's Coordinators), or
-     email addresses. The rows start like this:
+     open that kind's folder, which now includes the whole bishopric. Otherwise type names
+     separated by commas: `Bishop` (the Leaders row whose Calling is `Bishop`), `Owners` (the
+     owning organizations' leaders with **Org editor** or **Ward council** ticked),
+     `Coordinators` (the people in that row's Coordinators), or email addresses. The rows start
+     like this:
      - **other**: `Bishop`. Other requests email only the bishop, while the whole bishopric can
        still open the Other folder. To widen it later, clear the cell (the whole bishopric is
        emailed) or add addresses, e.g. `Bishop, brother.counselor@example.test`.
      - **christmas-giving**: `Coordinators`. Offers email the Christmas gift coordinators. Until
        you type their emails, the bishopric gets them.
-     - **christmas** and **moving**: blank (everyone who can open the folder).
+     - **moving**: `Owners, Coordinators`. Moving requests email the Elders Quorum and
+       Relief Society leaders and the coordinators, not the whole bishopric (who can still open
+       the folder).
+     - **christmas**: blank (everyone who can open the folder: the bishopric and the Christmas
+       gift coordinators).
+     A request kind you add later starts blank, so its emails go to the whole bishopric too;
+     type `Owners, Coordinators` if you don't want that.
      Only people who can open the folder are ever emailed; Sync sharing lists anyone in Notify
      who can't.
    - **On Help page**: ticked request kinds show on the public Request Help page. If you add a
@@ -294,9 +319,10 @@ and the old links stop working.
    - the **Service Sheet**: the bishopric (Bishopric ticked) can edit; every other ward
      council member can view (editors can also change the script inside it, which can open
      every request sheet, so Bishopric stays ticked for the five bishopric callings only);
-   - each **request folder**: the leaders who read that kind of request (they can edit the
-     request sheet: Status, Assigned to, Leader note). Christmas and Other: the bishopric and
-     that kind's Coordinators;
+   - each **request folder**: the whole bishopric, plus the leaders who read that kind of
+     request (they can edit the request sheet: Status, Assigned to, Leader note). Moving (and any
+     kind you add): also its owning organizations' leaders and its Coordinators. Christmas,
+     Other and Christmas giving offers: only the bishopric and that kind's Coordinators;
    - the **System Sheet** and the **Service Portal** folder: nobody but the shared account
      (any link sharing is turned off);
    - and it **protects** Posts, Slots, Sign-ups, Volunteers and Needs help soon so only the
@@ -336,13 +362,18 @@ pages. The hub belongs to the ward; its owner adds the files.
    `serve-qr.png` and `help-qr.png`, and have the hub owner upload them next to `index.html`.
 7. **The Christmas giving form.** Either tick **On Serve page** on the **christmas-giving** row
    (section 3, step 6) so the Service Opportunities page shows an *Offer to give at Christmas*
-   card, or leave it unticked and share the link privately. Either way you can share the link:
-   find it in Set up's message (it lists *Christmas giving offers (not on any public page;
-   share privately): …* or *(on the Service Opportunities page; you can also share the link):
-   …*), or in Drive > **Service Portal** > the **Christmas giving offers** form > **Send** > the
-   **link** icon > **Copy**. On **app.zippa.run** make `<prefix>Give` pointing at it
-   (Riverbend: `zippa.run/rb1Give`). When it is unticked, share that link only in a ward email
-   with addresses in **Bcc**, or in the bulletin, and don't put it on the hub.
+   card, or leave it unticked and share the link privately. The card links straight to the
+   form itself; it does not use any short link.
+   - **The giving short link is only for sharing by hand.** Find the form's link in Set up's
+     message (it lists *Christmas giving offers (not on any public page; share privately): …*
+     or *(on the Service Opportunities page; you can also share the link): …*), or in Drive >
+     **Service Portal** > the **Christmas giving offers** form > **Send** > the **link** icon >
+     **Copy**. On **app.zippa.run** make `<prefix>Give` pointing at it (Riverbend:
+     `zippa.run/rb1Give`).
+   - **Nothing goes into Settings for it.** There is no Settings row for the giving link; don't
+     paste it into serve_short_link or help_short_link.
+   - Share `<prefix>Give` only in a ward email with addresses in **Bcc**, or in the bulletin.
+     Don't put it on the hub.
 
 **If there is no hub, or the hub test in Check health fails:** skip this step, leave
 **hub_url** blank, and point the two short links at the web app's own pages instead:
@@ -628,4 +659,5 @@ public pages keep using the old one until step 4.
 8. **Tell the leaders.** Send them the new LEADER-GUIDE: first-timers now wait under **Waiting
    for approval**, and there is no more *Send details* button (approved volunteers get the
    details in their confirmation).
-9. **Check health**, then go through the test checklist in section 9.
+9. **If signup_limit_per_day still says 40, change it to 80** (Settings tab): phase 2 counts every attempt.
+10. **Check health**, then go through the test checklist in section 9.

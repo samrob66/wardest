@@ -98,11 +98,14 @@ email saying a request came in; open your **Requests** folder in Google Drive, w
 request is a row. Fill in **Status** (New, In progress, Done, Declined), **Assigned to** and a
 short **Leader note**. Contact the person directly. Never copy request details into an email.
 Requests are removed 30 days after they are Done or Declined.
-- **Christmas and Other requests** go only to the bishopric (the bishop, both counselors, the
-  Executive Secretary and the Ward Clerk) and anyone they name as that kind's coordinator, such
-  as the Christmas gift coordinators. The email for a new Other request goes to the bishop; the
-  whole bishopric can open the Other folder. Other kinds go to the leaders of the organizations
-  that own them.
+- **The bishopric** (the bishop, both counselors, the Executive Secretary and the Ward Clerk)
+  can open every request folder.
+- **Christmas and Other requests** go only to the bishopric and anyone they name as that kind's
+  coordinator, such as the Christmas gift coordinators. The email for a new Other request goes
+  to the bishop.
+- **Other kinds** (such as Moving) also go to the leaders of the organizations that own them
+  and to their coordinators. The email for a new Moving request goes to those leaders and
+  coordinators, not to the whole bishopric.
 
 **Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on the
 Christmas giving form, from a link the ward shares or, if the ward turned it on, from the
