@@ -35,10 +35,12 @@ What you are building:
 > 5. In the **Categories** tab, type the Christmas gift coordinators' emails in
 >    **Coordinators** on both the **christmas** and **christmas-giving** rows (section 3, step
 >    6).
-> 6. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
+> 6. Only if you had already run Install triggers: run **Service Portal > Install triggers**
+>    again (section 5, step 1), so the new giving form gets its trigger. Otherwise skip this.
+> 7. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
 >    5, step 2), and make the giving short link (section 6, step 7). If you hadn't reached those
 >    sections yet, skip this; they come up in order.
-> 7. Carry on from where you stopped.
+> 8. Carry on from where you stopped.
 
 ---
 
@@ -207,7 +209,8 @@ private window, use a separate Chrome profile signed in only to the shared accou
      Only people who can open the folder are ever emailed; Sync sharing lists anyone in Notify
      who can't.
    - **On Help page**: ticked request kinds show on the public Request Help page. If you add a
-     new request kind later, tick it (unticked kinds are left off).
+     new request kind later, tick it (unticked kinds are left off). After changing On Help
+     page, run Set up (the Help page can otherwise take up to 6 hours to change).
    Do not change the **Id** column.
 7. Click **Service Portal > Set up** again. It makes the **Service Portal** folder in Drive,
    moves the Service Sheet into it, makes the private **System Sheet**, and makes one request
@@ -244,7 +247,7 @@ and the old links stop working.
 ## 5. Install triggers, then Sync sharing
 
 1. Click **Service Portal > Install triggers**. It says *Triggers installed: every 10 minutes,
-   hourly, daily at 2 am, and 3 request form trigger(s).*
+   hourly, daily at 2 am, and 4 request form trigger(s).*
 2. Click **Service Portal > Sync sharing**. It shares, with Google's share emails turned off:
    - the **Service Sheet**: the bishopric (Bishopric ticked) can edit; every other ward
      council member can view (editors can also change the script inside it, which can open
@@ -328,6 +331,7 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 | gpTenMinute / gpHourly / gpDaily last ran … more than … minutes ago, or has not run | That job has stopped (every 10 minutes, every hour, once a night). Open **Extensions > Apps Script > Executions** and look at its recent runs and errors. Then run **Install triggers** again in a window signed in only to the shared account. Right after installing, *has not run yet* is normal. |
 | Any menu item: *works only for the account that owns this Service Sheet* | See the box at the start of section 2: use a private window signed in only to the shared account. |
 | System Sheet missing / Request forms | Run **Set up**. |
+| … Notify says Bishop, but no Leaders row has Calling Bishop | Type `Bishop` in the bishop's **Calling** in Leaders, or change that row's **Notify** in Categories. |
 | Email left today | Today's 100 emails are nearly used. Wait a day; queued mail goes out by itself. |
 | Outbox failed | Open the System Sheet's Outbox tab and read the Error column (often a mistyped address). |
 | Time zone | Do what the line says (Project Settings, or File > Settings in the Sheet). |
@@ -360,6 +364,10 @@ Use your own email for the volunteer steps. Tick each box as it passes.
       (Moving, Christmas, Other) with test words.
 - [ ] The right leaders each get a *New … request* email that names only the kind of request
       and the folder link, nothing from the form.
+- [ ] Open the **Christmas giving offers** form through its private link (section 6, step 7)
+      and submit a test offer. It lands in the **Requests – Christmas giving offers** sheet with
+      **Offer** filled; only the Christmas gift coordinators get the email (or the bishopric, if
+      no coordinators are typed yet); and it is **not** on the Request Help page.
 - [ ] Each request appears in its folder's sheet (Drive > Service Portal > Requests – …). Open
       the form itself (Drive > Service Portal > the form > **Responses** tab): it shows **0**.
       If a form says it is not accepting responses, open it and click **Publish**.

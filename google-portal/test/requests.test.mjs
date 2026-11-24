@@ -389,6 +389,25 @@ describe('Notify (decision 15)', () => {
     expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'other').Notify).toBe('');
   });
 
+  it('Notify Bishop with no Leaders row whose Calling is Bishop: Sync sharing and Check health say PROBLEM', () => {
+    const gp = wardWithCouple();
+    gp.gpMenuSyncSharing();
+    expect(gp.fakes.alerts.at(-1)).not.toContain('Calling Bishop');
+    expect(gp.gpMenuCheckHealth().filter((l) => l.includes('Calling Bishop'))).toEqual([]);
+    const t = gp.serviceTab_('Leaders');
+    t.update(t.find('Email', 'bishop.example@example.test'), { Calling: 'Bishop (released)' });
+    gp.gpBegin_();
+    gp.gpMenuSyncSharing();
+    expect(gp.fakes.alerts.at(-1)).toContain('Other help Notify says Bishop, but no Leaders row has Calling Bishop');
+    const health = gp.gpMenuCheckHealth().filter((l) => l.includes('Calling Bishop'));
+    expect(health).toHaveLength(1);
+    expect(health[0]).toMatch(/^PROBLEM /);
+    // Case doesn't matter.
+    t.update(t.find('Email', 'bishop.example@example.test'), { Calling: '  bishop ' });
+    gp.gpBegin_();
+    expect(gp.gpMenuCheckHealth().filter((l) => l.includes('Calling Bishop'))).toEqual([]);
+  });
+
   it('an outsider email in Notify gets nothing and is logged', () => {
     const gp = wardWithCouple();
     const cats = gp.serviceTab_('Categories');

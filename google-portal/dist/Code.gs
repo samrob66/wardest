@@ -3546,6 +3546,7 @@ function gpMenuSyncSharing() {
       }
     });
 
+  problems = problems.concat(notifyBishopProblems_(serviceTab_(TAB.categories).rows(), leaders));
   applySharing_(systemSs_().getId(), {}, owner, 'System Sheet', problems);
   applySharing_(portalFolder_().getId(), {}, owner, 'Service Portal folder', problems);
   summary.push('System Sheet and Service Portal folder: only this account.');
@@ -3558,6 +3559,32 @@ function gpMenuSyncSharing() {
   }
   ui_().alert(summary.join('\n'));
   return problems;
+}
+
+/**
+ * One line per request kind (not archived) whose Notify names Bishop while no Leaders row has
+ * Calling Bishop (any case): the bishop would get no request email. (An empty Coordinators list
+ * behind Notify Coordinators is intended and not reported.)
+ */
+function notifyBishopProblems_(categories, leaders) {
+  var haveBishop = leaders.some(function (l) {
+    return String(l.Calling == null ? '' : l.Calling).trim().toLowerCase() === 'bishop';
+  });
+  if (haveBishop) return [];
+  var out = [];
+  categories.forEach(function (c) {
+    if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived)) return;
+    var says = splitList(c.Notify).some(function (e) {
+      return String(e).trim().toLowerCase() === 'bishop';
+    });
+    if (says) {
+      out.push(
+        c.Name + ' Notify says Bishop, but no Leaders row has Calling Bishop, so the bishop gets no request email. ' +
+          "Type Bishop in the bishop's Calling in Leaders, or change Notify in Categories."
+      );
+    }
+  });
+  return out;
 }
 
 // ---------- triggers ----------
@@ -3713,6 +3740,9 @@ function gpMenuCheckHealth() {
       return c.Kind === CATEGORY_KIND.request && !isTicked(c.Archived);
     });
   add(formCount >= reqCats.length, 'Request forms: ' + formCount + ' of ' + reqCats.length + (formCount >= reqCats.length ? '.' : '. Run Set up.'));
+  notifyBishopProblems_(reqCats, leaders_()).forEach(function (line) {
+    add(false, line);
+  });
 
   var quota = mailQuota_();
   add(quota > s.email_reserve, 'Email left today: ' + quota + ' (reserve ' + s.email_reserve + ').');

@@ -293,7 +293,7 @@ promise by Google; it is the first item in the §11 test.
 |---|---|---|---|---|
 | Bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) | Edit Settings, Leaders, Categories; read the rest | All organizations; approve, undo, revoke anywhere | Christmas and Other: **the whole bishopric** (+ that kind's coordinators); others only if added | Yes |
 | Ward council | Read all | All organizations (read); edit and approve for their own organization | A request kind's folder if their organization owns it | Yes |
-| Org volunteer editors, category coordinators (not on ward council) | **No** | Only their organization's or categories' posts and names | A request kind's folder if named in its Coordinators (e.g. the Christmas gift coordinators: that folder only) | Yes |
+| Org volunteer editors, category coordinators (not on ward council) | **No** | Only their organization's or categories' posts and names | A request kind's folder if named in its Coordinators (e.g. the Christmas gift coordinators: the Christmas help and Christmas giving offers folders and their notices, and nothing else) | Yes |
 | Volunteer | No | No | No | Public pages + their own My sign-ups |
 | Requester | No | No | No | Help page and form |
 | Anyone signed in to the shared account | Everything | – | Everything | – |
@@ -306,8 +306,9 @@ Rules:
 - Confidential request kinds (Confidential ticked: Christmas, Other) are read by the bishopric
   plus that kind's Coordinators. No other ward council or organization leader gets them unless
   named a Coordinator. Coordinators need no Leaders row: the Christmas gift coordinators (a
-  couple outside the bishopric) are listed there by email and get the Christmas folder and its
-  notices and nothing else (§12 decision 15).
+  couple outside the bishopric) are listed there by email, on both Christmas rows, and get the
+  Christmas help and Christmas giving offers folders and their notices, and nothing else (§12
+  decisions 15 and 16).
 - Each request kind's **Notify** (Categories) narrows who gets its "new request" email. Blank:
   every reader. Otherwise `Bishop` (Calling Bishop) and email addresses, always limited to that
   kind's readers; anyone else is dropped and logged. Other is seeded `Bishop`: its email goes to
@@ -723,8 +724,9 @@ help soon", quota reserve and health email.
       and the Ward Clerk either--he is even more trusted than I am."
 15. **Christmas gift coordinators read Christmas only; Other notices go to the bishop** (§5.4;
     Sam, 2026-11-24, in 1.1). The Christmas kind is read by the bishopric and the couple called
-    as Christmas gift coordinators, listed in its Coordinators (no Leaders row, no Service Sheet,
-    no other folder). A new Categories column, Notify, lets a kind's email go to fewer people
+    as Christmas gift coordinators, listed in its Coordinators (no Leaders row, no Service
+    Sheet). With decision 16 they are on both Christmas rows, so they get the Christmas help and
+    Christmas giving offers folders and their notices, and nothing else. A new Categories column, Notify, lets a kind's email go to fewer people
     than can read it; Other is seeded `Bishop`. Sam's words: "We do have a special case
     scenario. The Christmas gift volunteer function should be a separate thing, because a couple
     (not in the Bishopric) have been asked to serve in that calling, and it will see sensitive
