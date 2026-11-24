@@ -145,34 +145,118 @@ function apiHelp_() {
   return answer;
 }
 
-// ---------- refused-attempt counters (script cache: no daily quota, expire by themselves) ----------
+// ---------- abuse counters ----------
+//
+// Per post per minute: the script cache (lives 2 minutes), bumped by every attempt alike.
+// Per address and per day: the System Sheet's Counters tab, one row per (key, day), so a count
+// really lasts the whole day. Every attempt bumps them the same way, whatever the address turns
+// out to be, so the answers never depend on who an address belongs to. Addresses are stored only
+// as a salted hash.
 
-/** Keys for today's refused-attempt counters: per address (hashed) and per post per minute. */
-function attemptKeys_(email, postId, nowLocal) {
-  var day = nowLocal.slice(0, 10).replace(/-/g, '');
-  return {
-    addr: 'RA_' + day + '_' + sha256Hex_(normEmail(email)).slice(0, 32),
-    post: postId ? 'RP_' + day + '_' + postId + '_' + nowLocal.slice(11).replace(':', '') : '',
-  };
+function postMinuteKey_(postId, nowLocal) {
+  return postId ? 'RP_' + nowLocal.slice(0, 10).replace(/-/g, '') + '_' + postId + '_' + nowLocal.slice(11).replace(':', '') : '';
 }
 
 function readCount_(key) {
   return key ? Number(cache_().get(key)) || 0 : 0;
 }
 
-/** Per-address counters live 6 hours (the cache's longest), per-minute ones 2 minutes. */
 function bumpCount_(key) {
-  if (key) cache_().put(key, String(readCount_(key) + 1), key.indexOf('RP_') === 0 ? 120 : 21600);
+  if (key) cache_().put(key, String(readCount_(key) + 1), 120);
 }
 
-/** data: {publicId, slotId, name, email, bringing, childName}. Always the same answer when accepted. */
+/** An address as the counters and the Log keep it: a salted hash (salt: the System Sheet id). */
+function addrTag_(email) {
+  return sha256Hex_(String(props_().getProperty('SYSTEM_ID') || '') + '|' + normEmail(email)).slice(0, 32);
+}
+
+/** Today's day-long counters. Call inside the lock. */
+function dayCounters_() {
+  var t = systemTab_(SYS_TAB.counters);
+  var today = todayLocal_();
+  var map = {};
+  t.rows().forEach(function (r) {
+    if (r.Day === today) map[String(r.Key)] = r;
+  });
+  return {
+    get: function (k) {
+      return map[k] ? Number(map[k].Count) || 0 : 0;
+    },
+    bump: function (k) {
+      if (map[k]) t.update(map[k], { Count: (Number(map[k].Count) || 0) + 1 });
+      else map[k] = t.append({ Key: k, Day: today, Count: 1 });
+    },
+    countPrefix: function (prefix) {
+      return Object.keys(map).filter(function (k) {
+        return k.indexOf(prefix) === 0;
+      }).length;
+    },
+  };
+}
+
+/** Removes counter rows from before today (gpDaily). */
+function pruneCounters_() {
+  withLock_(function () {
+    var t = systemTab_(SYS_TAB.counters);
+    var today = todayLocal_();
+    t.removeMany(
+      t.rows().filter(function (r) {
+        return r.Day !== today;
+      })
+    );
+  });
+}
+
+/** C0 and C1 control characters (CR and LF among them) and the Unicode line and paragraph separators. */
+var CONTROL_CHARS_ = new RegExp(
+  '[' + String.fromCharCode(0) + '-' + String.fromCharCode(0x1f) + String.fromCharCode(0x7f) + '-' + String.fromCharCode(0x9f) +
+    String.fromCharCode(0x2028) + String.fromCharCode(0x2029) + ']',
+  'g'
+);
+
+/** Control characters (CR, LF and the rest of C0/C1) become spaces; runs of space collapse. */
+function cleanText_(v) {
+  return String(v == null ? '' : v)
+    .replace(CONTROL_CHARS_, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function mailMsg_(to, t, priority) {
+  return { to: to, subject: t.subject, html: t.html, text: t.text, priority: priority || 'normal' };
+}
+
+/**
+ * Sends prepared emails after the sheet changes are committed. A failure is logged and never
+ * changes the answer (the change itself already happened).
+ */
+function sendAll_(what, msgs) {
+  (msgs || []).forEach(function (m) {
+    try {
+      sendOrQueue_(m);
+    } catch (e) {
+      try {
+        log_('email not sent', what + ' | ' + clip(e && e.message ? e.message : e, 200));
+      } catch (e2) {
+        // nothing more to do
+      }
+    }
+  });
+}
+
+/**
+ * data: {publicId, slotId, name, email, bringing, childName}. Every accepted, duplicate, full or
+ * blocked sign-up answers the same sentence; only the email differs. Limits: per address, the
+ * number of different roles tried today (a parent's own and children's sign-ups for one role are
+ * one); per post, attempts this minute; for the ward, sign-ups today.
+ */
 function apiSignup_(data) {
   data = data || {};
   var s = settings_();
-  var name = String(data.name == null ? '' : data.name).trim();
+  var name = cleanText_(data.name);
   var email = String(data.email == null ? '' : data.email).trim();
-  var bringing = String(data.bringing == null ? '' : data.bringing).trim();
-  var childName = String(data.childName == null ? '' : data.childName).trim();
+  var bringing = cleanText_(data.bringing);
+  var childName = cleanText_(data.childName);
   var fields = {};
   if (!name || name.length > 80) fields.name = 'Type your name (up to 80 characters).';
   if (!isEmail(email)) fields.email = 'Type one email address, like name@example.com.';
@@ -184,60 +268,43 @@ function apiSignup_(data) {
   var done = withLock_(function () {
     var d = volunteerData_();
     var now = nowLocal_();
-    var keys = attemptKeys_(email, '', now);
-    var post = findPublicPost_(d.posts, data.publicId);
-    if (!post) {
-      bumpCount_(keys.addr);
-      return { error: TEXT.postNotFound };
-    }
-    keys = attemptKeys_(email, post['Post id'], now);
-    var slot = null;
-    d.slots.forEach(function (sl) {
-      if (sl['Slot id'] === String(data.slotId) && sl['Post id'] === post['Post id']) slot = sl;
-    });
     var today = now.slice(0, 10);
-    // Refused and blocked attempts count too, so nobody can probe without limit what an address is.
-    var addressToday = readCount_(keys.addr);
-    var totalToday = 0;
-    var postMinute = readCount_(keys.post);
-    d.signups.forEach(function (su) {
-      var at = String(su['Signed up at']);
-      if (at.slice(0, 10) === today) {
-        totalToday++;
-        if (normEmail(su.Email) === email) addressToday++;
-      }
-      if (su['Post id'] === post['Post id'] && at === now) postMinute++;
-    });
+    var post = findPublicPost_(d.posts, data.publicId);
+    var slot = null;
+    if (post) {
+      d.slots.forEach(function (sl) {
+        if (sl['Slot id'] === String(data.slotId) && sl['Post id'] === post['Post id']) slot = sl;
+      });
+    }
+    // The limits come first and count every attempt alike, before anything about the address.
+    var dc = dayCounters_();
+    var tag = addrTag_(email);
+    var roleKey = 'R:' + tag + ':' + (slot ? slot['Slot id'] : '?');
+    var minuteKey = post ? postMinuteKey_(post['Post id'], now) : '';
+    var totalToday = d.signups.filter(function (su) {
+      return String(su['Signed up at']).slice(0, 10) === today;
+    }).length;
+    var newRole = !dc.get(roleKey);
     var limit = rateCheck(
-      { addressToday: addressToday, totalToday: totalToday, postMinute: postMinute },
-      {
-        perAddress: LIMITS.signupEmailsPerAddressPerDay,
-        perDay: s.signup_limit_per_day,
-        perPostMinute: LIMITS.signupsPerPostPerMinute,
-        leaderLinks: Infinity,
-      }
+      { addressToday: newRole ? dc.countPrefix('R:' + tag + ':') : 0, totalToday: totalToday, postMinute: readCount_(minuteKey) },
+      { perAddress: LIMITS.signupEmailsPerAddressPerDay, perDay: s.signup_limit_per_day, perPostMinute: LIMITS.signupsPerPostPerMinute, leaderLinks: Infinity }
     );
     if (limit) {
-      log_('sign-up limit', limit + ' | ' + post['Post id']);
+      log_('sign-up limit', limit + ' | ' + (post ? post['Post id'] : '?'));
       return { error: TEXT.rateLimited + contactSuffix_(s) };
     }
-    var bump = function () {
-      bumpCount_(keys.addr);
-      bumpCount_(keys.post);
-    };
-    if (childName && !allowsChildren_(post)) {
-      bump();
-      return { error: 'Please check the form.', fields: { childName: TEXT.noChildren } };
-    }
+    dc.bump(roleKey);
+    bumpCount_(minuteKey);
+    if (!post) return { error: TEXT.postNotFound };
+    if (childName && !allowsChildren_(post)) return { error: 'Please check the form.', fields: { childName: TEXT.noChildren } };
     var volsT = serviceTab_(TAB.volunteers);
     var byEmail = volunteersByEmail_(volsT.rows());
     var leaderList = leaders_();
     var state = volunteerState(email, byEmail, leaderEmails_(leaderList));
-    var counts = countsBySlot(d.signups);
     var check = checkSignup({
       post: post,
       slot: slot,
-      counts: counts,
+      counts: countsBySlot(d.signups),
       existing: d.signups,
       email: email,
       childName: childName,
@@ -246,18 +313,32 @@ function apiSignup_(data) {
       nowLocal: now,
     });
     // These answers don't depend on who the address belongs to.
-    if (!check.ok && [TEXT.notOpen, TEXT.roleNotFound, TEXT.datePassed].indexOf(check.error) >= 0) {
-      bump();
-      return { error: check.error };
-    }
+    if (!check.ok && [TEXT.notOpen, TEXT.roleNotFound, TEXT.datePassed].indexOf(check.error) >= 0) return { error: check.error };
     // From here every outcome answers the same sentence; only the email differs.
     if (state === 'blocked') {
-      bump();
-      return { outcome: 'blocked' };
+      // One "please contact" email a day per address, however often it tries.
+      if (loggedToday_('blocked sign-up', tag)) return { msgs: [] };
+      log_('blocked sign-up', tag);
+      return { msgs: [mailMsg_(email, tplContactToSignUp_(s))] };
+    }
+    if (!check.ok && check.error === TEXT.roleFull) {
+      var fullKey = 'F:' + tag + ':' + slot['Slot id'];
+      if (dc.get(fullKey)) return { msgs: [] };
+      dc.bump(fullKey);
+      return { msgs: [mailMsg_(email, tplRoleFull_(s, post, slot))] };
     }
     if (!check.ok) {
-      bump();
-      return { outcome: check.error === TEXT.roleFull ? 'full' : 'duplicate', post: post, slot: slot };
+      // A duplicate. When it is the address's own sign-up still waiting for its email click
+      // (say the link expired), send a fresh confirm email within the limits.
+      var own = d.signups.filter(function (su) {
+        return (
+          su['Slot id'] === slot['Slot id'] &&
+          su.Status === SIGNUP_STATUS.waitingEmail &&
+          normEmail(su.Email) === email &&
+          childKey_(su['Child first name']) === childKey_(childName)
+        );
+      })[0];
+      return { msgs: own ? confirmEmailLocked_(own, post, slot, dc, s, now) : [] };
     }
     var status = signupStatusFor(state);
     var signup = {
@@ -271,7 +352,7 @@ function apiSignup_(data) {
       Status: status,
       'Signed up at': now,
     };
-    serviceTab_(TAB.signups).append(signup);
+    signup = serviceTab_(TAB.signups).append(signup);
     d.signups.push(signup);
     refreshFilled_(serviceTab_(TAB.slots), slot, d.signups);
     var vrow = byEmail[email] || null;
@@ -283,22 +364,12 @@ function apiSignup_(data) {
     } else if (!vrow) {
       vrow = volsT.append({ Email: email, Name: name, Status: VOLUNTEER_STATUS.pending, 'First post': post['Post id'] });
     }
-    var out = { outcome: status, post: post, slot: slot, signup: signup, d: d, now: now };
-    if (status === SIGNUP_STATUS.waitingEmail) {
-      var ck = confirmKeys_(email, now);
-      if (readCount_(ck.addr) >= LIMITS.confirmEmailsPerAddressPerDay || readCount_(ck.total) >= s.confirm_limit_per_day) {
-        log_('confirm email limit', post['Post id']);
-      } else {
-        bumpCount_(ck.addr);
-        bumpCount_(ck.total);
-        out.sendConfirm = true;
-      }
+    if (status === SIGNUP_STATUS.confirmed) {
+      return { msgs: confirmationMsgs_([{ signup: signup, post: post, slot: slot, over: false }], d).concat(filledMsgsLocked_([post['Post id']], d)) };
     }
-    if (status === SIGNUP_STATUS.waitingApproval) {
-      out.firstPost = indexBy_(d.posts, 'Post id')[vrow['First post']] || post;
-      out.volName = vrow.Name || name;
-    }
-    return out;
+    if (status === SIGNUP_STATUS.waitingEmail) return { msgs: confirmEmailLocked_(signup, post, slot, dc, s, now) };
+    var firstPost = indexBy_(d.posts, 'Post id')[vrow['First post']] || post;
+    return { msgs: approverMsgs_(firstPost, vrow.Name || name, [{ post: post, slot: slot }]) };
   });
   if (done.error) {
     var refused = { ok: false, error: done.error };
@@ -306,28 +377,7 @@ function apiSignup_(data) {
     return refused;
   }
   clearServeCache_();
-  var t;
-  if (done.outcome === 'blocked') {
-    // One "please contact" email a day per address, however often it tries.
-    var tag = sha256Hex_(email).slice(0, 32);
-    if (!loggedToday_('blocked sign-up', tag)) {
-      log_('blocked sign-up', tag);
-      t = tplContactToSignUp_(s);
-      sendOrQueue_({ to: email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-    }
-  } else if (done.outcome === 'full') {
-    t = tplRoleFull_(s, done.post, done.slot);
-    sendOrQueue_({ to: email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  } else if (done.outcome === SIGNUP_STATUS.confirmed) {
-    sendConfirmations_([{ signup: done.signup, post: done.post, slot: done.slot, over: false }], done.d);
-    filledNotices_([done.post['Post id']]);
-  } else if (done.outcome === SIGNUP_STATUS.waitingEmail && done.sendConfirm) {
-    var ct = issueToken_('confirm', done.signup['Sign-up id'], localMinusHours(done.now, -CONFIRM_LINK_HOURS));
-    t = tplConfirmAddress_(s, done.post, done.slot, done.signup, pageUrl_(s, 'confirm', { t: ct }));
-    sendOrQueue_({ to: email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  } else if (done.outcome === SIGNUP_STATUS.waitingApproval) {
-    notifyApprovers_(done.firstPost, done.volName, [{ post: done.post, slot: done.slot }]);
-  }
+  sendAll_('sign-up', done.msgs);
   return { ok: true, message: TEXT.signupThanks };
 }
 
@@ -342,10 +392,22 @@ function leaderEmails_(leaders) {
   });
 }
 
-/** Today's confirm-your-address counters: per address (hashed) and for the whole ward. */
-function confirmKeys_(email, nowLocal) {
-  var day = nowLocal.slice(0, 10).replace(/-/g, '');
-  return { addr: 'CA_' + day + '_' + sha256Hex_(normEmail(email)).slice(0, 32), total: 'CT_' + day };
+/**
+ * A confirm-your-address email for a Waiting-email sign-up, within the day's limits (3 per
+ * address, Settings confirm_limit_per_day in all). A new link replaces the sign-up's older ones.
+ * Call inside the lock. Returns the messages to send ([] past a limit).
+ */
+function confirmEmailLocked_(signup, post, slot, dc, s, now) {
+  var ca = 'CA:' + addrTag_(signup.Email);
+  if (dc.get(ca) >= LIMITS.confirmEmailsPerAddressPerDay || dc.get('CT') >= s.confirm_limit_per_day) {
+    log_('confirm email limit', post['Post id']);
+    return [];
+  }
+  dc.bump(ca);
+  dc.bump('CT');
+  revokeTokens_('confirm', signup['Sign-up id']);
+  var ct = issueToken_('confirm', signup['Sign-up id'], localMinusHours(now, -CONFIRM_LINK_HOURS));
+  return [mailMsg_(normEmail(signup.Email), tplConfirmAddress_(s, post, slot, signup, pageUrl_(s, 'confirm', { t: ct })))];
 }
 
 /** True when the Log already has a line (what, detail) today. */
@@ -375,13 +437,12 @@ function categoryCoordinators_(categoryId) {
   return uniq_(splitList(c.Coordinators).filter(isEmail).map(normEmail));
 }
 
-/** "Someone new is waiting": to the approvers of the volunteer's first post. */
-function notifyApprovers_(firstPost, name, items) {
-  if (!items.length) return;
-  var s = settings_();
-  var t = tplWaitingNotice_(s, name, items);
-  approversFor(firstPost, leaders_()).forEach(function (to) {
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+/** "Someone new is waiting": messages to the approvers of the volunteer's first post. */
+function approverMsgs_(firstPost, name, items) {
+  if (!items.length) return [];
+  var t = tplWaitingNotice_(settings_(), name, items);
+  return approversFor(firstPost, leaders_()).map(function (to) {
+    return mailMsg_(to, t);
   });
 }
 
@@ -443,26 +504,26 @@ function confirmSignupsLocked_(list, d) {
 }
 
 /**
- * Emails each newly counted sign-up: the confirmation (private details, cancel link, My sign-ups
- * link, other ways to serve) or, when it is over the number, the withdraw email. One My sign-ups
+ * Call inside the lock: issues the links and builds the email for each newly counted sign-up:
+ * the confirmation (private details, cancel link, My sign-ups link, other ways to serve) or, when
+ * it is over the number, the withdraw email (its link ends when the role starts). One My sign-ups
  * link per address per batch (a new one replaces the old).
  */
-function sendConfirmations_(items, d) {
+function confirmationMsgs_(items, d) {
   var s = settings_();
   var slotsById = indexBy_(d.slots, 'Slot id');
   var meByEmail = {};
-  items.forEach(function (it) {
+  return items.map(function (it) {
     var e = normEmail(it.signup.Email);
     if (!meByEmail[e]) meByEmail[e] = issueMeToken_(e, d.signups, slotsById);
     var meUrl = pageUrl_(s, 'me', { t: meByEmail[e] });
     var id = it.signup['Sign-up id'];
-    var expires = addDays(it.slot.Date, 1) + ' 23:59';
     var t;
     if (it.over) {
-      var wt = issueToken_('withdraw', id, expires);
+      var wt = issueToken_('withdraw', id, slotStart(it.slot));
       t = tplOverLimit_(s, it.post, it.slot, it.signup, { withdrawUrl: pageUrl_(s, 'confirm', { t: wt }), meUrl: meUrl, details: true });
     } else {
-      var ct = issueToken_('cancel', id, expires);
+      var ct = issueToken_('cancel', id, addDays(it.slot.Date, 1) + ' 23:59');
       t = tplSignupConfirmed_(s, it.post, it.slot, it.signup, {
         cancelUrl: pageUrl_(s, 'confirm', { t: ct }),
         meUrl: meUrl,
@@ -470,24 +531,23 @@ function sendConfirmations_(items, d) {
         otherWays: otherWays_(s, d, it.post['Post id']),
       });
     }
-    sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+    return mailMsg_(e, t);
   });
 }
 
 /**
- * "Fully filled": once per post, when every role dated today or later has its number. To the
- * post's notice recipients and its category's coordinators.
+ * Call inside the lock. "Fully filled": once per post (checked and logged here), when every role
+ * dated today or later has its number. To the post's notice recipients and its category's
+ * coordinators. Returns the messages.
  */
-function filledNotices_(postIds) {
-  var ids = uniq_(postIds || []);
-  if (!ids.length) return;
+function filledMsgsLocked_(postIds, d) {
   var s = settings_();
-  var d = volunteerData_();
   var today = todayLocal_();
   var counts = countsBySlot(d.signups);
   var postsById = indexBy_(d.posts, 'Post id');
   var slotsByPost = groupBy_(d.slots, 'Post id');
-  ids.forEach(function (id) {
+  var msgs = [];
+  uniq_(postIds || []).forEach(function (id) {
     var post = postsById[id];
     if (!post || post.Status !== POST_STATUS.open) return;
     if (!postSummary(post, slotsByPost[id] || [], counts, today).full) return;
@@ -495,9 +555,10 @@ function filledNotices_(postIds) {
     log_('filled notice', id);
     var t = tplFullyFilled_(s, post);
     uniq_(noticeRecipients(post, leaders_()).concat(categoryCoordinators_(post.Category))).forEach(function (to) {
-      sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+      msgs.push(mailMsg_(to, t));
     });
   });
+  return msgs;
 }
 
 /** {signup, post, slot, signups, d} for a sign-up id, or null. */
@@ -509,12 +570,6 @@ function signupById_(id) {
   var slot = indexBy_(d.slots, 'Slot id')[signup['Slot id']];
   if (!post || !slot) return null;
   return { signup: signup, post: post, slot: slot, signups: d.signups, d: d };
-}
-
-function signupFromToken_(raw, kind) {
-  var tok = readToken_(raw, kind || 'cancel');
-  if (!tok) return null;
-  return signupById_(tok.subject);
 }
 
 var LINK_KINDS = ['cancel', 'withdraw', 'confirm'];
@@ -582,26 +637,31 @@ function apiConfirm_(data) {
       }
     });
     var confirmed = confirmSignupsLocked_(toConfirm, d);
-    return { d: d, moved: moved, confirmed: confirmed, lapsedOwn: lapsedOwn, name: vrow.Name || f.signup.Name, firstPost: postsById[vrow['First post']] || f.post };
+    var firstPost = postsById[vrow['First post']] || f.post;
+    var msgs = approverMsgs_(firstPost, vrow.Name || f.signup.Name, moved)
+      .concat(confirmationMsgs_(confirmed, d))
+      .concat(
+        filledMsgsLocked_(
+          confirmed.map(function (c) {
+            return c.post['Post id'];
+          }),
+          d
+        )
+      );
+    return { msgs: msgs, lapsedOwn: lapsedOwn };
   });
   if (done.error) return { ok: false, error: done.error };
   if (done.already) return { ok: true, message: TEXT.alreadyConfirmed };
   clearServeCache_();
-  notifyApprovers_(done.firstPost, done.name, done.moved);
-  if (done.confirmed.length) {
-    sendConfirmations_(done.confirmed, done.d);
-    filledNotices_(done.confirmed.map(function (c) {
-      return c.post['Post id'];
-    }));
-  }
+  sendAll_('confirm', done.msgs);
   return { ok: true, message: done.lapsedOwn ? TEXT.confirmedPassed : TEXT.addressConfirmed };
 }
 
-/** The cancel notice to the post's leaders (urgent wording after the cutoff, unless still full). */
-function sendCancelNotice_(f, late, stillFull) {
+/** The cancel notice to the post's leaders and its category's coordinators (urgent wording after the cutoff, unless still full). */
+function cancelNoticeMsgs_(f, late, stillFull) {
   var t = tplCancelNotice_(settings_(), f.post, f.slot, f.signup, late, stillFull);
-  noticeRecipients(f.post, leaders_()).forEach(function (to) {
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+  return uniq_(noticeRecipients(f.post, leaders_()).concat(categoryCoordinators_(f.post.Category))).map(function (to) {
+    return mailMsg_(to, t, 'high');
   });
 }
 
@@ -610,45 +670,85 @@ function cutoffOf_(post) {
 }
 
 /**
- * Cancel link (confirmation email, reminder, My sign-ups). A waiting sign-up is simply cancelled
- * (it never counted, so leaders hear nothing); a Confirmed one tells the post's leaders.
+ * Call inside the lock: cancels an active sign-up and its links. A waiting sign-up never counted,
+ * so leaders hear nothing; a Confirmed one gives the cancel notice. {error} | {already} | {msgs}.
  */
-function apiCancel_(data) {
-  var raw = data && data.t;
-  var row = tokenRow_(raw);
-  if (!row || row.kind !== 'cancel') return { ok: false, error: TEXT.linkInvalid };
-  if (row.expired) return { ok: false, error: TEXT.linkExpired };
-  var done = withLock_(function () {
-    var f = signupById_(row.subject);
-    if (!f) return { error: TEXT.linkInvalid };
-    var now = nowLocal_();
-    var waiting = isWaitingSignup_(f.signup.Status);
-    if (f.signup.Status !== SIGNUP_STATUS.confirmed && !waiting) return { already: true };
-    serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.cancelled, 'Cancelled at': now });
-    var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
-    return {
-      f: f,
-      waiting: waiting,
-      late: cancelIsLate(f.slot, cutoffOf_(f.post), now),
-      stillFull: filled >= (Number(f.slot.Needed) || 0),
-    };
-  });
+function cancelSignupLocked_(f) {
+  var waiting = isWaitingSignup_(f.signup.Status);
+  if (f.signup.Status !== SIGNUP_STATUS.confirmed && !waiting) return { already: true };
+  var now = nowLocal_();
+  serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.cancelled, 'Cancelled at': now });
+  var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
+  revokeSignupTokens_(f.signup['Sign-up id']);
+  if (waiting) return { msgs: [] };
+  return { msgs: cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), filled >= (Number(f.slot.Needed) || 0)) };
+}
+
+function cancelAnswer_(done) {
   if (done.error) return { ok: false, error: done.error };
   if (done.already) return { ok: true, message: TEXT.alreadyCancelled };
-  revokeSignupTokens_(done.f.signup['Sign-up id']);
   clearServeCache_();
-  if (!done.waiting) sendCancelNotice_(done.f, done.late, done.stillFull);
+  sendAll_('cancel', done.msgs);
   return { ok: true, message: TEXT.cancelled };
+}
+
+/** Cancel link (confirmation email, reminder). */
+function apiCancel_(data) {
+  var row = tokenRow_(data && data.t);
+  if (!row || row.kind !== 'cancel') return { ok: false, error: TEXT.linkInvalid };
+  if (row.expired) return { ok: false, error: TEXT.linkExpired };
+  return cancelAnswer_(
+    withLock_(function () {
+      var f = signupById_(row.subject);
+      return f ? cancelSignupLocked_(f) : { error: TEXT.linkInvalid };
+    })
+  );
+}
+
+/** The My sign-ups link (t) and one of its own sign-ups (signupId), or an error answer. */
+function mySignupLocked_(data) {
+  var row = tokenRow_(data && data.t);
+  if (!row || row.kind !== 'me') return { error: TEXT.linkInvalid };
+  if (row.expired) return { error: TEXT.linkExpired };
+  var f = signupById_(data.signupId);
+  if (!f || normEmail(f.signup.Email) !== normEmail(row.subject)) return { error: TEXT.notFound };
+  return { f: f };
+}
+
+/** Cancel from My sign-ups: the "me" link plus the sign-up id, which must be that address's. */
+function apiCancelMine_(data) {
+  return cancelAnswer_(
+    withLock_(function () {
+      var x = mySignupLocked_(data);
+      return x.error ? x : cancelSignupLocked_(x.f);
+    })
+  );
+}
+
+/** My sign-ups: "Send the confirm email again" for a sign-up still waiting for its email click. */
+function apiResendConfirm_(data) {
+  var done = withLock_(function () {
+    var x = mySignupLocked_(data);
+    if (x.error) return x;
+    var f = x.f;
+    var now = nowLocal_();
+    var passed = f.slot.Start ? slotStart(f.slot) < now : f.slot.Date < now.slice(0, 10);
+    if (f.signup.Status !== SIGNUP_STATUS.waitingEmail || passed) return { error: TEXT.notWaitingEmail };
+    var msgs = confirmEmailLocked_(f.signup, f.post, f.slot, dayCounters_(), settings_(), now);
+    return msgs.length ? { msgs: msgs } : { error: TEXT.resendLimit };
+  });
+  if (done.error) return { ok: false, error: done.error };
+  sendAll_('resend confirm', done.msgs);
+  return { ok: true, message: TEXT.resent };
 }
 
 /**
  * Withdraw link (over-limit email): the offer is withdrawn and, since the role still has its
  * number, nobody is told. If cancellations since then left it short, the leaders are told as
- * for a cancellation.
+ * for a cancellation. Refused once the role has started.
  */
 function apiWithdraw_(data) {
-  var raw = data && data.t;
-  var row = tokenRow_(raw);
+  var row = tokenRow_(data && data.t);
   if (!row || row.kind !== 'withdraw') return { ok: false, error: TEXT.linkInvalid };
   if (row.expired) return { ok: false, error: TEXT.linkExpired };
   var done = withLock_(function () {
@@ -656,14 +756,16 @@ function apiWithdraw_(data) {
     if (!f) return { error: TEXT.linkInvalid };
     if (f.signup.Status !== SIGNUP_STATUS.confirmed) return { error: TEXT.notActive };
     var now = nowLocal_();
+    if (now >= slotStart(f.slot)) return { error: TEXT.alreadyHappened };
     serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.withdrawn, 'Cancelled at': now });
     var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
-    return { f: f, late: cancelIsLate(f.slot, cutoffOf_(f.post), now), stillFull: filled >= (Number(f.slot.Needed) || 0) };
+    revokeSignupTokens_(f.signup['Sign-up id']);
+    var stillFull = filled >= (Number(f.slot.Needed) || 0);
+    return { msgs: stillFull ? [] : cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), false) };
   });
   if (done.error) return { ok: false, error: done.error };
-  revokeSignupTokens_(done.f.signup['Sign-up id']);
   clearServeCache_();
-  if (!done.stillFull) sendCancelNotice_(done.f, done.late, false);
+  sendAll_('withdraw', done.msgs);
   return { ok: true, message: TEXT.withdrawn };
 }
 
@@ -673,18 +775,28 @@ function apiRequestLeaderLink_(data) {
 
 // ---------- My sign-ups ----------
 
-/** 'Sister' from 'Sister Example': the first word only (or a child's first name). */
+var NAME_TITLES = ['brother', 'sister', 'elder', 'bishop', 'president'];
+
+/**
+ * A first name to show other volunteers: a child's first name, else the first word of Name that
+ * isn't a title (Brother, Sister, Elder, Bishop, President); "Sister Jones" → "Jones".
+ */
 function firstName_(su) {
   var child = String(su['Child first name'] || '').trim();
   if (child) return child;
-  return String(su.Name || '').trim().split(/\s+/)[0] || '';
+  var words = String(su.Name || '').trim().split(/\s+/).filter(String);
+  for (var i = 0; i < words.length; i++) {
+    if (NAME_TITLES.indexOf(words[i].toLowerCase()) < 0) return words[i];
+  }
+  return words[0] || '';
 }
 
 /**
- * My sign-ups (a "me" link). Only this address's sign-ups: upcoming (waiting or confirmed, today or
- * later, each with a fresh cancel link) and past (confirmed, date gone). For an approved
- * volunteer or a leader: the other volunteers' first names on the same post (confirmed only, no
- * emails), the private details while the post is on, and other ways to serve (fill levels only).
+ * My sign-ups (a "me" link). Read-only. Only this address's sign-ups: upcoming (waiting or
+ * confirmed, today or later; each cancelled with the me link and its id) and past (confirmed, date
+ * gone). For an approved volunteer or a leader: the other volunteers' first names on the same post
+ * (confirmed only, no emails), the private details while the post is on, and other ways to serve
+ * (fill levels only).
  */
 function apiMe_(data) {
   var row = tokenRow_(data && data.t);
@@ -705,7 +817,6 @@ function apiMe_(data) {
   });
   var upcoming = [];
   var past = [];
-  var issue = [];
   mine.forEach(function (su) {
     var sl = slotsById[su['Slot id']];
     var p = postsById[su['Post id']];
@@ -739,21 +850,10 @@ function apiMe_(data) {
     if (over) {
       past.push(item);
     } else {
-      issue.push({ item: item, id: su['Sign-up id'], slot: sl });
+      item.signupId = su['Sign-up id'];
+      item.canResend = su.Status === SIGNUP_STATUS.waitingEmail;
       upcoming.push(item);
     }
-  });
-  // Fresh cancel links for what is still to come; they last a day (the emailed ones last longer).
-  var now = nowLocal_();
-  var dayLater = localMinusHours(now, -24);
-  var raws = issueTokensMany_(
-    issue.map(function (x) {
-      var end = addDays(x.slot.Date, 1) + ' 23:59';
-      return { kind: 'cancel', subject: x.id, expires: end < dayLater ? end : dayLater };
-    })
-  );
-  issue.forEach(function (x, i) {
-    x.item.cancelToken = raws[i];
   });
   var order = function (a, b) {
     return cmpLocal(a.date + ' ' + (a.start || '00:00'), b.date + ' ' + (b.start || '00:00')) || cmpLocal(a.title, b.title);
@@ -773,23 +873,25 @@ function apiRequestMeLink_(data) {
   var raw = String((data && data.email) == null ? '' : data.email).trim();
   if (!isEmail(raw)) return answer;
   var email = normEmail(raw);
-  var d = volunteerData_();
-  var has = d.signups.some(function (su) {
-    return normEmail(su.Email) === email;
+  var msgs = withLock_(function () {
+    var d = volunteerData_();
+    var has = d.signups.some(function (su) {
+      return normEmail(su.Email) === email;
+    });
+    if (!has) return [];
+    var tag = addrTag_('me:' + email);
+    var today = todayLocal_();
+    var count = systemTab_(SYS_TAB.log)
+      .rows()
+      .filter(function (r) {
+        return r.What === 'me link requested' && String(r.Detail) === tag && String(r.At).slice(0, 10) === today;
+      }).length;
+    if (count >= LIMITS.meLinksPerAddressPerDay) return [];
+    log_('me link requested', tag);
+    var s = settings_();
+    var t = issueMeToken_(email, d.signups, indexBy_(d.slots, 'Slot id'));
+    return [mailMsg_(email, tplMeLink_(s, pageUrl_(s, 'me', { t: t })))];
   });
-  if (!has) return answer;
-  var tag = sha256Hex_('me:' + email).slice(0, 32);
-  var today = todayLocal_();
-  var count = systemTab_(SYS_TAB.log)
-    .rows()
-    .filter(function (r) {
-      return r.What === 'me link requested' && String(r.Detail) === tag && String(r.At).slice(0, 10) === today;
-    }).length;
-  if (count >= LIMITS.meLinksPerAddressPerDay) return answer;
-  log_('me link requested', tag);
-  var s = settings_();
-  var t = issueMeToken_(email, d.signups, indexBy_(d.slots, 'Slot id'));
-  var m = tplMeLink_(s, pageUrl_(s, 'me', { t: t }));
-  sendOrQueue_({ to: email, subject: m.subject, html: m.html, text: m.text, priority: 'normal' });
+  sendAll_('me link', msgs);
   return answer;
 }

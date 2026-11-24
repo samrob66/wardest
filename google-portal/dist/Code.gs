@@ -53,6 +53,11 @@ var TEXT = {
   confirmedPassed: 'Your address is confirmed. The date you signed up for has passed, so that sign-up has ended.',
   withdrawn: 'Your offer is withdrawn. Thank you for being willing to help.',
   notActive: 'This sign-up is no longer active.',
+  categoryNotAllowed: "You can't make opportunities in this category.",
+  alreadyHappened: 'This has already happened.',
+  notWaitingEmail: 'This sign-up is not waiting for its confirm email.',
+  resendLimit: 'Too many confirm emails today. Please try again tomorrow.',
+  resent: 'We sent the confirm email again. Please check your inbox (and the spam folder).',
   meLinkMessage: 'If that address has signed up for something, a link to your sign-ups is on its way.',
   alreadyCancelled: 'This sign-up is already cancelled.',
   cancelled: 'Your sign-up is cancelled. Thank you for letting us know.',
@@ -104,6 +109,7 @@ var SYS_TAB = {
   outbox: 'Outbox',
   log: 'Log',
   requestFiles: 'Request files',
+  counters: 'Counters',
 };
 
 /** Exact headers, in order. A header added later is appended by Set up (gpEnsureTabs_), never reordered. */
@@ -124,6 +130,7 @@ var SYSTEM_HEADERS = {
   Outbox: ['Id', 'Queued at', 'To', 'Subject', 'Html', 'Text', 'Priority', 'Status', 'Error'],
   Log: ['At', 'What', 'Detail'],
   'Request files': ['Category id', 'Folder id', 'Form id', 'Sheet id', 'Month'],
+  Counters: ['Key', 'Day', 'Count'],
 };
 
 /** Each request sheet's one tab. */
@@ -150,12 +157,12 @@ var VOLUNTEER_STATUS = { pending: 'Pending', approved: 'Approved', declined: 'De
 var CATEGORY_KIND = { opportunity: 'Opportunity', request: 'Request' };
 
 /** Column types, by header name (any tab). Read back as text; written with format '@'. */
-var DATE_COLS = ['Date', 'Moving date', 'Closed on'];
+var DATE_COLS = ['Date', 'Moving date', 'Closed on', 'Day'];
 var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Link', 'First post'];
+var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Link', 'First post', 'Key'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived'];
 
 /** Settings rows: [key, default, help]. */
@@ -1319,15 +1326,22 @@ function postsToMarkPast(posts, slotsByPost, todayLocal) {
 }
 
 /**
- * What a leader may do, from the Leaders tab's role boxes and the Categories tab:
- * Bishopric: every organization. Ward council: see every post's names; edit and create for
- * their own organization. Org editor: see, edit and create for their own organization only.
- * Coordinator: a leader whose email is in an opportunity category's Coordinators column sees and
- * edits that category's posts (any organization) and creates in it for the category's owning
- * organizations (their own organization when it has none). "Any ward council may create" lets
- * every Ward council leader create in that category the same way. The Coordinator box alone
- * gives nothing: a category must list them.
- * categories: Categories rows (optional).
+ * What a leader may do, from the Leaders tab's role boxes and the Categories tab.
+ * Base rights (no category): Bishopric: every organization. Ward council: see every post's
+ * names; edit and create for their own organization. Org editor: see, edit and create for their
+ * own organization only.
+ * Creating in an opportunity category (service spec section 3; catOrgs[id] = the organizations a
+ * new post in it may belong to):
+ *   - the bishopric always (any organization);
+ *   - its Coordinators (the category's owning organizations; any organization when it has none);
+ *   - a category WITH coordinators: only those, the bishopric, and Ward council leaders when
+ *     "Any ward council may create" is ticked;
+ *   - a category WITHOUT coordinators: leaders (Org editor / Ward council) of its owning
+ *     organizations, anyone with base rights when it has no owning organization, and Ward
+ *     council leaders when "Any ward council may create" is ticked.
+ * Coordinators also see and edit every post of their categories, of any organization. The
+ * Coordinator box alone gives nothing: a category must list them.
+ * categories: Categories rows (optional; without them only the base rights apply).
  */
 function leaderAccess(leader, organizations, categories) {
   var orgs = (organizations || []).slice();
@@ -1340,16 +1354,28 @@ function leaderAccess(leader, organizations, categories) {
   var me = normEmail(leader.Email);
   var coordinated = [];
   var catOrgs = {};
+  var catIds = [];
   (categories || []).forEach(function (c) {
     var id = str_(c.Id);
     if (!id || c.Kind !== CATEGORY_KIND.opportunity || isTicked(c.Archived)) return;
-    var listed = !!me && splitList(c.Coordinators).map(normEmail).indexOf(me) >= 0;
-    if (listed) coordinated.push(id);
-    if (!listed && !(wardCouncil && isTicked(c['Any ward council may create']))) return;
+    catIds.push(id);
+    var coords = splitList(c.Coordinators).filter(isEmail).map(normEmail);
     var owners = splitList(c['Owning organizations']).filter(function (o) {
       return orgs.indexOf(o) >= 0;
     });
-    catOrgs[id] = owners.length ? owners : ownList.slice();
+    var isCoord = !!me && coords.indexOf(me) >= 0;
+    var wcFlag = wardCouncil && isTicked(c['Any ward council may create']);
+    if (isCoord) coordinated.push(id);
+    var allowed;
+    if (bishopric) allowed = orgs.slice();
+    else if (isCoord) allowed = owners.length ? owners : orgs.slice();
+    else if (coords.length) allowed = wcFlag ? (owners.length ? owners : ownList.slice()) : [];
+    else if (owners.length) {
+      allowed = owners.filter(function (o) {
+        return edit.indexOf(o) >= 0 || wcFlag;
+      });
+    } else allowed = uniq_(edit.concat(wcFlag ? ownList : []));
+    if (allowed.length) catOrgs[id] = allowed;
   });
   var create = edit.slice();
   Object.keys(catOrgs).forEach(function (id) {
@@ -1363,13 +1389,15 @@ function leaderAccess(leader, organizations, categories) {
     baseCreateOrgs: edit.slice(),
     categories: coordinated,
     catOrgs: catOrgs,
+    catIds: catIds,
   };
 }
 
-/** Organizations a new post in this category may belong to, for this leader. */
+/** Organizations a new post may belong to: the base ones without a category, else the category's rule. */
 function allowedOrgsFor_(access, category) {
-  var extra = (access.catOrgs && access.catOrgs[str_(category)]) || [];
-  return uniq_((access.baseCreateOrgs || access.createOrgs || []).concat(extra));
+  var cat = str_(category);
+  if (!cat) return (access.baseCreateOrgs || access.createOrgs || []).slice();
+  return ((access.catOrgs && access.catOrgs[cat]) || []).slice();
 }
 
 function coordinates_(access, post) {
@@ -1380,11 +1408,19 @@ function canSeePost(access, post) {
   return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post));
 }
 
-/** The post's creator may always edit it; otherwise an organization they edit, or a category they coordinate. */
+/**
+ * Who may edit a post: its creator; the bishopric; its category's coordinators (any
+ * organization); otherwise whoever may create a post in its category for its organization (the
+ * base organization rights when it has no category, or a category the Categories tab no longer
+ * lists).
+ */
 function canEditPost(access, leaderEmail, post) {
   var me = normEmail(leaderEmail);
   if (me && normEmail(post['Created by']) === me) return true;
-  return access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post);
+  if (access.isBishopric || coordinates_(access, post)) return true;
+  var cat = str_(post.Category);
+  if (cat && (access.catIds || []).indexOf(cat) >= 0) return allowedOrgsFor_(access, cat).indexOf(post.Organization) >= 0;
+  return access.editOrgs.indexOf(post.Organization) >= 0;
 }
 
 /**
@@ -2182,23 +2218,6 @@ function readToken_(raw, kind) {
   return { subject: String(row.Subject), expires: row.Expires };
 }
 
-/** Several tokens in one write: items [{kind, subject, expires}] → raw tokens in the same order. */
-function issueTokensMany_(items) {
-  if (!items.length) return [];
-  var now = nowLocal_();
-  var raws = items.map(function () {
-    return newToken_();
-  });
-  withLock_(function () {
-    systemTab_(SYS_TAB.tokens).appendMany(
-      items.map(function (it, i) {
-        return { Hash: sha256Hex_(raws[i]), Kind: it.kind, Subject: it.subject, Expires: it.expires, Created: now };
-      })
-    );
-  });
-  return raws;
-}
-
 /** {kind, subject, expires, expired} for a raw token still in the Tokens tab, else null. */
 function tokenRow_(raw) {
   if (!isRawToken_(raw)) return null;
@@ -2473,34 +2492,118 @@ function apiHelp_() {
   return answer;
 }
 
-// ---------- refused-attempt counters (script cache: no daily quota, expire by themselves) ----------
+// ---------- abuse counters ----------
+//
+// Per post per minute: the script cache (lives 2 minutes), bumped by every attempt alike.
+// Per address and per day: the System Sheet's Counters tab, one row per (key, day), so a count
+// really lasts the whole day. Every attempt bumps them the same way, whatever the address turns
+// out to be, so the answers never depend on who an address belongs to. Addresses are stored only
+// as a salted hash.
 
-/** Keys for today's refused-attempt counters: per address (hashed) and per post per minute. */
-function attemptKeys_(email, postId, nowLocal) {
-  var day = nowLocal.slice(0, 10).replace(/-/g, '');
-  return {
-    addr: 'RA_' + day + '_' + sha256Hex_(normEmail(email)).slice(0, 32),
-    post: postId ? 'RP_' + day + '_' + postId + '_' + nowLocal.slice(11).replace(':', '') : '',
-  };
+function postMinuteKey_(postId, nowLocal) {
+  return postId ? 'RP_' + nowLocal.slice(0, 10).replace(/-/g, '') + '_' + postId + '_' + nowLocal.slice(11).replace(':', '') : '';
 }
 
 function readCount_(key) {
   return key ? Number(cache_().get(key)) || 0 : 0;
 }
 
-/** Per-address counters live 6 hours (the cache's longest), per-minute ones 2 minutes. */
 function bumpCount_(key) {
-  if (key) cache_().put(key, String(readCount_(key) + 1), key.indexOf('RP_') === 0 ? 120 : 21600);
+  if (key) cache_().put(key, String(readCount_(key) + 1), 120);
 }
 
-/** data: {publicId, slotId, name, email, bringing, childName}. Always the same answer when accepted. */
+/** An address as the counters and the Log keep it: a salted hash (salt: the System Sheet id). */
+function addrTag_(email) {
+  return sha256Hex_(String(props_().getProperty('SYSTEM_ID') || '') + '|' + normEmail(email)).slice(0, 32);
+}
+
+/** Today's day-long counters. Call inside the lock. */
+function dayCounters_() {
+  var t = systemTab_(SYS_TAB.counters);
+  var today = todayLocal_();
+  var map = {};
+  t.rows().forEach(function (r) {
+    if (r.Day === today) map[String(r.Key)] = r;
+  });
+  return {
+    get: function (k) {
+      return map[k] ? Number(map[k].Count) || 0 : 0;
+    },
+    bump: function (k) {
+      if (map[k]) t.update(map[k], { Count: (Number(map[k].Count) || 0) + 1 });
+      else map[k] = t.append({ Key: k, Day: today, Count: 1 });
+    },
+    countPrefix: function (prefix) {
+      return Object.keys(map).filter(function (k) {
+        return k.indexOf(prefix) === 0;
+      }).length;
+    },
+  };
+}
+
+/** Removes counter rows from before today (gpDaily). */
+function pruneCounters_() {
+  withLock_(function () {
+    var t = systemTab_(SYS_TAB.counters);
+    var today = todayLocal_();
+    t.removeMany(
+      t.rows().filter(function (r) {
+        return r.Day !== today;
+      })
+    );
+  });
+}
+
+/** C0 and C1 control characters (CR and LF among them) and the Unicode line and paragraph separators. */
+var CONTROL_CHARS_ = new RegExp(
+  '[' + String.fromCharCode(0) + '-' + String.fromCharCode(0x1f) + String.fromCharCode(0x7f) + '-' + String.fromCharCode(0x9f) +
+    String.fromCharCode(0x2028) + String.fromCharCode(0x2029) + ']',
+  'g'
+);
+
+/** Control characters (CR, LF and the rest of C0/C1) become spaces; runs of space collapse. */
+function cleanText_(v) {
+  return String(v == null ? '' : v)
+    .replace(CONTROL_CHARS_, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function mailMsg_(to, t, priority) {
+  return { to: to, subject: t.subject, html: t.html, text: t.text, priority: priority || 'normal' };
+}
+
+/**
+ * Sends prepared emails after the sheet changes are committed. A failure is logged and never
+ * changes the answer (the change itself already happened).
+ */
+function sendAll_(what, msgs) {
+  (msgs || []).forEach(function (m) {
+    try {
+      sendOrQueue_(m);
+    } catch (e) {
+      try {
+        log_('email not sent', what + ' | ' + clip(e && e.message ? e.message : e, 200));
+      } catch (e2) {
+        // nothing more to do
+      }
+    }
+  });
+}
+
+/**
+ * data: {publicId, slotId, name, email, bringing, childName}. Every accepted, duplicate, full or
+ * blocked sign-up answers the same sentence; only the email differs. Limits: per address, the
+ * number of different roles tried today (a parent's own and children's sign-ups for one role are
+ * one); per post, attempts this minute; for the ward, sign-ups today.
+ */
 function apiSignup_(data) {
   data = data || {};
   var s = settings_();
-  var name = String(data.name == null ? '' : data.name).trim();
+  var name = cleanText_(data.name);
   var email = String(data.email == null ? '' : data.email).trim();
-  var bringing = String(data.bringing == null ? '' : data.bringing).trim();
-  var childName = String(data.childName == null ? '' : data.childName).trim();
+  var bringing = cleanText_(data.bringing);
+  var childName = cleanText_(data.childName);
   var fields = {};
   if (!name || name.length > 80) fields.name = 'Type your name (up to 80 characters).';
   if (!isEmail(email)) fields.email = 'Type one email address, like name@example.com.';
@@ -2512,60 +2615,43 @@ function apiSignup_(data) {
   var done = withLock_(function () {
     var d = volunteerData_();
     var now = nowLocal_();
-    var keys = attemptKeys_(email, '', now);
-    var post = findPublicPost_(d.posts, data.publicId);
-    if (!post) {
-      bumpCount_(keys.addr);
-      return { error: TEXT.postNotFound };
-    }
-    keys = attemptKeys_(email, post['Post id'], now);
-    var slot = null;
-    d.slots.forEach(function (sl) {
-      if (sl['Slot id'] === String(data.slotId) && sl['Post id'] === post['Post id']) slot = sl;
-    });
     var today = now.slice(0, 10);
-    // Refused and blocked attempts count too, so nobody can probe without limit what an address is.
-    var addressToday = readCount_(keys.addr);
-    var totalToday = 0;
-    var postMinute = readCount_(keys.post);
-    d.signups.forEach(function (su) {
-      var at = String(su['Signed up at']);
-      if (at.slice(0, 10) === today) {
-        totalToday++;
-        if (normEmail(su.Email) === email) addressToday++;
-      }
-      if (su['Post id'] === post['Post id'] && at === now) postMinute++;
-    });
+    var post = findPublicPost_(d.posts, data.publicId);
+    var slot = null;
+    if (post) {
+      d.slots.forEach(function (sl) {
+        if (sl['Slot id'] === String(data.slotId) && sl['Post id'] === post['Post id']) slot = sl;
+      });
+    }
+    // The limits come first and count every attempt alike, before anything about the address.
+    var dc = dayCounters_();
+    var tag = addrTag_(email);
+    var roleKey = 'R:' + tag + ':' + (slot ? slot['Slot id'] : '?');
+    var minuteKey = post ? postMinuteKey_(post['Post id'], now) : '';
+    var totalToday = d.signups.filter(function (su) {
+      return String(su['Signed up at']).slice(0, 10) === today;
+    }).length;
+    var newRole = !dc.get(roleKey);
     var limit = rateCheck(
-      { addressToday: addressToday, totalToday: totalToday, postMinute: postMinute },
-      {
-        perAddress: LIMITS.signupEmailsPerAddressPerDay,
-        perDay: s.signup_limit_per_day,
-        perPostMinute: LIMITS.signupsPerPostPerMinute,
-        leaderLinks: Infinity,
-      }
+      { addressToday: newRole ? dc.countPrefix('R:' + tag + ':') : 0, totalToday: totalToday, postMinute: readCount_(minuteKey) },
+      { perAddress: LIMITS.signupEmailsPerAddressPerDay, perDay: s.signup_limit_per_day, perPostMinute: LIMITS.signupsPerPostPerMinute, leaderLinks: Infinity }
     );
     if (limit) {
-      log_('sign-up limit', limit + ' | ' + post['Post id']);
+      log_('sign-up limit', limit + ' | ' + (post ? post['Post id'] : '?'));
       return { error: TEXT.rateLimited + contactSuffix_(s) };
     }
-    var bump = function () {
-      bumpCount_(keys.addr);
-      bumpCount_(keys.post);
-    };
-    if (childName && !allowsChildren_(post)) {
-      bump();
-      return { error: 'Please check the form.', fields: { childName: TEXT.noChildren } };
-    }
+    dc.bump(roleKey);
+    bumpCount_(minuteKey);
+    if (!post) return { error: TEXT.postNotFound };
+    if (childName && !allowsChildren_(post)) return { error: 'Please check the form.', fields: { childName: TEXT.noChildren } };
     var volsT = serviceTab_(TAB.volunteers);
     var byEmail = volunteersByEmail_(volsT.rows());
     var leaderList = leaders_();
     var state = volunteerState(email, byEmail, leaderEmails_(leaderList));
-    var counts = countsBySlot(d.signups);
     var check = checkSignup({
       post: post,
       slot: slot,
-      counts: counts,
+      counts: countsBySlot(d.signups),
       existing: d.signups,
       email: email,
       childName: childName,
@@ -2574,18 +2660,32 @@ function apiSignup_(data) {
       nowLocal: now,
     });
     // These answers don't depend on who the address belongs to.
-    if (!check.ok && [TEXT.notOpen, TEXT.roleNotFound, TEXT.datePassed].indexOf(check.error) >= 0) {
-      bump();
-      return { error: check.error };
-    }
+    if (!check.ok && [TEXT.notOpen, TEXT.roleNotFound, TEXT.datePassed].indexOf(check.error) >= 0) return { error: check.error };
     // From here every outcome answers the same sentence; only the email differs.
     if (state === 'blocked') {
-      bump();
-      return { outcome: 'blocked' };
+      // One "please contact" email a day per address, however often it tries.
+      if (loggedToday_('blocked sign-up', tag)) return { msgs: [] };
+      log_('blocked sign-up', tag);
+      return { msgs: [mailMsg_(email, tplContactToSignUp_(s))] };
+    }
+    if (!check.ok && check.error === TEXT.roleFull) {
+      var fullKey = 'F:' + tag + ':' + slot['Slot id'];
+      if (dc.get(fullKey)) return { msgs: [] };
+      dc.bump(fullKey);
+      return { msgs: [mailMsg_(email, tplRoleFull_(s, post, slot))] };
     }
     if (!check.ok) {
-      bump();
-      return { outcome: check.error === TEXT.roleFull ? 'full' : 'duplicate', post: post, slot: slot };
+      // A duplicate. When it is the address's own sign-up still waiting for its email click
+      // (say the link expired), send a fresh confirm email within the limits.
+      var own = d.signups.filter(function (su) {
+        return (
+          su['Slot id'] === slot['Slot id'] &&
+          su.Status === SIGNUP_STATUS.waitingEmail &&
+          normEmail(su.Email) === email &&
+          childKey_(su['Child first name']) === childKey_(childName)
+        );
+      })[0];
+      return { msgs: own ? confirmEmailLocked_(own, post, slot, dc, s, now) : [] };
     }
     var status = signupStatusFor(state);
     var signup = {
@@ -2599,7 +2699,7 @@ function apiSignup_(data) {
       Status: status,
       'Signed up at': now,
     };
-    serviceTab_(TAB.signups).append(signup);
+    signup = serviceTab_(TAB.signups).append(signup);
     d.signups.push(signup);
     refreshFilled_(serviceTab_(TAB.slots), slot, d.signups);
     var vrow = byEmail[email] || null;
@@ -2611,22 +2711,12 @@ function apiSignup_(data) {
     } else if (!vrow) {
       vrow = volsT.append({ Email: email, Name: name, Status: VOLUNTEER_STATUS.pending, 'First post': post['Post id'] });
     }
-    var out = { outcome: status, post: post, slot: slot, signup: signup, d: d, now: now };
-    if (status === SIGNUP_STATUS.waitingEmail) {
-      var ck = confirmKeys_(email, now);
-      if (readCount_(ck.addr) >= LIMITS.confirmEmailsPerAddressPerDay || readCount_(ck.total) >= s.confirm_limit_per_day) {
-        log_('confirm email limit', post['Post id']);
-      } else {
-        bumpCount_(ck.addr);
-        bumpCount_(ck.total);
-        out.sendConfirm = true;
-      }
+    if (status === SIGNUP_STATUS.confirmed) {
+      return { msgs: confirmationMsgs_([{ signup: signup, post: post, slot: slot, over: false }], d).concat(filledMsgsLocked_([post['Post id']], d)) };
     }
-    if (status === SIGNUP_STATUS.waitingApproval) {
-      out.firstPost = indexBy_(d.posts, 'Post id')[vrow['First post']] || post;
-      out.volName = vrow.Name || name;
-    }
-    return out;
+    if (status === SIGNUP_STATUS.waitingEmail) return { msgs: confirmEmailLocked_(signup, post, slot, dc, s, now) };
+    var firstPost = indexBy_(d.posts, 'Post id')[vrow['First post']] || post;
+    return { msgs: approverMsgs_(firstPost, vrow.Name || name, [{ post: post, slot: slot }]) };
   });
   if (done.error) {
     var refused = { ok: false, error: done.error };
@@ -2634,28 +2724,7 @@ function apiSignup_(data) {
     return refused;
   }
   clearServeCache_();
-  var t;
-  if (done.outcome === 'blocked') {
-    // One "please contact" email a day per address, however often it tries.
-    var tag = sha256Hex_(email).slice(0, 32);
-    if (!loggedToday_('blocked sign-up', tag)) {
-      log_('blocked sign-up', tag);
-      t = tplContactToSignUp_(s);
-      sendOrQueue_({ to: email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-    }
-  } else if (done.outcome === 'full') {
-    t = tplRoleFull_(s, done.post, done.slot);
-    sendOrQueue_({ to: email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  } else if (done.outcome === SIGNUP_STATUS.confirmed) {
-    sendConfirmations_([{ signup: done.signup, post: done.post, slot: done.slot, over: false }], done.d);
-    filledNotices_([done.post['Post id']]);
-  } else if (done.outcome === SIGNUP_STATUS.waitingEmail && done.sendConfirm) {
-    var ct = issueToken_('confirm', done.signup['Sign-up id'], localMinusHours(done.now, -CONFIRM_LINK_HOURS));
-    t = tplConfirmAddress_(s, done.post, done.slot, done.signup, pageUrl_(s, 'confirm', { t: ct }));
-    sendOrQueue_({ to: email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  } else if (done.outcome === SIGNUP_STATUS.waitingApproval) {
-    notifyApprovers_(done.firstPost, done.volName, [{ post: done.post, slot: done.slot }]);
-  }
+  sendAll_('sign-up', done.msgs);
   return { ok: true, message: TEXT.signupThanks };
 }
 
@@ -2670,10 +2739,22 @@ function leaderEmails_(leaders) {
   });
 }
 
-/** Today's confirm-your-address counters: per address (hashed) and for the whole ward. */
-function confirmKeys_(email, nowLocal) {
-  var day = nowLocal.slice(0, 10).replace(/-/g, '');
-  return { addr: 'CA_' + day + '_' + sha256Hex_(normEmail(email)).slice(0, 32), total: 'CT_' + day };
+/**
+ * A confirm-your-address email for a Waiting-email sign-up, within the day's limits (3 per
+ * address, Settings confirm_limit_per_day in all). A new link replaces the sign-up's older ones.
+ * Call inside the lock. Returns the messages to send ([] past a limit).
+ */
+function confirmEmailLocked_(signup, post, slot, dc, s, now) {
+  var ca = 'CA:' + addrTag_(signup.Email);
+  if (dc.get(ca) >= LIMITS.confirmEmailsPerAddressPerDay || dc.get('CT') >= s.confirm_limit_per_day) {
+    log_('confirm email limit', post['Post id']);
+    return [];
+  }
+  dc.bump(ca);
+  dc.bump('CT');
+  revokeTokens_('confirm', signup['Sign-up id']);
+  var ct = issueToken_('confirm', signup['Sign-up id'], localMinusHours(now, -CONFIRM_LINK_HOURS));
+  return [mailMsg_(normEmail(signup.Email), tplConfirmAddress_(s, post, slot, signup, pageUrl_(s, 'confirm', { t: ct })))];
 }
 
 /** True when the Log already has a line (what, detail) today. */
@@ -2703,13 +2784,12 @@ function categoryCoordinators_(categoryId) {
   return uniq_(splitList(c.Coordinators).filter(isEmail).map(normEmail));
 }
 
-/** "Someone new is waiting": to the approvers of the volunteer's first post. */
-function notifyApprovers_(firstPost, name, items) {
-  if (!items.length) return;
-  var s = settings_();
-  var t = tplWaitingNotice_(s, name, items);
-  approversFor(firstPost, leaders_()).forEach(function (to) {
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+/** "Someone new is waiting": messages to the approvers of the volunteer's first post. */
+function approverMsgs_(firstPost, name, items) {
+  if (!items.length) return [];
+  var t = tplWaitingNotice_(settings_(), name, items);
+  return approversFor(firstPost, leaders_()).map(function (to) {
+    return mailMsg_(to, t);
   });
 }
 
@@ -2771,26 +2851,26 @@ function confirmSignupsLocked_(list, d) {
 }
 
 /**
- * Emails each newly counted sign-up: the confirmation (private details, cancel link, My sign-ups
- * link, other ways to serve) or, when it is over the number, the withdraw email. One My sign-ups
+ * Call inside the lock: issues the links and builds the email for each newly counted sign-up:
+ * the confirmation (private details, cancel link, My sign-ups link, other ways to serve) or, when
+ * it is over the number, the withdraw email (its link ends when the role starts). One My sign-ups
  * link per address per batch (a new one replaces the old).
  */
-function sendConfirmations_(items, d) {
+function confirmationMsgs_(items, d) {
   var s = settings_();
   var slotsById = indexBy_(d.slots, 'Slot id');
   var meByEmail = {};
-  items.forEach(function (it) {
+  return items.map(function (it) {
     var e = normEmail(it.signup.Email);
     if (!meByEmail[e]) meByEmail[e] = issueMeToken_(e, d.signups, slotsById);
     var meUrl = pageUrl_(s, 'me', { t: meByEmail[e] });
     var id = it.signup['Sign-up id'];
-    var expires = addDays(it.slot.Date, 1) + ' 23:59';
     var t;
     if (it.over) {
-      var wt = issueToken_('withdraw', id, expires);
+      var wt = issueToken_('withdraw', id, slotStart(it.slot));
       t = tplOverLimit_(s, it.post, it.slot, it.signup, { withdrawUrl: pageUrl_(s, 'confirm', { t: wt }), meUrl: meUrl, details: true });
     } else {
-      var ct = issueToken_('cancel', id, expires);
+      var ct = issueToken_('cancel', id, addDays(it.slot.Date, 1) + ' 23:59');
       t = tplSignupConfirmed_(s, it.post, it.slot, it.signup, {
         cancelUrl: pageUrl_(s, 'confirm', { t: ct }),
         meUrl: meUrl,
@@ -2798,24 +2878,23 @@ function sendConfirmations_(items, d) {
         otherWays: otherWays_(s, d, it.post['Post id']),
       });
     }
-    sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+    return mailMsg_(e, t);
   });
 }
 
 /**
- * "Fully filled": once per post, when every role dated today or later has its number. To the
- * post's notice recipients and its category's coordinators.
+ * Call inside the lock. "Fully filled": once per post (checked and logged here), when every role
+ * dated today or later has its number. To the post's notice recipients and its category's
+ * coordinators. Returns the messages.
  */
-function filledNotices_(postIds) {
-  var ids = uniq_(postIds || []);
-  if (!ids.length) return;
+function filledMsgsLocked_(postIds, d) {
   var s = settings_();
-  var d = volunteerData_();
   var today = todayLocal_();
   var counts = countsBySlot(d.signups);
   var postsById = indexBy_(d.posts, 'Post id');
   var slotsByPost = groupBy_(d.slots, 'Post id');
-  ids.forEach(function (id) {
+  var msgs = [];
+  uniq_(postIds || []).forEach(function (id) {
     var post = postsById[id];
     if (!post || post.Status !== POST_STATUS.open) return;
     if (!postSummary(post, slotsByPost[id] || [], counts, today).full) return;
@@ -2823,9 +2902,10 @@ function filledNotices_(postIds) {
     log_('filled notice', id);
     var t = tplFullyFilled_(s, post);
     uniq_(noticeRecipients(post, leaders_()).concat(categoryCoordinators_(post.Category))).forEach(function (to) {
-      sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+      msgs.push(mailMsg_(to, t));
     });
   });
+  return msgs;
 }
 
 /** {signup, post, slot, signups, d} for a sign-up id, or null. */
@@ -2837,12 +2917,6 @@ function signupById_(id) {
   var slot = indexBy_(d.slots, 'Slot id')[signup['Slot id']];
   if (!post || !slot) return null;
   return { signup: signup, post: post, slot: slot, signups: d.signups, d: d };
-}
-
-function signupFromToken_(raw, kind) {
-  var tok = readToken_(raw, kind || 'cancel');
-  if (!tok) return null;
-  return signupById_(tok.subject);
 }
 
 var LINK_KINDS = ['cancel', 'withdraw', 'confirm'];
@@ -2910,26 +2984,31 @@ function apiConfirm_(data) {
       }
     });
     var confirmed = confirmSignupsLocked_(toConfirm, d);
-    return { d: d, moved: moved, confirmed: confirmed, lapsedOwn: lapsedOwn, name: vrow.Name || f.signup.Name, firstPost: postsById[vrow['First post']] || f.post };
+    var firstPost = postsById[vrow['First post']] || f.post;
+    var msgs = approverMsgs_(firstPost, vrow.Name || f.signup.Name, moved)
+      .concat(confirmationMsgs_(confirmed, d))
+      .concat(
+        filledMsgsLocked_(
+          confirmed.map(function (c) {
+            return c.post['Post id'];
+          }),
+          d
+        )
+      );
+    return { msgs: msgs, lapsedOwn: lapsedOwn };
   });
   if (done.error) return { ok: false, error: done.error };
   if (done.already) return { ok: true, message: TEXT.alreadyConfirmed };
   clearServeCache_();
-  notifyApprovers_(done.firstPost, done.name, done.moved);
-  if (done.confirmed.length) {
-    sendConfirmations_(done.confirmed, done.d);
-    filledNotices_(done.confirmed.map(function (c) {
-      return c.post['Post id'];
-    }));
-  }
+  sendAll_('confirm', done.msgs);
   return { ok: true, message: done.lapsedOwn ? TEXT.confirmedPassed : TEXT.addressConfirmed };
 }
 
-/** The cancel notice to the post's leaders (urgent wording after the cutoff, unless still full). */
-function sendCancelNotice_(f, late, stillFull) {
+/** The cancel notice to the post's leaders and its category's coordinators (urgent wording after the cutoff, unless still full). */
+function cancelNoticeMsgs_(f, late, stillFull) {
   var t = tplCancelNotice_(settings_(), f.post, f.slot, f.signup, late, stillFull);
-  noticeRecipients(f.post, leaders_()).forEach(function (to) {
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+  return uniq_(noticeRecipients(f.post, leaders_()).concat(categoryCoordinators_(f.post.Category))).map(function (to) {
+    return mailMsg_(to, t, 'high');
   });
 }
 
@@ -2938,45 +3017,85 @@ function cutoffOf_(post) {
 }
 
 /**
- * Cancel link (confirmation email, reminder, My sign-ups). A waiting sign-up is simply cancelled
- * (it never counted, so leaders hear nothing); a Confirmed one tells the post's leaders.
+ * Call inside the lock: cancels an active sign-up and its links. A waiting sign-up never counted,
+ * so leaders hear nothing; a Confirmed one gives the cancel notice. {error} | {already} | {msgs}.
  */
-function apiCancel_(data) {
-  var raw = data && data.t;
-  var row = tokenRow_(raw);
-  if (!row || row.kind !== 'cancel') return { ok: false, error: TEXT.linkInvalid };
-  if (row.expired) return { ok: false, error: TEXT.linkExpired };
-  var done = withLock_(function () {
-    var f = signupById_(row.subject);
-    if (!f) return { error: TEXT.linkInvalid };
-    var now = nowLocal_();
-    var waiting = isWaitingSignup_(f.signup.Status);
-    if (f.signup.Status !== SIGNUP_STATUS.confirmed && !waiting) return { already: true };
-    serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.cancelled, 'Cancelled at': now });
-    var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
-    return {
-      f: f,
-      waiting: waiting,
-      late: cancelIsLate(f.slot, cutoffOf_(f.post), now),
-      stillFull: filled >= (Number(f.slot.Needed) || 0),
-    };
-  });
+function cancelSignupLocked_(f) {
+  var waiting = isWaitingSignup_(f.signup.Status);
+  if (f.signup.Status !== SIGNUP_STATUS.confirmed && !waiting) return { already: true };
+  var now = nowLocal_();
+  serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.cancelled, 'Cancelled at': now });
+  var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
+  revokeSignupTokens_(f.signup['Sign-up id']);
+  if (waiting) return { msgs: [] };
+  return { msgs: cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), filled >= (Number(f.slot.Needed) || 0)) };
+}
+
+function cancelAnswer_(done) {
   if (done.error) return { ok: false, error: done.error };
   if (done.already) return { ok: true, message: TEXT.alreadyCancelled };
-  revokeSignupTokens_(done.f.signup['Sign-up id']);
   clearServeCache_();
-  if (!done.waiting) sendCancelNotice_(done.f, done.late, done.stillFull);
+  sendAll_('cancel', done.msgs);
   return { ok: true, message: TEXT.cancelled };
+}
+
+/** Cancel link (confirmation email, reminder). */
+function apiCancel_(data) {
+  var row = tokenRow_(data && data.t);
+  if (!row || row.kind !== 'cancel') return { ok: false, error: TEXT.linkInvalid };
+  if (row.expired) return { ok: false, error: TEXT.linkExpired };
+  return cancelAnswer_(
+    withLock_(function () {
+      var f = signupById_(row.subject);
+      return f ? cancelSignupLocked_(f) : { error: TEXT.linkInvalid };
+    })
+  );
+}
+
+/** The My sign-ups link (t) and one of its own sign-ups (signupId), or an error answer. */
+function mySignupLocked_(data) {
+  var row = tokenRow_(data && data.t);
+  if (!row || row.kind !== 'me') return { error: TEXT.linkInvalid };
+  if (row.expired) return { error: TEXT.linkExpired };
+  var f = signupById_(data.signupId);
+  if (!f || normEmail(f.signup.Email) !== normEmail(row.subject)) return { error: TEXT.notFound };
+  return { f: f };
+}
+
+/** Cancel from My sign-ups: the "me" link plus the sign-up id, which must be that address's. */
+function apiCancelMine_(data) {
+  return cancelAnswer_(
+    withLock_(function () {
+      var x = mySignupLocked_(data);
+      return x.error ? x : cancelSignupLocked_(x.f);
+    })
+  );
+}
+
+/** My sign-ups: "Send the confirm email again" for a sign-up still waiting for its email click. */
+function apiResendConfirm_(data) {
+  var done = withLock_(function () {
+    var x = mySignupLocked_(data);
+    if (x.error) return x;
+    var f = x.f;
+    var now = nowLocal_();
+    var passed = f.slot.Start ? slotStart(f.slot) < now : f.slot.Date < now.slice(0, 10);
+    if (f.signup.Status !== SIGNUP_STATUS.waitingEmail || passed) return { error: TEXT.notWaitingEmail };
+    var msgs = confirmEmailLocked_(f.signup, f.post, f.slot, dayCounters_(), settings_(), now);
+    return msgs.length ? { msgs: msgs } : { error: TEXT.resendLimit };
+  });
+  if (done.error) return { ok: false, error: done.error };
+  sendAll_('resend confirm', done.msgs);
+  return { ok: true, message: TEXT.resent };
 }
 
 /**
  * Withdraw link (over-limit email): the offer is withdrawn and, since the role still has its
  * number, nobody is told. If cancellations since then left it short, the leaders are told as
- * for a cancellation.
+ * for a cancellation. Refused once the role has started.
  */
 function apiWithdraw_(data) {
-  var raw = data && data.t;
-  var row = tokenRow_(raw);
+  var row = tokenRow_(data && data.t);
   if (!row || row.kind !== 'withdraw') return { ok: false, error: TEXT.linkInvalid };
   if (row.expired) return { ok: false, error: TEXT.linkExpired };
   var done = withLock_(function () {
@@ -2984,14 +3103,16 @@ function apiWithdraw_(data) {
     if (!f) return { error: TEXT.linkInvalid };
     if (f.signup.Status !== SIGNUP_STATUS.confirmed) return { error: TEXT.notActive };
     var now = nowLocal_();
+    if (now >= slotStart(f.slot)) return { error: TEXT.alreadyHappened };
     serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.withdrawn, 'Cancelled at': now });
     var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
-    return { f: f, late: cancelIsLate(f.slot, cutoffOf_(f.post), now), stillFull: filled >= (Number(f.slot.Needed) || 0) };
+    revokeSignupTokens_(f.signup['Sign-up id']);
+    var stillFull = filled >= (Number(f.slot.Needed) || 0);
+    return { msgs: stillFull ? [] : cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), false) };
   });
   if (done.error) return { ok: false, error: done.error };
-  revokeSignupTokens_(done.f.signup['Sign-up id']);
   clearServeCache_();
-  if (!done.stillFull) sendCancelNotice_(done.f, done.late, false);
+  sendAll_('withdraw', done.msgs);
   return { ok: true, message: TEXT.withdrawn };
 }
 
@@ -3001,18 +3122,28 @@ function apiRequestLeaderLink_(data) {
 
 // ---------- My sign-ups ----------
 
-/** 'Sister' from 'Sister Example': the first word only (or a child's first name). */
+var NAME_TITLES = ['brother', 'sister', 'elder', 'bishop', 'president'];
+
+/**
+ * A first name to show other volunteers: a child's first name, else the first word of Name that
+ * isn't a title (Brother, Sister, Elder, Bishop, President); "Sister Jones" → "Jones".
+ */
 function firstName_(su) {
   var child = String(su['Child first name'] || '').trim();
   if (child) return child;
-  return String(su.Name || '').trim().split(/\s+/)[0] || '';
+  var words = String(su.Name || '').trim().split(/\s+/).filter(String);
+  for (var i = 0; i < words.length; i++) {
+    if (NAME_TITLES.indexOf(words[i].toLowerCase()) < 0) return words[i];
+  }
+  return words[0] || '';
 }
 
 /**
- * My sign-ups (a "me" link). Only this address's sign-ups: upcoming (waiting or confirmed, today or
- * later, each with a fresh cancel link) and past (confirmed, date gone). For an approved
- * volunteer or a leader: the other volunteers' first names on the same post (confirmed only, no
- * emails), the private details while the post is on, and other ways to serve (fill levels only).
+ * My sign-ups (a "me" link). Read-only. Only this address's sign-ups: upcoming (waiting or
+ * confirmed, today or later; each cancelled with the me link and its id) and past (confirmed, date
+ * gone). For an approved volunteer or a leader: the other volunteers' first names on the same post
+ * (confirmed only, no emails), the private details while the post is on, and other ways to serve
+ * (fill levels only).
  */
 function apiMe_(data) {
   var row = tokenRow_(data && data.t);
@@ -3033,7 +3164,6 @@ function apiMe_(data) {
   });
   var upcoming = [];
   var past = [];
-  var issue = [];
   mine.forEach(function (su) {
     var sl = slotsById[su['Slot id']];
     var p = postsById[su['Post id']];
@@ -3067,21 +3197,10 @@ function apiMe_(data) {
     if (over) {
       past.push(item);
     } else {
-      issue.push({ item: item, id: su['Sign-up id'], slot: sl });
+      item.signupId = su['Sign-up id'];
+      item.canResend = su.Status === SIGNUP_STATUS.waitingEmail;
       upcoming.push(item);
     }
-  });
-  // Fresh cancel links for what is still to come; they last a day (the emailed ones last longer).
-  var now = nowLocal_();
-  var dayLater = localMinusHours(now, -24);
-  var raws = issueTokensMany_(
-    issue.map(function (x) {
-      var end = addDays(x.slot.Date, 1) + ' 23:59';
-      return { kind: 'cancel', subject: x.id, expires: end < dayLater ? end : dayLater };
-    })
-  );
-  issue.forEach(function (x, i) {
-    x.item.cancelToken = raws[i];
   });
   var order = function (a, b) {
     return cmpLocal(a.date + ' ' + (a.start || '00:00'), b.date + ' ' + (b.start || '00:00')) || cmpLocal(a.title, b.title);
@@ -3101,24 +3220,26 @@ function apiRequestMeLink_(data) {
   var raw = String((data && data.email) == null ? '' : data.email).trim();
   if (!isEmail(raw)) return answer;
   var email = normEmail(raw);
-  var d = volunteerData_();
-  var has = d.signups.some(function (su) {
-    return normEmail(su.Email) === email;
+  var msgs = withLock_(function () {
+    var d = volunteerData_();
+    var has = d.signups.some(function (su) {
+      return normEmail(su.Email) === email;
+    });
+    if (!has) return [];
+    var tag = addrTag_('me:' + email);
+    var today = todayLocal_();
+    var count = systemTab_(SYS_TAB.log)
+      .rows()
+      .filter(function (r) {
+        return r.What === 'me link requested' && String(r.Detail) === tag && String(r.At).slice(0, 10) === today;
+      }).length;
+    if (count >= LIMITS.meLinksPerAddressPerDay) return [];
+    log_('me link requested', tag);
+    var s = settings_();
+    var t = issueMeToken_(email, d.signups, indexBy_(d.slots, 'Slot id'));
+    return [mailMsg_(email, tplMeLink_(s, pageUrl_(s, 'me', { t: t })))];
   });
-  if (!has) return answer;
-  var tag = sha256Hex_('me:' + email).slice(0, 32);
-  var today = todayLocal_();
-  var count = systemTab_(SYS_TAB.log)
-    .rows()
-    .filter(function (r) {
-      return r.What === 'me link requested' && String(r.Detail) === tag && String(r.At).slice(0, 10) === today;
-    }).length;
-  if (count >= LIMITS.meLinksPerAddressPerDay) return answer;
-  log_('me link requested', tag);
-  var s = settings_();
-  var t = issueMeToken_(email, d.signups, indexBy_(d.slots, 'Slot id'));
-  var m = tplMeLink_(s, pageUrl_(s, 'me', { t: t }));
-  sendOrQueue_({ to: email, subject: m.subject, html: m.html, text: m.text, priority: 'normal' });
+  sendAll_('me link', msgs);
   return answer;
 }
 
@@ -3155,11 +3276,9 @@ function opportunityCategories_() {
     });
 }
 
-/** Categories this leader may create in: all of them with an organization of their own, else only theirs. */
+/** Categories this leader may create in (leaderAccess catOrgs). */
 function creatableCategories_(access) {
-  var all = opportunityCategories_();
-  if ((access.baseCreateOrgs || []).length) return all;
-  return all.filter(function (c) {
+  return opportunityCategories_().filter(function (c) {
     return access.catOrgs && access.catOrgs[c.id];
   });
 }
@@ -3341,10 +3460,12 @@ function apiSavePost_(data) {
     oldSlots.forEach(function (sl) {
       keepDates[sl['Slot id']] = sl.Date;
     });
+    // Organizations follow the category's rule (leaderAccess); an edit that keeps the category
+    // may keep the post's organization.
     var cat = String(input.category == null ? '' : input.category).trim();
-    var allowed = existing
-      ? uniq_(lc.access.editOrgs.concat([existing.Organization], (lc.access.catOrgs && lc.access.catOrgs[cat]) || []))
-      : allowedOrgsFor_(lc.access, cat);
+    var sameCat = !!existing && cat === String(existing.Category || '');
+    var allowed = allowedOrgsFor_(lc.access, cat);
+    if (sameCat) allowed = uniq_(allowed.concat([existing.Organization]));
     var catIds = opportunityCategories_().map(function (c) {
       return c.id;
     });
@@ -3356,12 +3477,9 @@ function apiSavePost_(data) {
       publish: action === 'publish',
       keepDates: keepDates,
     });
-    if (!v.ok) return { ok: false, error: 'Please fix the marked fields.', fields: v.errors };
-    // A leader who edits this post only as a coordinator of its category keeps it in one of theirs.
-    var byOrgOrCreator = existing && (normEmail(existing['Created by']) === lc.email || lc.access.editOrgs.indexOf(existing.Organization) >= 0);
-    if (existing && !byOrgOrCreator && lc.access.categories.indexOf(v.post.category) < 0) {
-      return { ok: false, error: 'Please fix the marked fields.', fields: { category: 'Keep it in a category you coordinate.' } };
-    }
+    var errors = v.ok ? {} : v.errors;
+    if (cat && !sameCat && !allowedOrgsFor_(lc.access, cat).length) errors.category = TEXT.categoryNotAllowed;
+    if (Object.keys(errors).length) return { ok: false, error: 'Please fix the marked fields.', fields: errors };
 
     var counts = countsBySlot(d.signups);
     var fields = {};
@@ -3376,9 +3494,9 @@ function apiSavePost_(data) {
       kept[sl.slotId] = true;
       var f = filledOf_(counts, sl.slotId);
       if (sl.needed < f) fields['slots[' + i + '].needed'] = f + ' people are signed up; needed cannot be less.';
-      // Moving a booked date or start time would leave the people signed up at the old time.
+      // Moving a booked date or start time (confirmed or waiting) would leave people at the old time.
       var old = oldById[sl.slotId];
-      if (f > 0 && (sl.date !== old.Date || sl.start !== String(old.Start || ''))) {
+      if (bookedOf_(counts, sl.slotId) > 0 && (sl.date !== old.Date || sl.start !== String(old.Start || ''))) {
         fields['slots[' + i + '].date'] = TEXT.removeSignupsFirst;
         moved = true;
       }
@@ -3390,7 +3508,7 @@ function apiSavePost_(data) {
       return !kept[sl['Slot id']];
     });
     var blocked = removed.some(function (sl) {
-      return filledOf_(counts, sl['Slot id']) > 0;
+      return bookedOf_(counts, sl['Slot id']) > 0;
     });
     if (blocked) return { ok: false, error: TEXT.removeSignupsFirst, fields: { slots: TEXT.removeSignupsFirst } };
 
@@ -3448,6 +3566,12 @@ function apiSavePost_(data) {
   return result;
 }
 
+/** Sign-ups holding (Confirmed) or waiting for (Waiting-*) a place in the slot. */
+function bookedOf_(counts, slotId) {
+  var c = (counts && counts[slotId]) || {};
+  return (c.filled || 0) + (c.waiting || 0);
+}
+
 function merge_(a, b) {
   var o = {};
   Object.keys(a).forEach(function (k) {
@@ -3479,14 +3603,14 @@ function apiRemoveSignup_(data) {
     if (!isActiveSignup_(f.signup.Status)) return { already: true };
     serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
     refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
+    revokeSignupTokens_(f.signup['Sign-up id']);
+    f.msgs = [mailMsg_(normEmail(f.signup.Email), tplRemoved_(lc.s, f.post, f.slot))];
     return f;
   });
   if (done.error) return { ok: false, error: done.error };
   if (done.already) return { ok: true, message: 'Already removed.' };
-  revokeSignupTokens_(done.signup['Sign-up id']);
   clearServeCache_();
-  var t = tplRemoved_(lc.s, done.post, done.slot);
-  sendOrQueue_({ to: done.signup.Email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+  sendAll_('remove', done.msgs);
   return { ok: true, message: 'Removed. We emailed ' + done.signup.Name + '.' };
 }
 
@@ -3561,11 +3685,13 @@ function cancelPostOrDate_(data) {
     var e = normEmail(su.Email);
     (byEmail[e] = byEmail[e] || []).push(slotById[su['Slot id']]);
   });
-  Object.keys(byEmail).forEach(function (to) {
-    var t = tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date);
-    // High: it must not wait behind the reserve and arrive after the event.
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
-  });
+  // High: it must not wait behind the reserve and arrive after the event.
+  sendAll_(
+    'cancel post',
+    Object.keys(byEmail).map(function (to) {
+      return mailMsg_(to, tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date), 'high');
+    })
+  );
   var n = Object.keys(byEmail).length;
   return { ok: true, message: (date ? 'Date cancelled.' : 'Opportunity cancelled.') + (n ? ' We emailed ' + n + ' ' + (n === 1 ? 'person' : 'people') + '.' : '') };
 }
@@ -3690,7 +3816,7 @@ function apiDecide_(data) {
     if (decision === 'decline') {
       x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.declined }, record));
       mine.forEach(lapse);
-      return { v: x.v, decision: decision };
+      return { v: x.v, decision: decision, msgs: [mailMsg_(email, tplContactToSignUp_(lc.s))] };
     }
     x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.approved }, record));
     var live = [];
@@ -3701,27 +3827,24 @@ function apiDecide_(data) {
       if (over) lapse(su);
       else live.push(su);
     });
-    return { v: x.v, decision: decision, d: x.d, confirmed: confirmSignupsLocked_(live, x.d) };
+    var confirmed = confirmSignupsLocked_(live, x.d);
+    var msgs = [mailMsg_(email, tplApproved_(lc.s, x.v))]
+      .concat(confirmationMsgs_(confirmed, x.d))
+      .concat(
+        filledMsgsLocked_(
+          confirmed.map(function (c) {
+            return c.post['Post id'];
+          }),
+          x.d
+        )
+      );
+    return { v: x.v, decision: decision, n: confirmed.length, msgs: msgs };
   });
   if (done.error) return { ok: false, error: done.error };
   clearServeCache_();
-  var s = lc.s;
-  var to = normEmail(done.v.Email);
-  var t;
-  if (done.decision === 'decline') {
-    t = tplContactToSignUp_(s);
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-    return { ok: true, message: 'Declined. We emailed ' + done.v.Name + '.' };
-  }
-  t = tplApproved_(s, done.v);
-  sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  sendConfirmations_(done.confirmed, done.d);
-  filledNotices_(
-    done.confirmed.map(function (c) {
-      return c.post['Post id'];
-    })
-  );
-  var n = done.confirmed.length;
+  sendAll_('decide', done.msgs);
+  if (done.decision === 'decline') return { ok: true, message: 'Declined. We emailed ' + done.v.Name + '.' };
+  var n = done.n;
   return { ok: true, message: 'Approved. ' + n + ' sign-up' + (n === 1 ? '' : 's') + ' now count' + (n === 1 ? 's' : '') + '. We emailed ' + done.v.Name + '.' };
 }
 
@@ -3839,6 +3962,8 @@ var POST_ACTIONS = [
   'withdraw',
   'me',
   'requestMeLink',
+  'cancelMine',
+  'resendConfirm',
   'requestLeaderLink',
   'whoami',
   'listPosts',
@@ -3932,6 +4057,12 @@ function dispatch_(action, data) {
     requestMeLink: function () {
       return apiRequestMeLink_(data);
     },
+    cancelMine: function () {
+      return apiCancelMine_(data);
+    },
+    resendConfirm: function () {
+      return apiResendConfirm_(data);
+    },
     requestLeaderLink: function () {
       return apiRequestLeaderLink_(data);
     },
@@ -3976,6 +4107,11 @@ function dispatch_(action, data) {
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };
+  try {
+    ensureUpgraded_();
+  } catch (e0) {
+    log_('upgrade failed', clip(e0 && e0.message ? e0.message : e0, 300));
+  }
   try {
     return handlers[action]();
   } catch (err) {
@@ -4396,7 +4532,8 @@ function gpMenuSetUp() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   props_().setProperty('SERVICE_ID', ss.getId());
   gpEnsureTabs_(ss);
-  var migrated = migratePhase1Volunteers_();
+  if (!props_().getProperty('PHASE2_AT')) props_().setProperty('PHASE2_AT', nowLocal_());
+  var migrated = migratePhase1Volunteers_(true);
   var s = settings_();
   if (!s.ward_name || !s.time_zone || !s.contact_email) {
     ui_().alert('Fill in Settings (ward name, time zone, contact email) and the Leaders tab, then run Set up again.');
@@ -4410,6 +4547,7 @@ function gpMenuSetUp() {
   }
   var folder = ensurePortalFolder_(ss);
   ensureSystemSheet_(s, folder);
+  props_().setProperty('SCHEMA_VERSION', GP_VERSION);
   var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows());
   var lines = ['Set up is done.'];
   if (migrated) lines.push('Volunteers from before phase 2 marked Approved: ' + migrated + '.');
@@ -4780,21 +4918,27 @@ function healthLines_(opts) {
 // ---------- upgrade from phase 1 ----------
 
 /**
- * Phase 1 had no approval step: a leader removed anyone they didn't recognize. On the first Set up
- * after the upgrade, every address with a Confirmed sign-up and no Volunteers row (leaders aside)
- * becomes Approved, Decided by "Phase 1 sign-up", so their reminders keep the private details.
- * Runs once (Script Property VOLUNTEERS_MIGRATED). Returns how many rows it added.
+ * Phase 1 had no approval step: a leader removed anyone they didn't recognize. Every non-leader
+ * address holding a Confirmed sign-up is marked Approved (Decided by "Phase 1 sign-up") when
+ *   - it has no Volunteers row (phase 1 code, including the old web app still serving between
+ *     pasting the script and making its new version, never writes one), or
+ *   - its only row is Pending and the Confirmed sign-up was made before phase 2 began (PHASE2_AT):
+ *     a phase 2 sign-up made in that gap, by someone phase 1 had already accepted.
+ * Phase 2 never confirms a Pending address, so nothing else matches. Runs at every Set up
+ * (force) and once, lazily, from ensureUpgraded_. Returns how many rows it added or changed.
  */
-function migratePhase1Volunteers_() {
+function migratePhase1Volunteers_(force) {
   var p = props_();
-  if (p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
+  if (!force && p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
+  var cut = p.getProperty('PHASE2_AT') || nowLocal_();
   var n = withLock_(function () {
     var volsT = serviceTab_(TAB.volunteers);
     var have = volunteersByEmail_(volsT.rows());
     var leaders = leaderEmails_();
     var now = nowLocal_();
     var add = [];
-    var seen = {};
+    var done = {};
+    var changed = 0;
     serviceTab_(TAB.signups)
       .rows()
       .sort(function (a, b) {
@@ -4802,15 +4946,45 @@ function migratePhase1Volunteers_() {
       })
       .forEach(function (su) {
         var e = normEmail(su.Email);
-        if (su.Status !== SIGNUP_STATUS.confirmed || !isEmail(e) || have[e] || seen[e] || leaders.indexOf(e) >= 0) return;
-        seen[e] = true;
-        add.push({ Email: e, Name: su.Name, Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now, 'First post': su['Post id'] });
+        if (su.Status !== SIGNUP_STATUS.confirmed || !isEmail(e) || done[e] || leaders.indexOf(e) >= 0) return;
+        var v = have[e];
+        var record = { Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now };
+        if (!v) {
+          done[e] = true;
+          add.push(merge_({ Email: e, Name: su.Name, 'First post': su['Post id'] }, record));
+        } else if (v.Status === VOLUNTEER_STATUS.pending && cmpLocal(su['Signed up at'], cut) <= 0) {
+          done[e] = true;
+          volsT.update(v, record);
+          changed++;
+        }
       });
     volsT.appendMany(add);
-    return add.length;
+    return add.length + changed;
   });
   p.setProperty('VOLUNTEERS_MIGRATED', nowLocal_());
   return n;
+}
+
+/**
+ * Brings a sheet set up by an earlier version up to this one before any job or web call uses it:
+ * adds missing tabs, columns and Settings rows (gpEnsureTabs_, the System Sheet's tabs), records
+ * when phase 2 began, and runs the phase 1 volunteer migration once. Does nothing until Set up has
+ * made the portal's tabs (no Posts tab), and nothing more once SCHEMA_VERSION is this version.
+ */
+function ensureUpgraded_() {
+  var p = props_();
+  if (p.getProperty('SCHEMA_VERSION') === GP_VERSION) return;
+  var ss = serviceSs_();
+  if (!ss.getSheetByName(TAB.posts)) return;
+  withLock_(function () {
+    if (p.getProperty('SCHEMA_VERSION') === GP_VERSION) return;
+    gpEnsureTabs_(ss);
+    if (p.getProperty('SYSTEM_ID')) gpEnsureSystemTabs_(systemSs_());
+    if (!p.getProperty('PHASE2_AT')) p.setProperty('PHASE2_AT', nowLocal_());
+    migratePhase1Volunteers_(false);
+    p.setProperty('SCHEMA_VERSION', GP_VERSION);
+    log_('upgraded', GP_VERSION);
+  });
 }
 
 // ===== 13-jobs.js =====
@@ -4860,6 +5034,9 @@ function runJob_(name, e, fn) {
     return;
   }
   try {
+    // A sheet not yet set up for this version (the script pasted, Set up not run) is upgraded
+    // first, so no job works on missing columns.
+    ensureUpgraded_();
     fn();
     props_().setProperty('LAST_RAN_' + name, nowLocal_());
   } catch (err) {
@@ -4871,6 +5048,32 @@ function runJob_(name, e, fn) {
       log_('alert failed', name + ' | ' + e2);
     }
   }
+}
+
+/**
+ * Runs a job's parts one after another, each on its own: one failing doesn't stop the rest. While
+ * the sheet is not yet upgraded to this version (ensureUpgraded_ could not run), a part that meets
+ * a missing tab or column is skipped and logged; any other failure is thrown at the end, so
+ * runJob_ logs it and alerts once a day.
+ */
+function runParts_(job, parts) {
+  var errors = [];
+  var upgraded = props_().getProperty('SCHEMA_VERSION') === GP_VERSION;
+  parts.forEach(function (p) {
+    try {
+      p[1]();
+    } catch (err) {
+      if (err && err.gpBusy) {
+        errors.push(p[0] + ': ' + TEXT.busy);
+        return;
+      }
+      var msg = clip(err && err.message ? err.message : err, 300);
+      // Before the sheet could be upgraded, a missing column is expected: skip. After, it is a real problem.
+      if (!upgraded && /Missing column|is missing\. Run/.test(msg)) log_('job part skipped', job + ' / ' + p[0] + ' | ' + msg);
+      else errors.push(p[0] + ': ' + msg);
+    }
+  });
+  if (errors.length) throw new Error(errors.join(' ; '));
 }
 
 /** Writes every slot's Filled and Waiting from the Sign-ups tab (only cells that changed). */
@@ -4966,7 +5169,7 @@ function sendNudges_() {
     });
     var t = tplNudge_(s, post, n.date, here.length);
     uniq_(to).forEach(function (e) {
-      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+      sendAll_('job notice', [mailMsg_(e, t, 'high')]);
     });
     markSent_(SENT_NUDGE, n.key);
   });
@@ -4993,7 +5196,7 @@ function sendWarnings_() {
     if (!to.length) return;
     var t = tplWarning_(s, post, w.date, w.short, pageUrl_(s, 'post', { p: post['Public id'] }));
     to.forEach(function (e) {
-      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+      sendAll_('job notice', [mailMsg_(e, t, 'high')]);
     });
     markSent_(SENT_WARN, w.key);
   });
@@ -5049,14 +5252,13 @@ function sendReminders_() {
       var stamp = { 'Reminded at': now };
       if (details) stamp['Details sent at'] = now;
       signupsT.update(su, stamp);
-      return { su: su, slot: slotsById[su['Slot id']], post: post, details: details };
+      var slot = slotsById[su['Slot id']];
+      // The cancel link is made with the claim, so a stamped reminder always has its email.
+      var token = issueToken_('cancel', su['Sign-up id'], addDays(slot.Date, 1) + ' 23:59');
+      return mailMsg_(normEmail(su.Email), tplReminder_(s, post, slot, su, pageUrl_(s, 'confirm', { t: token }), details), 'high');
     });
   });
-  claimed.forEach(function (c) {
-    var token = issueToken_('cancel', c.su['Sign-up id'], addDays(c.slot.Date, 1) + ' 23:59');
-    var t = tplReminder_(s, c.post, c.slot, c.su, pageUrl_(s, 'confirm', { t: token }), c.details);
-    sendOrQueue_({ to: c.su.Email, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
-  });
+  sendAll_('reminder', claimed);
   return claimed.length;
 }
 
@@ -5074,21 +5276,25 @@ function markPastPosts_() {
 
 function gpTenMinute(e) {
   runJob_('gpTenMinute', e, function () {
-    drainOutbox_();
-    processLeaderLinkTicks_();
-    refreshAllFilled_();
-    writeNeedsHelpTab_();
+    runParts_('gpTenMinute', [
+      ['outbox', drainOutbox_],
+      ['leader links', processLeaderLinkTicks_],
+      ['counts', refreshAllFilled_],
+      ['needs help soon', writeNeedsHelpTab_],
+    ]);
   });
 }
 
 function gpHourly(e) {
   runJob_('gpHourly', e, function () {
-    lapseWaiting_();
-    sendReminders_();
-    sendNudges_();
-    sendWarnings_();
-    markPastPosts_();
-    clearServeCache_();
+    runParts_('gpHourly', [
+      ['lapses', lapseWaiting_],
+      ['reminders', sendReminders_],
+      ['nudges', sendNudges_],
+      ['warnings', sendWarnings_],
+      ['past posts', markPastPosts_],
+      ['serve cache', clearServeCache_],
+    ]);
   });
 }
 
@@ -5129,6 +5335,7 @@ function gpDaily(e) {
     });
     if (problems.length) alertOncePerDay_('gpDaily-report', problems);
     pruneSentKeys_(today);
+    pruneCounters_();
     // The health email: only the PROBLEM lines of Check health, and only when there is one.
     var bad = healthLines_({ job: true }).filter(function (l) {
       return l.indexOf('PROBLEM') === 0;
@@ -5144,8 +5351,8 @@ var GP_PAGES = {
  "post": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<base target=\"_top\">\n<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>\n<meta property=\"og:title\" content=\"{{WARD_NAME}} · {{PAGE_TITLE}}\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:image\" content=\"{{PREVIEW_IMAGE}}\">\n<style>\n:root {\n  /* Recolour here: every colour on the pages comes from these. */\n  --gp-ink: #2c3a4a;\n  --gp-heading: #1d3557;\n  --gp-accent: #c9b882;\n  --gp-muted: #6b7a8d;\n  --gp-link: #4a6fa5;\n  --gp-page: #eef2f7;\n  --gp-card: #ffffff;\n  --gp-line: #dde3ed;\n  --gp-soft: #f4f7fc;\n  --gp-good: #2f7d4f;\n  --gp-warn: #a4472b;\n  --gp-bar: #4a6fa5;\n  --gp-font: Georgia, 'Times New Roman', serif;\n}\n\n* { box-sizing: border-box; }\n\nhtml { -webkit-text-size-adjust: 100%; }\n\nbody {\n  margin: 0;\n  font-family: var(--gp-font);\n  color: var(--gp-ink);\n  background: var(--gp-page);\n  line-height: 1.5;\n  min-height: 100vh;\n}\n\n.gp-wrap {\n  max-width: 560px;\n  margin: 0 auto;\n  padding: 1.5rem 1rem 3rem;\n}\n\n.gp-wrap.gp-wide { max-width: 760px; }\n\n.gp-head { text-align: center; margin-bottom: 1.25rem; }\n.gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }\nh1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }\nh2 {\n  font-size: 1.05rem;\n  color: var(--gp-heading);\n  margin: 1.5rem 0 0.6rem;\n  padding-bottom: 0.3rem;\n  border-bottom: 2px solid var(--gp-accent);\n}\nh3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }\n\na { color: var(--gp-link); overflow-wrap: anywhere; }\n\n.gp-card {\n  background: var(--gp-card);\n  border: 1px solid var(--gp-line);\n  border-radius: 14px;\n  box-shadow: 0 2px 10px rgba(29, 53, 87, 0.07);\n  padding: 0.9rem 1rem;\n  margin: 0 0 0.75rem;\n}\n\na.gp-card { display: block; text-decoration: none; color: inherit; }\na.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }\n\n.gp-meta { font-size: 0.85rem; color: var(--gp-muted); margin: 0.1rem 0; }\n.gp-note { white-space: pre-wrap; margin: 0.4rem 0; }\n\n.gp-bar {\n  height: 8px;\n  border-radius: 4px;\n  background: var(--gp-line);\n  overflow: hidden;\n  margin: 0.45rem 0 0.2rem;\n}\n.gp-bar > span { display: block; height: 100%; background: var(--gp-bar); }\n.gp-count { font-size: 0.85rem; color: var(--gp-muted); }\n.gp-filled { color: var(--gp-good); font-weight: bold; }\n.gp-full { opacity: 0.75; }\n\n.gp-btn, button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 44px;\n  padding: 0.55rem 1rem;\n  border-radius: 10px;\n  border: 1px solid var(--gp-heading);\n  background: var(--gp-heading);\n  color: #ffffff;\n  font: inherit;\n  font-size: 0.95rem;\n  cursor: pointer;\n  text-decoration: none;\n  margin: 0.2rem 0.3rem 0.2rem 0;\n}\n.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }\n.gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }\nbutton:disabled { opacity: 0.55; cursor: default; }\n\nlabel { display: block; font-size: 0.9rem; margin: 0.7rem 0 0.2rem; color: var(--gp-heading); }\ninput[type='text'], input[type='email'], input[type='number'], input[type='date'], input[type='time'], select, textarea {\n  width: 100%;\n  min-height: 44px;\n  padding: 0.5rem 0.6rem;\n  border: 1px solid var(--gp-line);\n  border-radius: 8px;\n  font: inherit;\n  background: #ffffff;\n  color: var(--gp-ink);\n}\ntextarea { min-height: 88px; }\n.gp-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.95rem; min-height: 44px; }\n.gp-check input { width: 22px; height: 22px; }\n.gp-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }\n.gp-row > * { flex: 1 1 140px; }\n\n.gp-error { color: var(--gp-warn); font-size: 0.88rem; margin: 0.25rem 0; }\n.gp-ok { background: #eef7f1; border: 1px solid #b9dcc6; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-alert { background: #fbf1ec; border: 1px solid #e7c2b3; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-muted { color: var(--gp-muted); }\n.gp-loading { color: var(--gp-muted); text-align: center; padding: 1.5rem 0; }\n.gp-hidden { display: none !important; }\n\n.gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }\n.gp-slot:first-child { border-top: none; }\n.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }\n/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */\n.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }\n.gp-pair > .gp-section { min-width: 0; }\n.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }\n.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }\n@media (min-width: 720px) {\n  .gp-pair { grid-template-columns: 1fr 1fr; }\n}\n.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }\n\n.gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }\n.gp-tabs button { flex: 1 1 auto; }\n.gp-tabs button[aria-selected='false'] { background: var(--gp-card); color: var(--gp-heading); }\n\n.gp-date { background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 12px; padding: 0.7rem; margin: 0.7rem 0; }\n.gp-role { background: var(--gp-card); border: 1px solid var(--gp-line); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }\n\n.gp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }\n.gp-tile { text-align: center; padding: 1.1rem 0.6rem; min-height: 120px; }\n.gp-tile .gp-icon { font-size: 2.2rem; display: block; margin-bottom: 0.4rem; }\n\n.gp-footer {\n  max-width: 560px;\n  margin: 2rem auto 1rem;\n  padding: 0 1rem;\n  font-size: 0.78rem;\n  color: var(--gp-muted);\n  text-align: center;\n}\n.gp-footer p { margin: 0.3rem 0; }\n\n@media (max-width: 400px) {\n  .gp-wrap { padding: 1rem 0.75rem 2.5rem; }\n  h1 { font-size: 1.25rem; }\n}\n</style>\n</head>\n<body>\n<main class=\"gp-wrap\">\n  <header class=\"gp-head\">\n    <p class=\"gp-ward\">{{WARD_NAME}}</p>\n    <h1 id=\"gp-title\">{{PAGE_TITLE}}</h1>\n  </header>\n  <div id=\"gp-main\"><p class=\"gp-loading\">Loading…</p></div>\n  <p style=\"text-align:center;margin-top:1.5rem\"><a id=\"gp-back\" class=\"gp-btn gp-light\" href=\"serve.html\">All service opportunities</a></p>\n</main>\n<footer class=\"gp-footer\" id=\"gp-footer\">\n  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>\n  <p class=\"gp-contact\">Contact: <a href=\"mailto:{{CONTACT_EMAIL}}\">{{CONTACT_EMAIL}}</a></p>\n</footer>\n<script>\n/* Service Portal page code, shared by every page (inlined by build.mjs).\n   Hub pages talk to the web app with fetch; the fallback pages served by the script itself use\n   google.script.run. Data only ever reaches the page through textContent, never as HTML. */\nvar GP = (function () {\n  'use strict';\n  var cfg = { page: '', wardName: '', webAppUrl: '', contact: '', fallback: false };\n  var GET_ACTIONS = { serve: true, post: true, help: true };\n  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  var AUDIENCES = ['Brothers', 'Sisters', 'Youth', 'Children'];\n\n  function init(c) {\n    cfg = {\n      page: c.page || '',\n      wardName: c.wardName || '',\n      webAppUrl: c.webAppUrl || '',\n      contact: c.contact || '',\n      fallback: !!c.fallback,\n    };\n    return cfg;\n  }\n\n  function config() {\n    return cfg;\n  }\n\n  // ---------- talking to the script ----------\n\n  function call(action, data) {\n    data = data || {};\n    var req = { action: action };\n    Object.keys(data).forEach(function (k) {\n      req[k] = data[k];\n    });\n    if (cfg.fallback) {\n      return new Promise(function (resolve, reject) {\n        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).gpApi(req);\n      });\n    }\n    var opts;\n    var url = cfg.webAppUrl;\n    if (GET_ACTIONS[action]) {\n      url += '?api=' + encodeURIComponent(action) + (data.p ? '&p=' + encodeURIComponent(data.p) : '');\n      opts = { method: 'GET', redirect: 'follow' };\n    } else {\n      // A text/plain body keeps this a \"simple\" request: no preflight.\n      opts = { method: 'POST', body: JSON.stringify(req), redirect: 'follow' };\n    }\n    return fetch(url, opts).then(function (res) {\n      if (!res.ok) throw new Error('HTTP ' + res.status);\n      return res.json();\n    });\n  }\n\n  function parseHash(h) {\n    var out = {};\n    String(h || '')\n      .replace(/^#/, '')\n      .split('&')\n      .forEach(function (part) {\n        if (!part) return;\n        var i = part.indexOf('=');\n        var k = i < 0 ? part : part.slice(0, i);\n        var v = i < 0 ? '' : part.slice(i + 1);\n        try {\n          out[decodeURIComponent(k)] = decodeURIComponent(v);\n        } catch (e) {\n          out[k] = v;\n        }\n      });\n    return out;\n  }\n\n  function hash() {\n    if (cfg.fallback) {\n      return new Promise(function (resolve) {\n        google.script.url.getLocation(function (loc) {\n          resolve(parseHash(loc.hash));\n        });\n      });\n    }\n    return Promise.resolve(parseHash(window.location.hash));\n  }\n\n  function hashString(h) {\n    return Object.keys(h || {})\n      .map(function (k) {\n        return k + '=' + encodeURIComponent(h[k]);\n      })\n      .join('&');\n  }\n\n  /** Address of another portal page: hub file, or the web app's ?page= in the fallback. */\n  function pageUrl(page, h) {\n    var tail = hashString(h);\n    var base = cfg.fallback ? cfg.webAppUrl + '?page=' + page : page + '.html';\n    return base + (tail ? '#' + tail : '');\n  }\n\n  // ---------- DOM ----------\n\n  /** el('a', {href: x, class: 'y', onclick: fn}, ['text', node]) — text only via textContent. */\n  function el(tag, attrs, children) {\n    var node = document.createElement(tag);\n    Object.keys(attrs || {}).forEach(function (k) {\n      var v = attrs[k];\n      if (v === null || v === undefined || v === false) return;\n      if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);\n      else if (k === 'class') node.className = v;\n      else if (k === 'text') node.textContent = v;\n      else if (k === 'value') node.value = v;\n      else if (k === 'checked') node.checked = !!v;\n      else if (k === 'href') node.setAttribute('href', safeHref(v));\n      else node.setAttribute(k, v === true ? '' : String(v));\n    });\n    (Array.isArray(children) ? children : children === undefined ? [] : [children]).forEach(function (c) {\n      if (c === null || c === undefined || c === false) return;\n      node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);\n    });\n    return node;\n  }\n\n  function safeHref(v) {\n    var s = String(v);\n    return /^(https?:|mailto:|[a-z0-9-]+\\.html|#|\\?)/i.test(s) ? s : '#';\n  }\n\n  function $(id) {\n    return document.getElementById(id);\n  }\n\n  function clear(node) {\n    node.innerHTML = '';\n    return node;\n  }\n\n  function show(node, children) {\n    clear(node);\n    (Array.isArray(children) ? children : [children]).forEach(function (c) {\n      if (c) node.appendChild(c);\n    });\n  }\n\n  function message(kind, text) {\n    return el('div', { class: kind === 'ok' ? 'gp-ok' : 'gp-alert', role: kind === 'ok' ? 'status' : 'alert' }, text);\n  }\n\n  /** Turns the footer's contact into a mail link, or hides it when there is no contact. */\n  function footer() {\n    var f = $('gp-footer');\n    if (!f) return;\n    var c = f.querySelector('.gp-contact');\n    if (c && !cfg.contact) c.className += ' gp-hidden';\n  }\n\n  function unreachable(page) {\n    var url = cfg.webAppUrl + '?page=' + page + (window.location && window.location.hash ? window.location.hash : '');\n    return el('div', { class: 'gp-alert', role: 'alert' }, [\n      \"Can't load right now. Try this link instead: \",\n      el('a', { href: url }, url),\n    ]);\n  }\n\n  function errorText(res) {\n    return (res && res.error) || 'Something went wrong. Please try again.';\n  }\n\n  function copyText(text, button) {\n    function done() {\n      if (button) {\n        var old = button.textContent;\n        button.textContent = 'Copied';\n        setTimeout(function () {\n          button.textContent = old;\n        }, 1500);\n      }\n    }\n    if (navigator.clipboard && navigator.clipboard.writeText) {\n      navigator.clipboard.writeText(text).then(done, function () {\n        window.prompt('Copy this link:', text);\n      });\n    } else {\n      window.prompt('Copy this link:', text);\n    }\n  }\n\n  // ---------- pure helpers ----------\n\n  function isDate(s) {\n    if (typeof s !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return false;\n    var d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));\n    return d.getUTCMonth() === +s.slice(5, 7) - 1 && d.getUTCDate() === +s.slice(8, 10);\n  }\n\n  function utc(s) {\n    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));\n  }\n\n  function iso(ms) {\n    var d = new Date(ms);\n    var m = d.getUTCMonth() + 1;\n    var day = d.getUTCDate();\n    return d.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;\n  }\n\n  /** Every date from start to end (inclusive) on the given weekdays (0 = Sunday; none = all). At most 100. */\n  function expandDates(start, end, weekdays) {\n    if (!isDate(start) || !isDate(end)) return [];\n    var days = weekdays && weekdays.length ? weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];\n    var out = [];\n    for (var t = utc(start); t <= utc(end) && out.length < 100; t += 86400000) {\n      if (days.indexOf(new Date(t).getUTCDay()) >= 0) out.push(iso(t));\n    }\n    return out;\n  }\n\n  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */\n  function groupByAudience(posts) {\n    var out = {};\n    AUDIENCES.forEach(function (a) {\n      out[a] = [];\n    });\n    (posts || []).forEach(function (p) {\n      (p.audiences || []).forEach(function (a) {\n        if (out[a]) out[a].push(p);\n      });\n    });\n    AUDIENCES.forEach(function (a) {\n      out[a] = out[a]\n        .filter(function (p) {\n          return !p.full;\n        })\n        .concat(\n          out[a].filter(function (p) {\n            return p.full;\n          })\n        );\n    });\n    return out;\n  }\n\n  /** 'Thu, Dec 3' */\n  function fmtDate(s) {\n    if (!isDate(s)) return String(s || '');\n    var d = new Date(utc(s));\n    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();\n  }\n\n  /** '6:30 PM' */\n  function fmtTime(t) {\n    if (!/^\\d{2}:\\d{2}$/.test(String(t || ''))) return '';\n    var h = +t.slice(0, 2);\n    return (h % 12 === 0 ? 12 : h % 12) + ':' + t.slice(3) + (h < 12 ? ' AM' : ' PM');\n  }\n\n  function fmtTimes(start, end) {\n    if (!start) return '';\n    return fmtTime(start) + (end ? '–' + fmtTime(end) : '');\n  }\n\n  function fillBar(filled, needed) {\n    var pct = needed ? Math.min(100, Math.round((filled / needed) * 100)) : 0;\n    return el('div', { class: 'gp-bar', role: 'img', 'aria-label': filled + ' of ' + needed + ' filled' }, [\n      el('span', { style: 'width:' + pct + '%' }),\n    ]);\n  }\n\n  return {\n    init: init,\n    config: config,\n    call: call,\n    hash: hash,\n    parseHash: parseHash,\n    pageUrl: pageUrl,\n    el: el,\n    $: $,\n    clear: clear,\n    show: show,\n    message: message,\n    footer: footer,\n    unreachable: unreachable,\n    errorText: errorText,\n    copyText: copyText,\n    expandDates: expandDates,\n    groupByAudience: groupByAudience,\n    fmtDate: fmtDate,\n    fmtTime: fmtTime,\n    fmtTimes: fmtTimes,\n    fillBar: fillBar,\n    isDate: isDate,\n    AUDIENCES: AUDIENCES,\n  };\n})();\n</script>\n<script>\nGP.init({ page: 'post', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });\nGP.footer();\n(function () {\n  var el = GP.el;\n  var main = GP.$('gp-main');\n  GP.$('gp-back').setAttribute('href', GP.pageUrl('serve'));\n\n  function byDate(slots) {\n    var out = [];\n    var at = {};\n    slots.forEach(function (s) {\n      if (!(s.date in at)) {\n        at[s.date] = out.length;\n        out.push({ date: s.date, slots: [] });\n      }\n      out[at[s.date]].slots.push(s);\n    });\n    return out;\n  }\n\n  function slotLine(s) {\n    var when = GP.fmtTimes(s.start, s.end);\n    return el('div', { class: 'gp-slot' }, [\n      el('strong', {}, s.role),\n      when ? el('span', { class: 'gp-meta' }, ' · ' + when) : null,\n      // Over the number is fine (a waiting sign-up approved later): say so plainly, \"12 of 10\".\n      s.full\n        ? el('div', { class: 'gp-filled' }, 'Filled ✓' + (s.filled > s.needed ? ' · ' + s.filled + ' of ' + s.needed : ''))\n        : el('div', {}, [GP.fillBar(s.filled, s.needed), el('span', { class: 'gp-count' }, s.filled + ' of ' + s.needed + ' filled')]),\n      s.roleNote ? el('p', { class: 'gp-meta' }, s.roleNote) : null,\n    ]);\n  }\n\n  function signupForm(post) {\n    var open = post.slots.filter(function (s) {\n      return !s.full && !s.past;\n    });\n    if (!open.length) return el('p', { class: 'gp-muted' }, 'Every role is filled. Thank you!');\n    var chosen = null;\n    var out = el('div', { id: 'gp-out' });\n    var bringWrap = el('div', { class: 'gp-hidden' });\n    var bringLabel = el('label', { for: 'gp-bring' }, 'What are you bringing?');\n    var bring = el('input', { type: 'text', id: 'gp-bring', maxlength: '200' });\n    bringWrap.appendChild(bringLabel);\n    bringWrap.appendChild(bring);\n    var errs = {};\n    function errBox(key) {\n      errs[key] = el('p', { class: 'gp-error', role: 'alert' });\n      return errs[key];\n    }\n    var choices = open.map(function (s) {\n      var input = el('input', {\n        type: 'radio',\n        name: 'gp-slot',\n        value: s.slotId,\n        onchange: function () {\n          chosen = s;\n          bringLabel.textContent = s.bringingPrompt || 'What are you bringing?';\n          bringWrap.className = s.bringingPrompt ? '' : 'gp-hidden';\n        },\n      });\n      var when = GP.fmtTimes(s.start, s.end);\n      return el('label', { class: 'gp-check' }, [input, GP.fmtDate(s.date) + (when ? ', ' + when : '') + ' · ' + s.role + ' (' + (s.needed - s.filled) + ' open)']);\n    });\n    var name = el('input', { type: 'text', id: 'gp-name', autocomplete: 'name', maxlength: '80' });\n    var email = el('input', { type: 'email', id: 'gp-email', autocomplete: 'email', maxlength: '254' });\n    var button = el('button', { type: 'submit' }, 'Sign up');\n    // Youth and Children posts: a parent signs up themselves or a child (first name only).\n    var young = post.audiences.indexOf('Youth') >= 0 || post.audiences.indexOf('Children') >= 0;\n    var who = 'me';\n    var nameLabel = el('label', { for: 'gp-name' }, 'Your name');\n    var childWrap = young ? el('div', { class: 'gp-hidden' }) : null;\n    var child = young ? el('input', { type: 'text', id: 'gp-child', maxlength: '40', autocomplete: 'off' }) : null;\n    if (young) {\n      childWrap.appendChild(el('label', { for: 'gp-child' }, \"Your child's first name\"));\n      childWrap.appendChild(child);\n    }\n    function whoChoice(value, label) {\n      var input = el('input', {\n        type: 'radio',\n        name: 'gp-who',\n        value: value,\n        checked: value === 'me',\n        onchange: function () {\n          who = value;\n          childWrap.className = value === 'child' ? '' : 'gp-hidden';\n          nameLabel.textContent = value === 'child' ? 'Your name (the parent)' : 'Your name';\n        },\n      });\n      return el('label', { class: 'gp-check' }, [input, label]);\n    }\n    var whoBox = young\n      ? el('fieldset', { style: 'border:none;padding:0;margin:0.6rem 0 0' }, [\n          el('legend', { class: 'gp-meta' }, 'Who is serving?'),\n          whoChoice('me', 'Me'),\n          whoChoice('child', 'My child'),\n          el('p', { class: 'gp-meta' }, 'A parent signs up for their child. Use your own name and email; we never ask for a child\\'s email. Sign up each child (and yourself) separately.'),\n        ])\n      : null;\n    var form = el(\n      'form',\n      {\n        onsubmit: function (e) {\n          e.preventDefault();\n          Object.keys(errs).forEach(function (k) {\n            errs[k].textContent = '';\n          });\n          if (!chosen) {\n            errs.slot.textContent = 'Pick a date and role.';\n            return;\n          }\n          var childName = young && who === 'child' ? String(child.value || '').trim() : '';\n          if (young && who === 'child' && !childName) {\n            errs.childName.textContent = \"Type your child's first name.\";\n            return;\n          }\n          button.disabled = true;\n          GP.call('signup', { publicId: post.publicId, slotId: chosen.slotId, name: name.value, email: email.value, bringing: chosen.bringingPrompt ? bring.value : '', childName: childName }).then(\n            function (res) {\n              button.disabled = false;\n              if (res && res.ok) {\n                // Reload so the counts include this sign-up; the message replaces the form.\n                return GP.call('post', { p: post.publicId }).then(\n                  function (again) {\n                    if (again && again.ok) render(again.post, res.message);\n                    else GP.show(formWrap, GP.message('ok', res.message));\n                  },\n                  function () {\n                    GP.show(formWrap, GP.message('ok', res.message));\n                  }\n                );\n              }\n              Object.keys((res && res.fields) || {}).forEach(function (k) {\n                if (errs[k]) errs[k].textContent = res.fields[k];\n              });\n              GP.show(out, GP.message('alert', GP.errorText(res)));\n            },\n            function () {\n              button.disabled = false;\n              GP.show(out, GP.unreachable('post'));\n            }\n          );\n        },\n      },\n      [\n        el('h2', {}, 'Sign up'),\n        el('fieldset', { style: 'border:none;padding:0;margin:0' }, [el('legend', { class: 'gp-meta' }, 'Pick a date and role')].concat(choices)),\n        errBox('slot'),\n        whoBox,\n        childWrap,\n        errBox('childName'),\n        nameLabel,\n        name,\n        errBox('name'),\n        el('label', { for: 'gp-email' }, 'Your email (for your confirmation and reminder)'),\n        email,\n        errBox('email'),\n        bringWrap,\n        errBox('bringing'),\n        el('p', {}, [button]),\n        out,\n      ]\n    );\n    var formWrap = el('div', {}, [form]);\n    return formWrap;\n  }\n\n  function render(post, doneMessage) {\n    GP.$('gp-title').textContent = post.title;\n    document.title = post.title + ' · ' + GP.config().wardName;\n    var parts = [\n      el('div', { class: 'gp-card' }, [\n        el('p', { class: 'gp-meta' }, [post.organization, post.audiences.length ? ' · For ' + post.audiences.join(', ') : ''].join('')),\n        post.publicNote ? el('p', { class: 'gp-note' }, post.publicNote) : null,\n      ]),\n    ];\n    byDate(post.slots).forEach(function (d) {\n      parts.push(el('h2', {}, GP.fmtDate(d.date)));\n      parts.push(el('div', { class: 'gp-card' }, d.slots.map(slotLine)));\n    });\n    if (doneMessage) parts.push(GP.message('ok', doneMessage));\n    else if (post.status === 'Open') parts.push(signupForm(post));\n    else if (post.status === 'Past') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is over. Thank you to everyone who served.'));\n    else if (post.status === 'Cancelled') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity was cancelled.'));\n    else parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is closed to new sign-ups.'));\n    GP.show(main, parts);\n  }\n\n  GP.hash().then(function (h) {\n    if (!h.p) return GP.show(main, GP.message('alert', 'This link is missing part of its address. Open it again from the list.'));\n    GP.call('post', { p: h.p }).then(\n      function (res) {\n        if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));\n        render(res.post);\n      },\n      function () {\n        GP.show(main, GP.unreachable('post'));\n      }\n    );\n  });\n})();\n</script>\n</body>\n</html>\n",
  "help": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<base target=\"_top\">\n<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>\n<meta property=\"og:title\" content=\"{{WARD_NAME}} · {{PAGE_TITLE}}\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:image\" content=\"{{PREVIEW_IMAGE}}\">\n<style>\n:root {\n  /* Recolour here: every colour on the pages comes from these. */\n  --gp-ink: #2c3a4a;\n  --gp-heading: #1d3557;\n  --gp-accent: #c9b882;\n  --gp-muted: #6b7a8d;\n  --gp-link: #4a6fa5;\n  --gp-page: #eef2f7;\n  --gp-card: #ffffff;\n  --gp-line: #dde3ed;\n  --gp-soft: #f4f7fc;\n  --gp-good: #2f7d4f;\n  --gp-warn: #a4472b;\n  --gp-bar: #4a6fa5;\n  --gp-font: Georgia, 'Times New Roman', serif;\n}\n\n* { box-sizing: border-box; }\n\nhtml { -webkit-text-size-adjust: 100%; }\n\nbody {\n  margin: 0;\n  font-family: var(--gp-font);\n  color: var(--gp-ink);\n  background: var(--gp-page);\n  line-height: 1.5;\n  min-height: 100vh;\n}\n\n.gp-wrap {\n  max-width: 560px;\n  margin: 0 auto;\n  padding: 1.5rem 1rem 3rem;\n}\n\n.gp-wrap.gp-wide { max-width: 760px; }\n\n.gp-head { text-align: center; margin-bottom: 1.25rem; }\n.gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }\nh1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }\nh2 {\n  font-size: 1.05rem;\n  color: var(--gp-heading);\n  margin: 1.5rem 0 0.6rem;\n  padding-bottom: 0.3rem;\n  border-bottom: 2px solid var(--gp-accent);\n}\nh3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }\n\na { color: var(--gp-link); overflow-wrap: anywhere; }\n\n.gp-card {\n  background: var(--gp-card);\n  border: 1px solid var(--gp-line);\n  border-radius: 14px;\n  box-shadow: 0 2px 10px rgba(29, 53, 87, 0.07);\n  padding: 0.9rem 1rem;\n  margin: 0 0 0.75rem;\n}\n\na.gp-card { display: block; text-decoration: none; color: inherit; }\na.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }\n\n.gp-meta { font-size: 0.85rem; color: var(--gp-muted); margin: 0.1rem 0; }\n.gp-note { white-space: pre-wrap; margin: 0.4rem 0; }\n\n.gp-bar {\n  height: 8px;\n  border-radius: 4px;\n  background: var(--gp-line);\n  overflow: hidden;\n  margin: 0.45rem 0 0.2rem;\n}\n.gp-bar > span { display: block; height: 100%; background: var(--gp-bar); }\n.gp-count { font-size: 0.85rem; color: var(--gp-muted); }\n.gp-filled { color: var(--gp-good); font-weight: bold; }\n.gp-full { opacity: 0.75; }\n\n.gp-btn, button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 44px;\n  padding: 0.55rem 1rem;\n  border-radius: 10px;\n  border: 1px solid var(--gp-heading);\n  background: var(--gp-heading);\n  color: #ffffff;\n  font: inherit;\n  font-size: 0.95rem;\n  cursor: pointer;\n  text-decoration: none;\n  margin: 0.2rem 0.3rem 0.2rem 0;\n}\n.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }\n.gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }\nbutton:disabled { opacity: 0.55; cursor: default; }\n\nlabel { display: block; font-size: 0.9rem; margin: 0.7rem 0 0.2rem; color: var(--gp-heading); }\ninput[type='text'], input[type='email'], input[type='number'], input[type='date'], input[type='time'], select, textarea {\n  width: 100%;\n  min-height: 44px;\n  padding: 0.5rem 0.6rem;\n  border: 1px solid var(--gp-line);\n  border-radius: 8px;\n  font: inherit;\n  background: #ffffff;\n  color: var(--gp-ink);\n}\ntextarea { min-height: 88px; }\n.gp-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.95rem; min-height: 44px; }\n.gp-check input { width: 22px; height: 22px; }\n.gp-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }\n.gp-row > * { flex: 1 1 140px; }\n\n.gp-error { color: var(--gp-warn); font-size: 0.88rem; margin: 0.25rem 0; }\n.gp-ok { background: #eef7f1; border: 1px solid #b9dcc6; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-alert { background: #fbf1ec; border: 1px solid #e7c2b3; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-muted { color: var(--gp-muted); }\n.gp-loading { color: var(--gp-muted); text-align: center; padding: 1.5rem 0; }\n.gp-hidden { display: none !important; }\n\n.gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }\n.gp-slot:first-child { border-top: none; }\n.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }\n/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */\n.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }\n.gp-pair > .gp-section { min-width: 0; }\n.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }\n.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }\n@media (min-width: 720px) {\n  .gp-pair { grid-template-columns: 1fr 1fr; }\n}\n.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }\n\n.gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }\n.gp-tabs button { flex: 1 1 auto; }\n.gp-tabs button[aria-selected='false'] { background: var(--gp-card); color: var(--gp-heading); }\n\n.gp-date { background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 12px; padding: 0.7rem; margin: 0.7rem 0; }\n.gp-role { background: var(--gp-card); border: 1px solid var(--gp-line); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }\n\n.gp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }\n.gp-tile { text-align: center; padding: 1.1rem 0.6rem; min-height: 120px; }\n.gp-tile .gp-icon { font-size: 2.2rem; display: block; margin-bottom: 0.4rem; }\n\n.gp-footer {\n  max-width: 560px;\n  margin: 2rem auto 1rem;\n  padding: 0 1rem;\n  font-size: 0.78rem;\n  color: var(--gp-muted);\n  text-align: center;\n}\n.gp-footer p { margin: 0.3rem 0; }\n\n@media (max-width: 400px) {\n  .gp-wrap { padding: 1rem 0.75rem 2.5rem; }\n  h1 { font-size: 1.25rem; }\n}\n</style>\n</head>\n<body>\n<main class=\"gp-wrap\">\n  <header class=\"gp-head\">\n    <p class=\"gp-ward\">{{WARD_NAME}}</p>\n    <h1>{{PAGE_TITLE}}</h1>\n  </header>\n  <p>Pick what you need. Each choice opens a short form. Nothing is emailed back to you; a leader will contact you.</p>\n  <div id=\"gp-main\"><p class=\"gp-loading\">Loading…</p></div>\n  <p style=\"text-align:center;margin-top:1.5rem\"><a id=\"gp-serve\" class=\"gp-btn gp-light\" href=\"serve.html\">Ways to serve</a></p>\n</main>\n<footer class=\"gp-footer\" id=\"gp-footer\">\n  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>\n  <p class=\"gp-contact\">Contact: <a href=\"mailto:{{CONTACT_EMAIL}}\">{{CONTACT_EMAIL}}</a></p>\n</footer>\n<script>\n/* Service Portal page code, shared by every page (inlined by build.mjs).\n   Hub pages talk to the web app with fetch; the fallback pages served by the script itself use\n   google.script.run. Data only ever reaches the page through textContent, never as HTML. */\nvar GP = (function () {\n  'use strict';\n  var cfg = { page: '', wardName: '', webAppUrl: '', contact: '', fallback: false };\n  var GET_ACTIONS = { serve: true, post: true, help: true };\n  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  var AUDIENCES = ['Brothers', 'Sisters', 'Youth', 'Children'];\n\n  function init(c) {\n    cfg = {\n      page: c.page || '',\n      wardName: c.wardName || '',\n      webAppUrl: c.webAppUrl || '',\n      contact: c.contact || '',\n      fallback: !!c.fallback,\n    };\n    return cfg;\n  }\n\n  function config() {\n    return cfg;\n  }\n\n  // ---------- talking to the script ----------\n\n  function call(action, data) {\n    data = data || {};\n    var req = { action: action };\n    Object.keys(data).forEach(function (k) {\n      req[k] = data[k];\n    });\n    if (cfg.fallback) {\n      return new Promise(function (resolve, reject) {\n        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).gpApi(req);\n      });\n    }\n    var opts;\n    var url = cfg.webAppUrl;\n    if (GET_ACTIONS[action]) {\n      url += '?api=' + encodeURIComponent(action) + (data.p ? '&p=' + encodeURIComponent(data.p) : '');\n      opts = { method: 'GET', redirect: 'follow' };\n    } else {\n      // A text/plain body keeps this a \"simple\" request: no preflight.\n      opts = { method: 'POST', body: JSON.stringify(req), redirect: 'follow' };\n    }\n    return fetch(url, opts).then(function (res) {\n      if (!res.ok) throw new Error('HTTP ' + res.status);\n      return res.json();\n    });\n  }\n\n  function parseHash(h) {\n    var out = {};\n    String(h || '')\n      .replace(/^#/, '')\n      .split('&')\n      .forEach(function (part) {\n        if (!part) return;\n        var i = part.indexOf('=');\n        var k = i < 0 ? part : part.slice(0, i);\n        var v = i < 0 ? '' : part.slice(i + 1);\n        try {\n          out[decodeURIComponent(k)] = decodeURIComponent(v);\n        } catch (e) {\n          out[k] = v;\n        }\n      });\n    return out;\n  }\n\n  function hash() {\n    if (cfg.fallback) {\n      return new Promise(function (resolve) {\n        google.script.url.getLocation(function (loc) {\n          resolve(parseHash(loc.hash));\n        });\n      });\n    }\n    return Promise.resolve(parseHash(window.location.hash));\n  }\n\n  function hashString(h) {\n    return Object.keys(h || {})\n      .map(function (k) {\n        return k + '=' + encodeURIComponent(h[k]);\n      })\n      .join('&');\n  }\n\n  /** Address of another portal page: hub file, or the web app's ?page= in the fallback. */\n  function pageUrl(page, h) {\n    var tail = hashString(h);\n    var base = cfg.fallback ? cfg.webAppUrl + '?page=' + page : page + '.html';\n    return base + (tail ? '#' + tail : '');\n  }\n\n  // ---------- DOM ----------\n\n  /** el('a', {href: x, class: 'y', onclick: fn}, ['text', node]) — text only via textContent. */\n  function el(tag, attrs, children) {\n    var node = document.createElement(tag);\n    Object.keys(attrs || {}).forEach(function (k) {\n      var v = attrs[k];\n      if (v === null || v === undefined || v === false) return;\n      if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);\n      else if (k === 'class') node.className = v;\n      else if (k === 'text') node.textContent = v;\n      else if (k === 'value') node.value = v;\n      else if (k === 'checked') node.checked = !!v;\n      else if (k === 'href') node.setAttribute('href', safeHref(v));\n      else node.setAttribute(k, v === true ? '' : String(v));\n    });\n    (Array.isArray(children) ? children : children === undefined ? [] : [children]).forEach(function (c) {\n      if (c === null || c === undefined || c === false) return;\n      node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);\n    });\n    return node;\n  }\n\n  function safeHref(v) {\n    var s = String(v);\n    return /^(https?:|mailto:|[a-z0-9-]+\\.html|#|\\?)/i.test(s) ? s : '#';\n  }\n\n  function $(id) {\n    return document.getElementById(id);\n  }\n\n  function clear(node) {\n    node.innerHTML = '';\n    return node;\n  }\n\n  function show(node, children) {\n    clear(node);\n    (Array.isArray(children) ? children : [children]).forEach(function (c) {\n      if (c) node.appendChild(c);\n    });\n  }\n\n  function message(kind, text) {\n    return el('div', { class: kind === 'ok' ? 'gp-ok' : 'gp-alert', role: kind === 'ok' ? 'status' : 'alert' }, text);\n  }\n\n  /** Turns the footer's contact into a mail link, or hides it when there is no contact. */\n  function footer() {\n    var f = $('gp-footer');\n    if (!f) return;\n    var c = f.querySelector('.gp-contact');\n    if (c && !cfg.contact) c.className += ' gp-hidden';\n  }\n\n  function unreachable(page) {\n    var url = cfg.webAppUrl + '?page=' + page + (window.location && window.location.hash ? window.location.hash : '');\n    return el('div', { class: 'gp-alert', role: 'alert' }, [\n      \"Can't load right now. Try this link instead: \",\n      el('a', { href: url }, url),\n    ]);\n  }\n\n  function errorText(res) {\n    return (res && res.error) || 'Something went wrong. Please try again.';\n  }\n\n  function copyText(text, button) {\n    function done() {\n      if (button) {\n        var old = button.textContent;\n        button.textContent = 'Copied';\n        setTimeout(function () {\n          button.textContent = old;\n        }, 1500);\n      }\n    }\n    if (navigator.clipboard && navigator.clipboard.writeText) {\n      navigator.clipboard.writeText(text).then(done, function () {\n        window.prompt('Copy this link:', text);\n      });\n    } else {\n      window.prompt('Copy this link:', text);\n    }\n  }\n\n  // ---------- pure helpers ----------\n\n  function isDate(s) {\n    if (typeof s !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return false;\n    var d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));\n    return d.getUTCMonth() === +s.slice(5, 7) - 1 && d.getUTCDate() === +s.slice(8, 10);\n  }\n\n  function utc(s) {\n    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));\n  }\n\n  function iso(ms) {\n    var d = new Date(ms);\n    var m = d.getUTCMonth() + 1;\n    var day = d.getUTCDate();\n    return d.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;\n  }\n\n  /** Every date from start to end (inclusive) on the given weekdays (0 = Sunday; none = all). At most 100. */\n  function expandDates(start, end, weekdays) {\n    if (!isDate(start) || !isDate(end)) return [];\n    var days = weekdays && weekdays.length ? weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];\n    var out = [];\n    for (var t = utc(start); t <= utc(end) && out.length < 100; t += 86400000) {\n      if (days.indexOf(new Date(t).getUTCDay()) >= 0) out.push(iso(t));\n    }\n    return out;\n  }\n\n  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */\n  function groupByAudience(posts) {\n    var out = {};\n    AUDIENCES.forEach(function (a) {\n      out[a] = [];\n    });\n    (posts || []).forEach(function (p) {\n      (p.audiences || []).forEach(function (a) {\n        if (out[a]) out[a].push(p);\n      });\n    });\n    AUDIENCES.forEach(function (a) {\n      out[a] = out[a]\n        .filter(function (p) {\n          return !p.full;\n        })\n        .concat(\n          out[a].filter(function (p) {\n            return p.full;\n          })\n        );\n    });\n    return out;\n  }\n\n  /** 'Thu, Dec 3' */\n  function fmtDate(s) {\n    if (!isDate(s)) return String(s || '');\n    var d = new Date(utc(s));\n    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();\n  }\n\n  /** '6:30 PM' */\n  function fmtTime(t) {\n    if (!/^\\d{2}:\\d{2}$/.test(String(t || ''))) return '';\n    var h = +t.slice(0, 2);\n    return (h % 12 === 0 ? 12 : h % 12) + ':' + t.slice(3) + (h < 12 ? ' AM' : ' PM');\n  }\n\n  function fmtTimes(start, end) {\n    if (!start) return '';\n    return fmtTime(start) + (end ? '–' + fmtTime(end) : '');\n  }\n\n  function fillBar(filled, needed) {\n    var pct = needed ? Math.min(100, Math.round((filled / needed) * 100)) : 0;\n    return el('div', { class: 'gp-bar', role: 'img', 'aria-label': filled + ' of ' + needed + ' filled' }, [\n      el('span', { style: 'width:' + pct + '%' }),\n    ]);\n  }\n\n  return {\n    init: init,\n    config: config,\n    call: call,\n    hash: hash,\n    parseHash: parseHash,\n    pageUrl: pageUrl,\n    el: el,\n    $: $,\n    clear: clear,\n    show: show,\n    message: message,\n    footer: footer,\n    unreachable: unreachable,\n    errorText: errorText,\n    copyText: copyText,\n    expandDates: expandDates,\n    groupByAudience: groupByAudience,\n    fmtDate: fmtDate,\n    fmtTime: fmtTime,\n    fmtTimes: fmtTimes,\n    fillBar: fillBar,\n    isDate: isDate,\n    AUDIENCES: AUDIENCES,\n  };\n})();\n</script>\n<script>\nGP.init({ page: 'help', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });\nGP.footer();\n(function () {\n  var el = GP.el;\n  var main = GP.$('gp-main');\n  GP.$('gp-serve').setAttribute('href', GP.pageUrl('serve'));\n  GP.call('help').then(\n    function (res) {\n      if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));\n      if (!res.tiles.length) return GP.show(main, el('p', { class: 'gp-muted' }, 'Requests are not open yet. Please contact a leader.'));\n      GP.show(\n        main,\n        el(\n          'div',\n          { class: 'gp-tiles' },\n          res.tiles.map(function (t) {\n            return el('a', { class: 'gp-card gp-tile', href: t.url, target: '_blank', rel: 'noopener' }, [\n              el('span', { class: 'gp-icon', 'aria-hidden': 'true' }, t.icon || '•'),\n              el('strong', {}, t.name),\n            ]);\n          })\n        )\n      );\n    },\n    function () {\n      GP.show(main, GP.unreachable('help'));\n    }\n  );\n})();\n</script>\n</body>\n</html>\n",
  "confirm": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<base target=\"_top\">\n<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>\n<meta property=\"og:title\" content=\"{{WARD_NAME}} · {{PAGE_TITLE}}\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:image\" content=\"{{PREVIEW_IMAGE}}\">\n<style>\n:root {\n  /* Recolour here: every colour on the pages comes from these. */\n  --gp-ink: #2c3a4a;\n  --gp-heading: #1d3557;\n  --gp-accent: #c9b882;\n  --gp-muted: #6b7a8d;\n  --gp-link: #4a6fa5;\n  --gp-page: #eef2f7;\n  --gp-card: #ffffff;\n  --gp-line: #dde3ed;\n  --gp-soft: #f4f7fc;\n  --gp-good: #2f7d4f;\n  --gp-warn: #a4472b;\n  --gp-bar: #4a6fa5;\n  --gp-font: Georgia, 'Times New Roman', serif;\n}\n\n* { box-sizing: border-box; }\n\nhtml { -webkit-text-size-adjust: 100%; }\n\nbody {\n  margin: 0;\n  font-family: var(--gp-font);\n  color: var(--gp-ink);\n  background: var(--gp-page);\n  line-height: 1.5;\n  min-height: 100vh;\n}\n\n.gp-wrap {\n  max-width: 560px;\n  margin: 0 auto;\n  padding: 1.5rem 1rem 3rem;\n}\n\n.gp-wrap.gp-wide { max-width: 760px; }\n\n.gp-head { text-align: center; margin-bottom: 1.25rem; }\n.gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }\nh1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }\nh2 {\n  font-size: 1.05rem;\n  color: var(--gp-heading);\n  margin: 1.5rem 0 0.6rem;\n  padding-bottom: 0.3rem;\n  border-bottom: 2px solid var(--gp-accent);\n}\nh3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }\n\na { color: var(--gp-link); overflow-wrap: anywhere; }\n\n.gp-card {\n  background: var(--gp-card);\n  border: 1px solid var(--gp-line);\n  border-radius: 14px;\n  box-shadow: 0 2px 10px rgba(29, 53, 87, 0.07);\n  padding: 0.9rem 1rem;\n  margin: 0 0 0.75rem;\n}\n\na.gp-card { display: block; text-decoration: none; color: inherit; }\na.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }\n\n.gp-meta { font-size: 0.85rem; color: var(--gp-muted); margin: 0.1rem 0; }\n.gp-note { white-space: pre-wrap; margin: 0.4rem 0; }\n\n.gp-bar {\n  height: 8px;\n  border-radius: 4px;\n  background: var(--gp-line);\n  overflow: hidden;\n  margin: 0.45rem 0 0.2rem;\n}\n.gp-bar > span { display: block; height: 100%; background: var(--gp-bar); }\n.gp-count { font-size: 0.85rem; color: var(--gp-muted); }\n.gp-filled { color: var(--gp-good); font-weight: bold; }\n.gp-full { opacity: 0.75; }\n\n.gp-btn, button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 44px;\n  padding: 0.55rem 1rem;\n  border-radius: 10px;\n  border: 1px solid var(--gp-heading);\n  background: var(--gp-heading);\n  color: #ffffff;\n  font: inherit;\n  font-size: 0.95rem;\n  cursor: pointer;\n  text-decoration: none;\n  margin: 0.2rem 0.3rem 0.2rem 0;\n}\n.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }\n.gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }\nbutton:disabled { opacity: 0.55; cursor: default; }\n\nlabel { display: block; font-size: 0.9rem; margin: 0.7rem 0 0.2rem; color: var(--gp-heading); }\ninput[type='text'], input[type='email'], input[type='number'], input[type='date'], input[type='time'], select, textarea {\n  width: 100%;\n  min-height: 44px;\n  padding: 0.5rem 0.6rem;\n  border: 1px solid var(--gp-line);\n  border-radius: 8px;\n  font: inherit;\n  background: #ffffff;\n  color: var(--gp-ink);\n}\ntextarea { min-height: 88px; }\n.gp-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.95rem; min-height: 44px; }\n.gp-check input { width: 22px; height: 22px; }\n.gp-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }\n.gp-row > * { flex: 1 1 140px; }\n\n.gp-error { color: var(--gp-warn); font-size: 0.88rem; margin: 0.25rem 0; }\n.gp-ok { background: #eef7f1; border: 1px solid #b9dcc6; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-alert { background: #fbf1ec; border: 1px solid #e7c2b3; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-muted { color: var(--gp-muted); }\n.gp-loading { color: var(--gp-muted); text-align: center; padding: 1.5rem 0; }\n.gp-hidden { display: none !important; }\n\n.gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }\n.gp-slot:first-child { border-top: none; }\n.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }\n/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */\n.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }\n.gp-pair > .gp-section { min-width: 0; }\n.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }\n.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }\n@media (min-width: 720px) {\n  .gp-pair { grid-template-columns: 1fr 1fr; }\n}\n.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }\n\n.gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }\n.gp-tabs button { flex: 1 1 auto; }\n.gp-tabs button[aria-selected='false'] { background: var(--gp-card); color: var(--gp-heading); }\n\n.gp-date { background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 12px; padding: 0.7rem; margin: 0.7rem 0; }\n.gp-role { background: var(--gp-card); border: 1px solid var(--gp-line); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }\n\n.gp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }\n.gp-tile { text-align: center; padding: 1.1rem 0.6rem; min-height: 120px; }\n.gp-tile .gp-icon { font-size: 2.2rem; display: block; margin-bottom: 0.4rem; }\n\n.gp-footer {\n  max-width: 560px;\n  margin: 2rem auto 1rem;\n  padding: 0 1rem;\n  font-size: 0.78rem;\n  color: var(--gp-muted);\n  text-align: center;\n}\n.gp-footer p { margin: 0.3rem 0; }\n\n@media (max-width: 400px) {\n  .gp-wrap { padding: 1rem 0.75rem 2.5rem; }\n  h1 { font-size: 1.25rem; }\n}\n</style>\n</head>\n<body>\n<main class=\"gp-wrap\">\n  <header class=\"gp-head\">\n    <p class=\"gp-ward\">{{WARD_NAME}}</p>\n    <h1>{{PAGE_TITLE}}</h1>\n  </header>\n  <div id=\"gp-main\"><p class=\"gp-loading\">Loading…</p></div>\n</main>\n<footer class=\"gp-footer\" id=\"gp-footer\">\n  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>\n  <p class=\"gp-contact\">Contact: <a href=\"mailto:{{CONTACT_EMAIL}}\">{{CONTACT_EMAIL}}</a></p>\n</footer>\n<script>\n/* Service Portal page code, shared by every page (inlined by build.mjs).\n   Hub pages talk to the web app with fetch; the fallback pages served by the script itself use\n   google.script.run. Data only ever reaches the page through textContent, never as HTML. */\nvar GP = (function () {\n  'use strict';\n  var cfg = { page: '', wardName: '', webAppUrl: '', contact: '', fallback: false };\n  var GET_ACTIONS = { serve: true, post: true, help: true };\n  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  var AUDIENCES = ['Brothers', 'Sisters', 'Youth', 'Children'];\n\n  function init(c) {\n    cfg = {\n      page: c.page || '',\n      wardName: c.wardName || '',\n      webAppUrl: c.webAppUrl || '',\n      contact: c.contact || '',\n      fallback: !!c.fallback,\n    };\n    return cfg;\n  }\n\n  function config() {\n    return cfg;\n  }\n\n  // ---------- talking to the script ----------\n\n  function call(action, data) {\n    data = data || {};\n    var req = { action: action };\n    Object.keys(data).forEach(function (k) {\n      req[k] = data[k];\n    });\n    if (cfg.fallback) {\n      return new Promise(function (resolve, reject) {\n        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).gpApi(req);\n      });\n    }\n    var opts;\n    var url = cfg.webAppUrl;\n    if (GET_ACTIONS[action]) {\n      url += '?api=' + encodeURIComponent(action) + (data.p ? '&p=' + encodeURIComponent(data.p) : '');\n      opts = { method: 'GET', redirect: 'follow' };\n    } else {\n      // A text/plain body keeps this a \"simple\" request: no preflight.\n      opts = { method: 'POST', body: JSON.stringify(req), redirect: 'follow' };\n    }\n    return fetch(url, opts).then(function (res) {\n      if (!res.ok) throw new Error('HTTP ' + res.status);\n      return res.json();\n    });\n  }\n\n  function parseHash(h) {\n    var out = {};\n    String(h || '')\n      .replace(/^#/, '')\n      .split('&')\n      .forEach(function (part) {\n        if (!part) return;\n        var i = part.indexOf('=');\n        var k = i < 0 ? part : part.slice(0, i);\n        var v = i < 0 ? '' : part.slice(i + 1);\n        try {\n          out[decodeURIComponent(k)] = decodeURIComponent(v);\n        } catch (e) {\n          out[k] = v;\n        }\n      });\n    return out;\n  }\n\n  function hash() {\n    if (cfg.fallback) {\n      return new Promise(function (resolve) {\n        google.script.url.getLocation(function (loc) {\n          resolve(parseHash(loc.hash));\n        });\n      });\n    }\n    return Promise.resolve(parseHash(window.location.hash));\n  }\n\n  function hashString(h) {\n    return Object.keys(h || {})\n      .map(function (k) {\n        return k + '=' + encodeURIComponent(h[k]);\n      })\n      .join('&');\n  }\n\n  /** Address of another portal page: hub file, or the web app's ?page= in the fallback. */\n  function pageUrl(page, h) {\n    var tail = hashString(h);\n    var base = cfg.fallback ? cfg.webAppUrl + '?page=' + page : page + '.html';\n    return base + (tail ? '#' + tail : '');\n  }\n\n  // ---------- DOM ----------\n\n  /** el('a', {href: x, class: 'y', onclick: fn}, ['text', node]) — text only via textContent. */\n  function el(tag, attrs, children) {\n    var node = document.createElement(tag);\n    Object.keys(attrs || {}).forEach(function (k) {\n      var v = attrs[k];\n      if (v === null || v === undefined || v === false) return;\n      if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);\n      else if (k === 'class') node.className = v;\n      else if (k === 'text') node.textContent = v;\n      else if (k === 'value') node.value = v;\n      else if (k === 'checked') node.checked = !!v;\n      else if (k === 'href') node.setAttribute('href', safeHref(v));\n      else node.setAttribute(k, v === true ? '' : String(v));\n    });\n    (Array.isArray(children) ? children : children === undefined ? [] : [children]).forEach(function (c) {\n      if (c === null || c === undefined || c === false) return;\n      node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);\n    });\n    return node;\n  }\n\n  function safeHref(v) {\n    var s = String(v);\n    return /^(https?:|mailto:|[a-z0-9-]+\\.html|#|\\?)/i.test(s) ? s : '#';\n  }\n\n  function $(id) {\n    return document.getElementById(id);\n  }\n\n  function clear(node) {\n    node.innerHTML = '';\n    return node;\n  }\n\n  function show(node, children) {\n    clear(node);\n    (Array.isArray(children) ? children : [children]).forEach(function (c) {\n      if (c) node.appendChild(c);\n    });\n  }\n\n  function message(kind, text) {\n    return el('div', { class: kind === 'ok' ? 'gp-ok' : 'gp-alert', role: kind === 'ok' ? 'status' : 'alert' }, text);\n  }\n\n  /** Turns the footer's contact into a mail link, or hides it when there is no contact. */\n  function footer() {\n    var f = $('gp-footer');\n    if (!f) return;\n    var c = f.querySelector('.gp-contact');\n    if (c && !cfg.contact) c.className += ' gp-hidden';\n  }\n\n  function unreachable(page) {\n    var url = cfg.webAppUrl + '?page=' + page + (window.location && window.location.hash ? window.location.hash : '');\n    return el('div', { class: 'gp-alert', role: 'alert' }, [\n      \"Can't load right now. Try this link instead: \",\n      el('a', { href: url }, url),\n    ]);\n  }\n\n  function errorText(res) {\n    return (res && res.error) || 'Something went wrong. Please try again.';\n  }\n\n  function copyText(text, button) {\n    function done() {\n      if (button) {\n        var old = button.textContent;\n        button.textContent = 'Copied';\n        setTimeout(function () {\n          button.textContent = old;\n        }, 1500);\n      }\n    }\n    if (navigator.clipboard && navigator.clipboard.writeText) {\n      navigator.clipboard.writeText(text).then(done, function () {\n        window.prompt('Copy this link:', text);\n      });\n    } else {\n      window.prompt('Copy this link:', text);\n    }\n  }\n\n  // ---------- pure helpers ----------\n\n  function isDate(s) {\n    if (typeof s !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return false;\n    var d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));\n    return d.getUTCMonth() === +s.slice(5, 7) - 1 && d.getUTCDate() === +s.slice(8, 10);\n  }\n\n  function utc(s) {\n    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));\n  }\n\n  function iso(ms) {\n    var d = new Date(ms);\n    var m = d.getUTCMonth() + 1;\n    var day = d.getUTCDate();\n    return d.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;\n  }\n\n  /** Every date from start to end (inclusive) on the given weekdays (0 = Sunday; none = all). At most 100. */\n  function expandDates(start, end, weekdays) {\n    if (!isDate(start) || !isDate(end)) return [];\n    var days = weekdays && weekdays.length ? weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];\n    var out = [];\n    for (var t = utc(start); t <= utc(end) && out.length < 100; t += 86400000) {\n      if (days.indexOf(new Date(t).getUTCDay()) >= 0) out.push(iso(t));\n    }\n    return out;\n  }\n\n  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */\n  function groupByAudience(posts) {\n    var out = {};\n    AUDIENCES.forEach(function (a) {\n      out[a] = [];\n    });\n    (posts || []).forEach(function (p) {\n      (p.audiences || []).forEach(function (a) {\n        if (out[a]) out[a].push(p);\n      });\n    });\n    AUDIENCES.forEach(function (a) {\n      out[a] = out[a]\n        .filter(function (p) {\n          return !p.full;\n        })\n        .concat(\n          out[a].filter(function (p) {\n            return p.full;\n          })\n        );\n    });\n    return out;\n  }\n\n  /** 'Thu, Dec 3' */\n  function fmtDate(s) {\n    if (!isDate(s)) return String(s || '');\n    var d = new Date(utc(s));\n    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();\n  }\n\n  /** '6:30 PM' */\n  function fmtTime(t) {\n    if (!/^\\d{2}:\\d{2}$/.test(String(t || ''))) return '';\n    var h = +t.slice(0, 2);\n    return (h % 12 === 0 ? 12 : h % 12) + ':' + t.slice(3) + (h < 12 ? ' AM' : ' PM');\n  }\n\n  function fmtTimes(start, end) {\n    if (!start) return '';\n    return fmtTime(start) + (end ? '–' + fmtTime(end) : '');\n  }\n\n  function fillBar(filled, needed) {\n    var pct = needed ? Math.min(100, Math.round((filled / needed) * 100)) : 0;\n    return el('div', { class: 'gp-bar', role: 'img', 'aria-label': filled + ' of ' + needed + ' filled' }, [\n      el('span', { style: 'width:' + pct + '%' }),\n    ]);\n  }\n\n  return {\n    init: init,\n    config: config,\n    call: call,\n    hash: hash,\n    parseHash: parseHash,\n    pageUrl: pageUrl,\n    el: el,\n    $: $,\n    clear: clear,\n    show: show,\n    message: message,\n    footer: footer,\n    unreachable: unreachable,\n    errorText: errorText,\n    copyText: copyText,\n    expandDates: expandDates,\n    groupByAudience: groupByAudience,\n    fmtDate: fmtDate,\n    fmtTime: fmtTime,\n    fmtTimes: fmtTimes,\n    fillBar: fillBar,\n    isDate: isDate,\n    AUDIENCES: AUDIENCES,\n  };\n})();\n</script>\n<script>\nGP.init({ page: 'confirm', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });\nGP.footer();\n(function () {\n  var el = GP.el;\n  var main = GP.$('gp-main');\n  GP.hash().then(function (h) {\n    if (!h.t) return GP.show(main, GP.message('alert', 'This link is missing part of its address. Open it again from your email.'));\n    // One page for three kinds of emailed link: confirm your address, withdraw an offer, cancel.\n    var KINDS = {\n      confirm: { action: 'confirm', label: 'Confirm my address', cls: '', intro: 'Please confirm this is your email address so your sign-up can go ahead.' },\n      withdraw: { action: 'withdraw', label: 'Withdraw my offer', cls: 'gp-danger', intro: 'This role already has the people it needs. You may stay signed up, or withdraw your offer below.' },\n      cancel: { action: 'cancel', label: 'Cancel my sign-up', cls: 'gp-danger', intro: \"Can't make it? Cancel below so someone else can take your place.\" },\n    };\n    var ACTIVE = { Confirmed: true, 'Waiting-email': true, 'Waiting-approval': true };\n    GP.call('tokenInfo', { t: h.t }).then(\n      function (res) {\n        if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));\n        var kind = KINDS[res.kind] || KINDS.cancel;\n        var when = GP.fmtDate(res.date) + (res.start ? ', ' + GP.fmtTime(res.start) : '');\n        var info = el('div', { class: 'gp-card' }, [el('h3', {}, res.title), el('p', {}, res.role + ' · ' + when)]);\n        if (res.kind === 'confirm' && res.confirmed) return GP.show(main, [info, GP.message('ok', 'Your address is already confirmed.')]);\n        if (res.kind === 'withdraw' && res.status !== 'Confirmed') return GP.show(main, [info, GP.message('ok', 'This sign-up is no longer active.')]);\n        if (res.kind === 'cancel' && !ACTIVE[res.status]) return GP.show(main, [info, GP.message('ok', 'This sign-up is already cancelled.')]);\n        var out = el('div');\n        // The change happens only on this click (email scanners open links but never press buttons).\n        var button = el(\n          'button',\n          {\n            type: 'button',\n            class: kind.cls,\n            onclick: function () {\n              button.disabled = true;\n              GP.call(kind.action, { t: h.t }).then(\n                function (r) {\n                  if (r && r.ok) return GP.show(main, [info, GP.message('ok', r.message)]);\n                  button.disabled = false;\n                  GP.show(out, GP.message('alert', GP.errorText(r)));\n                },\n                function () {\n                  button.disabled = false;\n                  GP.show(out, GP.unreachable('confirm'));\n                }\n              );\n            },\n          },\n          kind.label\n        );\n        GP.show(main, [info, el('p', {}, kind.intro), el('p', {}, [button]), out]);\n      },\n      function () {\n        GP.show(main, GP.unreachable('confirm'));\n      }\n    );\n  });\n})();\n</script>\n</body>\n</html>\n",
- "leader": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<base target=\"_top\">\n<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>\n<meta property=\"og:title\" content=\"{{WARD_NAME}} · {{PAGE_TITLE}}\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:image\" content=\"{{PREVIEW_IMAGE}}\">\n<style>\n:root {\n  /* Recolour here: every colour on the pages comes from these. */\n  --gp-ink: #2c3a4a;\n  --gp-heading: #1d3557;\n  --gp-accent: #c9b882;\n  --gp-muted: #6b7a8d;\n  --gp-link: #4a6fa5;\n  --gp-page: #eef2f7;\n  --gp-card: #ffffff;\n  --gp-line: #dde3ed;\n  --gp-soft: #f4f7fc;\n  --gp-good: #2f7d4f;\n  --gp-warn: #a4472b;\n  --gp-bar: #4a6fa5;\n  --gp-font: Georgia, 'Times New Roman', serif;\n}\n\n* { box-sizing: border-box; }\n\nhtml { -webkit-text-size-adjust: 100%; }\n\nbody {\n  margin: 0;\n  font-family: var(--gp-font);\n  color: var(--gp-ink);\n  background: var(--gp-page);\n  line-height: 1.5;\n  min-height: 100vh;\n}\n\n.gp-wrap {\n  max-width: 560px;\n  margin: 0 auto;\n  padding: 1.5rem 1rem 3rem;\n}\n\n.gp-wrap.gp-wide { max-width: 760px; }\n\n.gp-head { text-align: center; margin-bottom: 1.25rem; }\n.gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }\nh1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }\nh2 {\n  font-size: 1.05rem;\n  color: var(--gp-heading);\n  margin: 1.5rem 0 0.6rem;\n  padding-bottom: 0.3rem;\n  border-bottom: 2px solid var(--gp-accent);\n}\nh3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }\n\na { color: var(--gp-link); overflow-wrap: anywhere; }\n\n.gp-card {\n  background: var(--gp-card);\n  border: 1px solid var(--gp-line);\n  border-radius: 14px;\n  box-shadow: 0 2px 10px rgba(29, 53, 87, 0.07);\n  padding: 0.9rem 1rem;\n  margin: 0 0 0.75rem;\n}\n\na.gp-card { display: block; text-decoration: none; color: inherit; }\na.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }\n\n.gp-meta { font-size: 0.85rem; color: var(--gp-muted); margin: 0.1rem 0; }\n.gp-note { white-space: pre-wrap; margin: 0.4rem 0; }\n\n.gp-bar {\n  height: 8px;\n  border-radius: 4px;\n  background: var(--gp-line);\n  overflow: hidden;\n  margin: 0.45rem 0 0.2rem;\n}\n.gp-bar > span { display: block; height: 100%; background: var(--gp-bar); }\n.gp-count { font-size: 0.85rem; color: var(--gp-muted); }\n.gp-filled { color: var(--gp-good); font-weight: bold; }\n.gp-full { opacity: 0.75; }\n\n.gp-btn, button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 44px;\n  padding: 0.55rem 1rem;\n  border-radius: 10px;\n  border: 1px solid var(--gp-heading);\n  background: var(--gp-heading);\n  color: #ffffff;\n  font: inherit;\n  font-size: 0.95rem;\n  cursor: pointer;\n  text-decoration: none;\n  margin: 0.2rem 0.3rem 0.2rem 0;\n}\n.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }\n.gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }\nbutton:disabled { opacity: 0.55; cursor: default; }\n\nlabel { display: block; font-size: 0.9rem; margin: 0.7rem 0 0.2rem; color: var(--gp-heading); }\ninput[type='text'], input[type='email'], input[type='number'], input[type='date'], input[type='time'], select, textarea {\n  width: 100%;\n  min-height: 44px;\n  padding: 0.5rem 0.6rem;\n  border: 1px solid var(--gp-line);\n  border-radius: 8px;\n  font: inherit;\n  background: #ffffff;\n  color: var(--gp-ink);\n}\ntextarea { min-height: 88px; }\n.gp-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.95rem; min-height: 44px; }\n.gp-check input { width: 22px; height: 22px; }\n.gp-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }\n.gp-row > * { flex: 1 1 140px; }\n\n.gp-error { color: var(--gp-warn); font-size: 0.88rem; margin: 0.25rem 0; }\n.gp-ok { background: #eef7f1; border: 1px solid #b9dcc6; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-alert { background: #fbf1ec; border: 1px solid #e7c2b3; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-muted { color: var(--gp-muted); }\n.gp-loading { color: var(--gp-muted); text-align: center; padding: 1.5rem 0; }\n.gp-hidden { display: none !important; }\n\n.gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }\n.gp-slot:first-child { border-top: none; }\n.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }\n/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */\n.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }\n.gp-pair > .gp-section { min-width: 0; }\n.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }\n.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }\n@media (min-width: 720px) {\n  .gp-pair { grid-template-columns: 1fr 1fr; }\n}\n.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }\n\n.gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }\n.gp-tabs button { flex: 1 1 auto; }\n.gp-tabs button[aria-selected='false'] { background: var(--gp-card); color: var(--gp-heading); }\n\n.gp-date { background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 12px; padding: 0.7rem; margin: 0.7rem 0; }\n.gp-role { background: var(--gp-card); border: 1px solid var(--gp-line); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }\n\n.gp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }\n.gp-tile { text-align: center; padding: 1.1rem 0.6rem; min-height: 120px; }\n.gp-tile .gp-icon { font-size: 2.2rem; display: block; margin-bottom: 0.4rem; }\n\n.gp-footer {\n  max-width: 560px;\n  margin: 2rem auto 1rem;\n  padding: 0 1rem;\n  font-size: 0.78rem;\n  color: var(--gp-muted);\n  text-align: center;\n}\n.gp-footer p { margin: 0.3rem 0; }\n\n@media (max-width: 400px) {\n  .gp-wrap { padding: 1rem 0.75rem 2.5rem; }\n  h1 { font-size: 1.25rem; }\n}\n</style>\n</head>\n<body>\n<main class=\"gp-wrap gp-wide\">\n  <header class=\"gp-head\">\n    <p class=\"gp-ward\">{{WARD_NAME}}</p>\n    <h1>{{PAGE_TITLE}}</h1>\n  </header>\n  <div id=\"gp-main\"><p class=\"gp-loading\">Loading…</p></div>\n</main>\n<footer class=\"gp-footer\" id=\"gp-footer\">\n  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>\n  <p class=\"gp-contact\">Contact: <a href=\"mailto:{{CONTACT_EMAIL}}\">{{CONTACT_EMAIL}}</a></p>\n</footer>\n<script>\n/* Service Portal page code, shared by every page (inlined by build.mjs).\n   Hub pages talk to the web app with fetch; the fallback pages served by the script itself use\n   google.script.run. Data only ever reaches the page through textContent, never as HTML. */\nvar GP = (function () {\n  'use strict';\n  var cfg = { page: '', wardName: '', webAppUrl: '', contact: '', fallback: false };\n  var GET_ACTIONS = { serve: true, post: true, help: true };\n  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  var AUDIENCES = ['Brothers', 'Sisters', 'Youth', 'Children'];\n\n  function init(c) {\n    cfg = {\n      page: c.page || '',\n      wardName: c.wardName || '',\n      webAppUrl: c.webAppUrl || '',\n      contact: c.contact || '',\n      fallback: !!c.fallback,\n    };\n    return cfg;\n  }\n\n  function config() {\n    return cfg;\n  }\n\n  // ---------- talking to the script ----------\n\n  function call(action, data) {\n    data = data || {};\n    var req = { action: action };\n    Object.keys(data).forEach(function (k) {\n      req[k] = data[k];\n    });\n    if (cfg.fallback) {\n      return new Promise(function (resolve, reject) {\n        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).gpApi(req);\n      });\n    }\n    var opts;\n    var url = cfg.webAppUrl;\n    if (GET_ACTIONS[action]) {\n      url += '?api=' + encodeURIComponent(action) + (data.p ? '&p=' + encodeURIComponent(data.p) : '');\n      opts = { method: 'GET', redirect: 'follow' };\n    } else {\n      // A text/plain body keeps this a \"simple\" request: no preflight.\n      opts = { method: 'POST', body: JSON.stringify(req), redirect: 'follow' };\n    }\n    return fetch(url, opts).then(function (res) {\n      if (!res.ok) throw new Error('HTTP ' + res.status);\n      return res.json();\n    });\n  }\n\n  function parseHash(h) {\n    var out = {};\n    String(h || '')\n      .replace(/^#/, '')\n      .split('&')\n      .forEach(function (part) {\n        if (!part) return;\n        var i = part.indexOf('=');\n        var k = i < 0 ? part : part.slice(0, i);\n        var v = i < 0 ? '' : part.slice(i + 1);\n        try {\n          out[decodeURIComponent(k)] = decodeURIComponent(v);\n        } catch (e) {\n          out[k] = v;\n        }\n      });\n    return out;\n  }\n\n  function hash() {\n    if (cfg.fallback) {\n      return new Promise(function (resolve) {\n        google.script.url.getLocation(function (loc) {\n          resolve(parseHash(loc.hash));\n        });\n      });\n    }\n    return Promise.resolve(parseHash(window.location.hash));\n  }\n\n  function hashString(h) {\n    return Object.keys(h || {})\n      .map(function (k) {\n        return k + '=' + encodeURIComponent(h[k]);\n      })\n      .join('&');\n  }\n\n  /** Address of another portal page: hub file, or the web app's ?page= in the fallback. */\n  function pageUrl(page, h) {\n    var tail = hashString(h);\n    var base = cfg.fallback ? cfg.webAppUrl + '?page=' + page : page + '.html';\n    return base + (tail ? '#' + tail : '');\n  }\n\n  // ---------- DOM ----------\n\n  /** el('a', {href: x, class: 'y', onclick: fn}, ['text', node]) — text only via textContent. */\n  function el(tag, attrs, children) {\n    var node = document.createElement(tag);\n    Object.keys(attrs || {}).forEach(function (k) {\n      var v = attrs[k];\n      if (v === null || v === undefined || v === false) return;\n      if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);\n      else if (k === 'class') node.className = v;\n      else if (k === 'text') node.textContent = v;\n      else if (k === 'value') node.value = v;\n      else if (k === 'checked') node.checked = !!v;\n      else if (k === 'href') node.setAttribute('href', safeHref(v));\n      else node.setAttribute(k, v === true ? '' : String(v));\n    });\n    (Array.isArray(children) ? children : children === undefined ? [] : [children]).forEach(function (c) {\n      if (c === null || c === undefined || c === false) return;\n      node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);\n    });\n    return node;\n  }\n\n  function safeHref(v) {\n    var s = String(v);\n    return /^(https?:|mailto:|[a-z0-9-]+\\.html|#|\\?)/i.test(s) ? s : '#';\n  }\n\n  function $(id) {\n    return document.getElementById(id);\n  }\n\n  function clear(node) {\n    node.innerHTML = '';\n    return node;\n  }\n\n  function show(node, children) {\n    clear(node);\n    (Array.isArray(children) ? children : [children]).forEach(function (c) {\n      if (c) node.appendChild(c);\n    });\n  }\n\n  function message(kind, text) {\n    return el('div', { class: kind === 'ok' ? 'gp-ok' : 'gp-alert', role: kind === 'ok' ? 'status' : 'alert' }, text);\n  }\n\n  /** Turns the footer's contact into a mail link, or hides it when there is no contact. */\n  function footer() {\n    var f = $('gp-footer');\n    if (!f) return;\n    var c = f.querySelector('.gp-contact');\n    if (c && !cfg.contact) c.className += ' gp-hidden';\n  }\n\n  function unreachable(page) {\n    var url = cfg.webAppUrl + '?page=' + page + (window.location && window.location.hash ? window.location.hash : '');\n    return el('div', { class: 'gp-alert', role: 'alert' }, [\n      \"Can't load right now. Try this link instead: \",\n      el('a', { href: url }, url),\n    ]);\n  }\n\n  function errorText(res) {\n    return (res && res.error) || 'Something went wrong. Please try again.';\n  }\n\n  function copyText(text, button) {\n    function done() {\n      if (button) {\n        var old = button.textContent;\n        button.textContent = 'Copied';\n        setTimeout(function () {\n          button.textContent = old;\n        }, 1500);\n      }\n    }\n    if (navigator.clipboard && navigator.clipboard.writeText) {\n      navigator.clipboard.writeText(text).then(done, function () {\n        window.prompt('Copy this link:', text);\n      });\n    } else {\n      window.prompt('Copy this link:', text);\n    }\n  }\n\n  // ---------- pure helpers ----------\n\n  function isDate(s) {\n    if (typeof s !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return false;\n    var d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));\n    return d.getUTCMonth() === +s.slice(5, 7) - 1 && d.getUTCDate() === +s.slice(8, 10);\n  }\n\n  function utc(s) {\n    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));\n  }\n\n  function iso(ms) {\n    var d = new Date(ms);\n    var m = d.getUTCMonth() + 1;\n    var day = d.getUTCDate();\n    return d.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;\n  }\n\n  /** Every date from start to end (inclusive) on the given weekdays (0 = Sunday; none = all). At most 100. */\n  function expandDates(start, end, weekdays) {\n    if (!isDate(start) || !isDate(end)) return [];\n    var days = weekdays && weekdays.length ? weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];\n    var out = [];\n    for (var t = utc(start); t <= utc(end) && out.length < 100; t += 86400000) {\n      if (days.indexOf(new Date(t).getUTCDay()) >= 0) out.push(iso(t));\n    }\n    return out;\n  }\n\n  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */\n  function groupByAudience(posts) {\n    var out = {};\n    AUDIENCES.forEach(function (a) {\n      out[a] = [];\n    });\n    (posts || []).forEach(function (p) {\n      (p.audiences || []).forEach(function (a) {\n        if (out[a]) out[a].push(p);\n      });\n    });\n    AUDIENCES.forEach(function (a) {\n      out[a] = out[a]\n        .filter(function (p) {\n          return !p.full;\n        })\n        .concat(\n          out[a].filter(function (p) {\n            return p.full;\n          })\n        );\n    });\n    return out;\n  }\n\n  /** 'Thu, Dec 3' */\n  function fmtDate(s) {\n    if (!isDate(s)) return String(s || '');\n    var d = new Date(utc(s));\n    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();\n  }\n\n  /** '6:30 PM' */\n  function fmtTime(t) {\n    if (!/^\\d{2}:\\d{2}$/.test(String(t || ''))) return '';\n    var h = +t.slice(0, 2);\n    return (h % 12 === 0 ? 12 : h % 12) + ':' + t.slice(3) + (h < 12 ? ' AM' : ' PM');\n  }\n\n  function fmtTimes(start, end) {\n    if (!start) return '';\n    return fmtTime(start) + (end ? '–' + fmtTime(end) : '');\n  }\n\n  function fillBar(filled, needed) {\n    var pct = needed ? Math.min(100, Math.round((filled / needed) * 100)) : 0;\n    return el('div', { class: 'gp-bar', role: 'img', 'aria-label': filled + ' of ' + needed + ' filled' }, [\n      el('span', { style: 'width:' + pct + '%' }),\n    ]);\n  }\n\n  return {\n    init: init,\n    config: config,\n    call: call,\n    hash: hash,\n    parseHash: parseHash,\n    pageUrl: pageUrl,\n    el: el,\n    $: $,\n    clear: clear,\n    show: show,\n    message: message,\n    footer: footer,\n    unreachable: unreachable,\n    errorText: errorText,\n    copyText: copyText,\n    expandDates: expandDates,\n    groupByAudience: groupByAudience,\n    fmtDate: fmtDate,\n    fmtTime: fmtTime,\n    fmtTimes: fmtTimes,\n    fillBar: fillBar,\n    isDate: isDate,\n    AUDIENCES: AUDIENCES,\n  };\n})();\n</script>\n<script>\nGP.init({ page: 'leader', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });\nGP.footer();\n(function () {\n  var el = GP.el;\n  var main = GP.$('gp-main');\n  var STATUS_LABEL = { 'Waiting-email': 'Waiting for their email click', 'Waiting-approval': 'Waiting for approval' };\n  var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var K = '';\n  var me = null;\n  var state = { tab: 'list', past: false, form: null, errors: {}, formError: '', flash: null };\n\n  // ---------- helpers ----------\n\n  function call(action, data) {\n    data = data || {};\n    data.k = K;\n    return GP.call(action, data).then(function (res) {\n      if (res && res.relink) {\n        showRequest(res.error);\n        throw { handled: true };\n      }\n      return res;\n    });\n  }\n\n  function failed(err, box) {\n    if (err && err.handled) return;\n    GP.show(box || main, GP.unreachable('leader'));\n  }\n\n  function flash(kind, text) {\n    state.flash = { kind: kind, text: text };\n  }\n\n  function uniq(list) {\n    var out = [];\n    list.forEach(function (x) {\n      if (out.indexOf(x) < 0) out.push(x);\n    });\n    return out;\n  }\n\n  function blankRole() {\n    return { slotId: '', start: '', end: '', role: '', needed: 1, roleNote: '', bringingPrompt: '' };\n  }\n\n  function copyRole(r) {\n    return { slotId: '', start: r.start, end: r.end, role: r.role, needed: r.needed, roleNote: r.roleNote, bringingPrompt: r.bringingPrompt };\n  }\n\n  /** Organizations this form may use: the leader's own, plus the chosen category's when they coordinate it. */\n  function orgsFor(f) {\n    var extra = (me.access.catOrgs && me.access.catOrgs[f.category]) || [];\n    var base = f.postId ? me.access.editOrgs.concat([f.organization]) : me.access.baseCreateOrgs;\n    return uniq(base.concat(extra));\n  }\n\n  function categoryById(id) {\n    for (var i = 0; i < me.categories.length; i++) if (me.categories[i].id === id) return me.categories[i];\n    return null;\n  }\n\n  function newForm() {\n    // A coordinator with no organization of their own starts in their first category.\n    var cat = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';\n    var f = {\n      postId: '',\n      status: '',\n      organization: '',\n      category: cat,\n      title: '',\n      audiences: [],\n      publicNote: '',\n      privateDetails: '',\n      cutoffHours: '',\n      dates: [{ date: '', roles: [blankRole()] }],\n    };\n    f.organization = orgsFor(f)[0] || '';\n    var c = categoryById(cat);\n    if (c && c.audiences) f.audiences = c.audiences.slice();\n    return f;\n  }\n\n  /** Server post → form model (slots grouped by date). */\n  function toForm(post) {\n    var dates = [];\n    var at = {};\n    post.slots.forEach(function (s) {\n      if (!(s.date in at)) {\n        at[s.date] = dates.length;\n        dates.push({ date: s.date, roles: [] });\n      }\n      dates[at[s.date]].roles.push({\n        slotId: s.slotId,\n        start: s.start || '',\n        end: s.end || '',\n        role: s.role,\n        needed: s.needed,\n        roleNote: s.roleNote || '',\n        bringingPrompt: s.bringingPrompt || '',\n        filled: s.filled || 0,\n      });\n    });\n    return {\n      postId: post.postId,\n      status: post.status,\n      organization: post.organization,\n      category: post.category || '',\n      title: post.title,\n      audiences: post.audiences.slice(),\n      publicNote: post.publicNote || '',\n      privateDetails: post.privateDetails || '',\n      cutoffHours: post.cutoffHours === '' || post.cutoffHours === null || post.cutoffHours === undefined ? '' : String(post.cutoffHours),\n      dates: dates.length ? dates : [{ date: '', roles: [blankRole()] }],\n    };\n  }\n\n  /** Form model → [slots], plus where each slot index sits ([dateIndex, roleIndex]). */\n  function flatten(form) {\n    var slots = [];\n    var where = [];\n    form.dates.forEach(function (d, di) {\n      d.roles.forEach(function (r, ri) {\n        slots.push({\n          slotId: r.slotId,\n          date: d.date,\n          start: r.start,\n          end: r.end,\n          role: r.role,\n          needed: r.needed,\n          roleNote: r.roleNote,\n          bringingPrompt: r.bringingPrompt,\n        });\n        where.push([di, ri]);\n      });\n    });\n    return { slots: slots, where: where };\n  }\n\n  function slotErrorKey(form, di, ri, field) {\n    var map = flatten(form).where;\n    for (var i = 0; i < map.length; i++) if (map[i][0] === di && map[i][1] === ri) return 'slots[' + i + '].' + field;\n    return '';\n  }\n\n  function err(key) {\n    var msg = state.errors[key];\n    return msg ? el('p', { class: 'gp-error', role: 'alert' }, msg) : null;\n  }\n\n  function field(label, input, key) {\n    return el('div', {}, [el('label', { for: input.id }, label), input, err(key)]);\n  }\n\n  var uid = 0;\n  function nextId(prefix) {\n    uid += 1;\n    return prefix + uid;\n  }\n\n  // ---------- request a link ----------\n\n  function showRequest(error) {\n    var email = el('input', { type: 'email', id: 'gp-req-email', autocomplete: 'email', maxlength: '254' });\n    var out = el('div');\n    var button = el('button', { type: 'submit' }, 'Email me a leader link');\n    var form = el(\n      'form',\n      {\n        onsubmit: function (e) {\n          e.preventDefault();\n          button.disabled = true;\n          GP.call('requestLeaderLink', { email: email.value }).then(\n            function (res) {\n              button.disabled = false;\n              GP.show(out, GP.message(res && res.ok ? 'ok' : 'alert', res && res.ok ? res.message : GP.errorText(res)));\n            },\n            function () {\n              button.disabled = false;\n              GP.show(out, GP.unreachable('leader'));\n            }\n          );\n        },\n      },\n      [el('label', { for: 'gp-req-email' }, 'Your email, as it is on the ward leader list'), email, el('p', {}, [button])]\n    );\n    GP.show(main, [\n      error ? GP.message('alert', error) : null,\n      el('p', {}, 'Leaders open this page with a personal link sent by email. Type your email and we will send you one.'),\n      form,\n      out,\n    ]);\n  }\n\n  // ---------- the signed-in page ----------\n\n  function tab(name, label, before) {\n    return el('button', {\n      type: 'button',\n      role: 'tab',\n      'aria-selected': String(state.tab === name),\n      onclick: function () {\n        if (before) before();\n        state.tab = name;\n        render();\n      },\n    }, label);\n  }\n\n  function render() {\n    var a = me.access;\n    var tabs = el('div', { class: 'gp-tabs', role: 'tablist' }, [\n      tab('list', 'My opportunities'),\n      a.canApprove ? tab('waiting', 'Waiting for approval') : null,\n      a.isCouncil ? tab('needs', 'Needs help soon') : null,\n      tab('form', state.form && state.form.postId ? 'Edit opportunity' : 'New opportunity', function () {\n        if (!state.form) state.form = newForm();\n        state.errors = {};\n        state.formError = '';\n      }),\n      a.isBishopric ? tab('volunteers', 'Volunteers') : null,\n    ]);\n    var signOut = el('button', {\n      type: 'button',\n      class: 'gp-light',\n      onclick: function () {\n        if (!window.confirm('Sign out everywhere? Your current link stops working and we email you a new one.')) return;\n        call('signOutEverywhere').then(function (res) {\n          GP.show(main, GP.message(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res)));\n        }, failed);\n      },\n    }, 'Sign out everywhere');\n    var who = el('div', { class: 'gp-card' }, [\n      el('p', { style: 'margin:0' }, 'Signed in as ' + me.leader.name + (me.leader.organization ? ', ' + me.leader.organization : '')),\n      signOut,\n    ]);\n    var body = el('div');\n    var note = state.flash ? GP.message(state.flash.kind, state.flash.text) : null;\n    state.flash = null;\n    GP.show(main, [who, tabs, note, body]);\n    if (state.tab === 'waiting') renderWaiting(body);\n    else if (state.tab === 'needs') renderNeeds(body);\n    else if (state.tab === 'volunteers') renderVolunteers(body);\n    else if (state.tab === 'form') renderForm(body);\n    else renderList(body);\n  }\n\n  /** Runs a leader action, then shows its answer above the current tab. */\n  function act(action, data, box, btn) {\n    if (btn) btn.disabled = true;\n    call(action, data).then(function (res) {\n      flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));\n      render();\n    }, function (e) {\n      if (btn) btn.disabled = false;\n      failed(e, box);\n    });\n  }\n\n  // ---------- Waiting for approval ----------\n\n  function renderWaiting(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('waiting').then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [\n        el('p', { class: 'gp-meta' }, 'People who confirmed their email and wait for a leader. Check the ward directory, then approve or decline. Approval counts for the whole ward; you and the time are recorded.'),\n      ];\n      if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'Nobody is waiting for you.'));\n      res.volunteers.forEach(function (v) {\n        var out = el('div');\n        var approve = el('button', { type: 'button', onclick: function () { act('decide', { email: v.email, decision: 'approve' }, out, approve); } }, 'Approve');\n        var decline = el('button', {\n          type: 'button',\n          class: 'gp-danger',\n          onclick: function () {\n            if (!window.confirm('Decline ' + v.name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;\n            act('decide', { email: v.email, decision: 'decline' }, out, decline);\n          },\n        }, 'Decline');\n        parts.push(el('div', { class: 'gp-card' }, [\n          el('h3', {}, v.name),\n          el('p', { class: 'gp-meta' }, v.email + ' · first signed up for ' + (v.firstPost || 'an opportunity') + (v.firstPostOrganization ? ' (' + v.firstPostOrganization + ')' : '')),\n          v.signups.length\n            ? el('div', {}, v.signups.map(function (s) {\n                return el('div', { class: 'gp-person' }, (s.childName ? s.childName + ': ' : '') + s.title + ' · ' + GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTime(s.start) : '') + ' · ' + s.role);\n              }))\n            : el('p', { class: 'gp-muted' }, 'No sign-ups waiting right now.'),\n          el('p', {}, [approve, decline]),\n          out,\n        ]));\n      });\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  // ---------- Needs help soon ----------\n\n  function renderNeeds(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('needsHelp').then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [el('p', { class: 'gp-meta' }, 'Open roles still short in the next 14 days, soonest first.')];\n      if (!res.rows.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing is short in the next 14 days.'));\n      res.rows.forEach(function (r) {\n        parts.push(el('div', { class: 'gp-slot' }, [\n          el('strong', {}, GP.fmtDate(r.date) + (r.start ? ', ' + GP.fmtTimes(r.start, r.end) : '') + ' · ' + r.role),\n          el('span', { class: 'gp-count' }, ' ' + r.filled + ' of ' + r.needed + ' filled'),\n          el('div', { class: 'gp-meta' }, [r.organization + ' · ', el('a', { href: r.publicUrl, target: '_blank', rel: 'noopener' }, r.title)]),\n        ]));\n      });\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  // ---------- Volunteers (bishopric) ----------\n\n  function renderVolunteers(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('volunteers').then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [el('p', { class: 'gp-meta' }, 'Everyone who has signed up. Undo a decline to let someone sign up again; revoke an approval when someone should no longer serve (their current sign-ups stay until you remove them).')];\n      if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'No volunteers yet.'));\n      res.volunteers.forEach(function (v) {\n        var out = el('div');\n        var bits = [\n          el('strong', {}, v.name),\n          el('span', { class: 'gp-meta' }, ' ' + v.email),\n          el('div', { class: 'gp-meta' }, v.status + (v.status === 'Pending' && !v.emailConfirmed ? ' (has not clicked the email yet)' : '') + (v.decidedBy ? ' · ' + v.decidedBy + ', ' + v.decidedAt : '') + (v.firstPost ? ' · first: ' + v.firstPost : '')),\n        ];\n        if (v.status === 'Declined' || v.status === 'Revoked') {\n          var undo = el('button', { type: 'button', class: 'gp-light', onclick: function () { act('bishopric', { email: v.email, decision: 'undo' }, out, undo); } }, 'Undo ' + (v.status === 'Declined' ? 'decline' : 'revoke'));\n          bits.push(undo);\n        }\n        if (v.status === 'Approved') {\n          var revoke = el('button', {\n            type: 'button',\n            class: 'gp-danger',\n            onclick: function () {\n              if (!window.confirm('Revoke ' + v.name + '? They can no longer sign up. Their current sign-ups stay until you remove them.')) return;\n              act('bishopric', { email: v.email, decision: 'revoke' }, out, revoke);\n            },\n          }, 'Revoke');\n          bits.push(revoke);\n        }\n        bits.push(out);\n        parts.push(el('div', { class: 'gp-person' }, bits));\n      });\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  // ---------- My opportunities ----------\n\n  function renderList(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('listPosts', { past: state.past }).then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [];\n      if (!res.posts.length) {\n        parts.push(el('p', { class: 'gp-muted' }, state.past ? 'No past opportunities.' : 'No opportunities yet. Use New opportunity to make one.'));\n      }\n      res.posts.forEach(function (p) {\n        parts.push(postCard(p));\n      });\n      parts.push(\n        el('p', {}, [\n          el('button', { type: 'button', class: 'gp-light', onclick: function () { state.past = !state.past; render(); } }, state.past ? 'Show current opportunities' : 'Show past opportunities'),\n        ])\n      );\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  /** The inline \"are you sure\" panel for cancelling a post (date blank) or one date. */\n  function cancelPanel(p, date, box) {\n    var note = el('textarea', { id: nextId('gp-cancel-note-'), maxlength: '300', placeholder: 'Optional note for the email (up to 300 characters)' });\n    var msg = el('div');\n    var question = date\n      ? 'Cancel ' + GP.fmtDate(date) + '? Everyone signed up for that date gets an email, and no reminders go out for it.'\n      : 'Cancel this opportunity? Everyone signed up gets an email, and no reminders go out.';\n    var yes = el('button', {\n      type: 'button',\n      class: 'gp-danger',\n      onclick: function () {\n        yes.disabled = true;\n        call(date ? 'cancelDate' : 'cancelPost', { postId: p.postId, date: date || '', note: note.value }).then(function (res) {\n          if (!res.ok) {\n            yes.disabled = false;\n            return GP.show(msg, GP.message('alert', GP.errorText(res)));\n          }\n          flash('ok', res.message);\n          render();\n        }, function (e) {\n          yes.disabled = false;\n          failed(e, msg);\n        });\n      },\n    }, date ? 'Yes, cancel this date' : 'Yes, cancel it');\n    var no = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.clear(box); } }, 'Keep it');\n    GP.show(box, el('div', { class: 'gp-alert' }, [\n      el('p', { style: 'margin-top:0' }, question),\n      el('label', { for: note.id }, 'Note (optional)'),\n      note,\n      el('p', {}, [yes, no]),\n      msg,\n    ]));\n  }\n\n  function postCard(p) {\n    var bySlot = {};\n    p.signups.forEach(function (s) {\n      (bySlot[s.slotId] = bySlot[s.slotId] || []).push(s);\n    });\n    var live = p.status !== 'Past' && p.status !== 'Cancelled';\n    var out = el('div');\n    var items = [\n      el('h3', {}, p.title),\n      el('p', { class: 'gp-meta' }, p.status + ' · ' + p.organization + (p.audiences.length ? ' · ' + p.audiences.join(', ') : '')),\n    ];\n    if (p.status === 'Open') {\n      var copyBtn = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');\n      items.push(el('p', { class: 'gp-meta' }, ['Public link: ', el('a', { href: p.publicUrl, target: '_blank', rel: 'noopener' }, p.publicUrl), ' ', copyBtn]));\n    }\n    if (p.status === 'Closed' || p.status === 'Draft') {\n      items.push(el('p', { class: 'gp-meta' }, 'No one new can sign up. People already signed up keep their place and still get their reminder.'));\n    }\n    var dates = {};\n    p.slots.forEach(function (s) {\n      dates[s.date] = true;\n    });\n    var multiDate = Object.keys(dates).length > 1;\n    var bookedDates = {};\n    p.signups.forEach(function (su) {\n      p.slots.forEach(function (x) {\n        if (x.slotId === su.slotId) bookedDates[x.date] = true;\n      });\n    });\n    var cancelShown = {};\n    p.slots.forEach(function (s) {\n      var people = (bySlot[s.slotId] || []).map(function (su) {\n        return personRow(p, s, su, out);\n      });\n      var dateBits = [];\n      // One \"Cancel this date\" per date with people signed up, when the post has other dates.\n      if (p.canEdit && live && multiDate && bookedDates[s.date] && !cancelShown[s.date]) {\n        cancelShown[s.date] = true;\n        var dateBox = el('div');\n        dateBits.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, s.date, dateBox); } }, 'Cancel this date'));\n        dateBits.push(dateBox);\n      }\n      items.push(\n        el('div', { class: 'gp-slot' }, [\n          el('strong', {}, GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '') + ' · ' + s.role),\n          el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.waiting ? ' · ' + s.waiting + ' waiting' : '') + (s.filled >= s.needed ? ' · Filled ✓' : '')),\n        ].concat(people.length ? people : [el('div', { class: 'gp-person gp-muted' }, 'No one yet.')]).concat(dateBits))\n      );\n    });\n    if (p.canEdit && live) {\n      var cancelBox = el('div');\n      var actions = [\n        el('button', { type: 'button', onclick: function () { openForEdit(p.postId, false, out); } }, 'Edit'),\n        el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post'),\n      ];\n      if (p.status === 'Open' || p.status === 'Draft') {\n        actions.push(\n          el('button', {\n            type: 'button',\n            class: 'gp-light',\n            onclick: function () {\n              var q = 'Close \"' + p.title + '\"? No one new can sign up. People already signed up keep their place and still get their reminder. (If it is not happening at all, use Cancel this opportunity.)';\n              if (!window.confirm(q)) return;\n              call('savePost', { mode: 'close', post: { postId: p.postId } }).then(function (res) {\n                flash(res.ok ? 'ok' : 'alert', res.ok ? 'Closed.' : GP.errorText(res));\n                render();\n              }, function (e) { failed(e, out); });\n            },\n          }, 'Close')\n        );\n      }\n      actions.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, '', cancelBox); } }, 'Cancel this opportunity'));\n      items.push(el('p', {}, actions));\n      items.push(cancelBox);\n    } else if (p.canEdit && p.status === 'Past') {\n      items.push(el('p', {}, [el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post')]));\n    }\n    items.push(out);\n    return el('div', { class: 'gp-card' }, items);\n  }\n\n  function personRow(p, s, su, out) {\n    var bits = [el('span', {}, su.label || su.name)];\n    if (STATUS_LABEL[su.status]) bits.push(el('span', { class: 'gp-tag' }, STATUS_LABEL[su.status]));\n    if (su.overLimit) bits.push(el('span', { class: 'gp-tag' }, 'Over the number'));\n    if (su.bringing) bits.push(el('span', { class: 'gp-meta' }, 'Bringing: ' + su.bringing));\n    if (su.email) bits.push(el('span', { class: 'gp-meta' }, su.email));\n    if (p.canEdit && p.status !== 'Past' && p.status !== 'Cancelled') {\n      bits.push(\n        el('button', {\n          type: 'button',\n          class: 'gp-danger',\n          onclick: function () {\n            if (!window.confirm('Remove ' + su.name + ' from ' + s.role + ' on ' + GP.fmtDate(s.date) + '? We will email them.')) return;\n            call('removeSignup', { signupId: su.signupId }).then(function (res) {\n              flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));\n              render();\n            }, function (e) { failed(e, out); });\n          },\n        }, 'Remove')\n      );\n    }\n    return el('div', { class: 'gp-person' }, bits);\n  }\n\n  function openForEdit(postId, asCopy, out) {\n    call('getPost', { postId: postId }).then(function (res) {\n      if (!res.ok) return GP.show(out, GP.message('alert', GP.errorText(res)));\n      var f = toForm(res.post);\n      if (asCopy) {\n        f.postId = '';\n        f.status = '';\n        f.title = ('Copy of ' + f.title).slice(0, 100);\n        f.dates.forEach(function (d) {\n          d.roles = d.roles.map(copyRole);\n        });\n        if (!me.access.baseCreateOrgs.length && !categoryById(f.category)) f.category = me.categories[0] ? me.categories[0].id : '';\n        if (orgsFor(f).indexOf(f.organization) < 0) f.organization = orgsFor(f)[0] || '';\n      }\n      state.form = f;\n      state.errors = {};\n      state.formError = '';\n      state.tab = 'form';\n      render();\n    }, function (e) { failed(e, out); });\n  }\n\n  // ---------- New / edit opportunity ----------\n\n  function bindText(input, obj, key) {\n    input.addEventListener('input', function () {\n      obj[key] = input.value;\n    });\n    return input;\n  }\n\n  function renderForm(body) {\n    var f = state.form || (state.form = newForm());\n    var orgs = orgsFor(f);\n    if (!orgs.length) {\n      return GP.show(body, GP.message('alert', \"Your leader role can't create opportunities yet. Ask the bishopric to tick Org editor for you on the Leaders tab, or to add your email to a category's Coordinators.\"));\n    }\n    if (orgs.indexOf(f.organization) < 0) f.organization = orgs[0];\n\n    var org = el('select', { id: 'gp-org', onchange: function () { f.organization = org.value; } }, orgs.map(function (o) {\n      return el('option', { value: o, selected: o === f.organization ? 'selected' : null }, o);\n    }));\n    org.value = f.organization;\n    // Leaders with an organization of their own may leave the category blank; coordinators pick one of theirs.\n    var catChoices = (me.access.baseCreateOrgs.length ? [el('option', { value: '' }, '(none)')] : []).concat(\n      me.categories.map(function (c) {\n        return el('option', { value: c.id }, (c.icon ? c.icon + ' ' : '') + c.name);\n      })\n    );\n    if (f.category && !categoryById(f.category)) catChoices.push(el('option', { value: f.category }, f.category));\n    var cat = el('select', {\n      id: 'gp-cat',\n      onchange: function () {\n        f.category = cat.value;\n        var c = categoryById(f.category);\n        if (c && c.audiences && c.audiences.length && !f.audiences.length) f.audiences = c.audiences.slice();\n        render();\n      },\n    }, catChoices);\n    cat.value = f.category;\n    var childNote = el('p', { class: 'gp-meta' + (f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0 ? '' : ' gp-hidden') },\n      'Who is serving: the sign-up form asks \"Me / My child\" and takes a child\\'s first name. Every email goes to the parent; you see \"Ana (signed up by …)\".');\n    var title = bindText(el('input', { type: 'text', id: 'gp-title-in', maxlength: '100', value: f.title }), f, 'title');\n    var audiences = el('div', { role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {\n      var box = el('input', {\n        type: 'checkbox',\n        checked: f.audiences.indexOf(a) >= 0,\n        onchange: function () {\n          f.audiences = GP.AUDIENCES.filter(function (x) {\n            return x === a ? box.checked : f.audiences.indexOf(x) >= 0;\n          });\n          var young = f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0;\n          childNote.className = 'gp-meta' + (young ? '' : ' gp-hidden');\n        },\n      });\n      return el('label', { class: 'gp-check' }, [box, a]);\n    }));\n    var note = bindText(el('textarea', { id: 'gp-note', maxlength: '2000' }), f, 'publicNote');\n    note.value = f.publicNote;\n    var priv = bindText(el('textarea', { id: 'gp-priv', maxlength: '1000' }), f, 'privateDetails');\n    priv.value = f.privateDetails;\n    var cutoff = bindText(el('input', { type: 'number', id: 'gp-cutoff', min: '0', max: '168', step: '1', value: f.cutoffHours, placeholder: String(me.defaults.cutoffHours) }), f, 'cutoffHours');\n\n    var parts = [\n      el('h2', {}, f.postId ? 'Edit opportunity' : 'New opportunity'),\n      state.formError ? GP.message('alert', state.formError) : null,\n      field('Category', cat, 'category'),\n      field('Organization', org, 'organization'),\n      field('Title (everyone sees this)', title, 'title'),\n      el('div', {}, [el('label', {}, 'Who is it for?'), audiences, err('audiences'), childNote]),\n      field('Public note (everyone sees this)', note, 'publicNote'),\n      field('Private details: an address, a gate code (sent only to approved volunteers who are signed up: in their confirmation email, their reminder and My sign-ups, until the date is over)', priv, 'privateDetails'),\n      field('Cancel cutoff in hours (after this, a cancellation tells you that you are short)', cutoff, 'cutoffHours'),\n      el('h2', {}, 'Dates and roles'),\n      err('slots'),\n    ];\n    f.dates.forEach(function (d, di) {\n      parts.push(dateBlock(f, d, di));\n    });\n    parts.push(\n      el('p', {}, [\n        el('button', { type: 'button', class: 'gp-light', onclick: function () {\n          var last = f.dates[f.dates.length - 1];\n          f.dates.push({ date: '', roles: last ? last.roles.map(copyRole) : [blankRole()] });\n          render();\n        } }, 'Add date'),\n      ])\n    );\n    parts.push(addDatesPanel(f));\n    var actions = [];\n    if (f.status === 'Open') {\n      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Save changes'));\n      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft (hide it)'));\n      parts.push(el('p', { class: 'gp-meta' }, 'Save as draft hides it from the public page. People already signed up keep their place and still get their reminder.'));\n    } else if (f.status === 'Closed') {\n      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Reopen and save'));\n      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));\n    } else {\n      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));\n      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Publish'));\n    }\n    actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () {\n      if (!window.confirm('Leave this form? Changes you have not saved are lost.')) return;\n      state.form = null;\n      state.errors = {};\n      state.formError = '';\n      state.tab = 'list';\n      render();\n    } }, 'Cancel'));\n    parts.push(el('p', {}, actions));\n    GP.show(body, parts);\n  }\n\n  function dateBlock(f, d, di) {\n    var date = el('input', { type: 'date', id: nextId('gp-date-'), value: d.date });\n    date.addEventListener('input', function () {\n      d.date = date.value;\n    });\n    var roles = d.roles.map(function (r, ri) {\n      return roleBlock(f, d, di, r, ri);\n    });\n    return el('div', { class: 'gp-date' }, [\n      el('div', {}, [el('label', { for: date.id }, 'Date'), date, err(slotErrorKey(f, di, 0, 'date'))]),\n    ].concat(roles).concat([\n      el('p', {}, [\n        el('button', { type: 'button', class: 'gp-light', onclick: function () { d.roles.push(blankRole()); render(); } }, 'Add role'),\n        el('button', { type: 'button', class: 'gp-light', onclick: function () {\n          f.dates.splice(di + 1, 0, { date: '', roles: d.roles.map(copyRole) });\n          render();\n        } }, 'Copy this date'),\n        f.dates.length > 1\n          ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { f.dates.splice(di, 1); render(); } }, 'Remove date')\n          : null,\n      ]),\n    ]));\n  }\n\n  function roleBlock(f, d, di, r, ri) {\n    function input(type, key, attrs) {\n      var a = { type: type, id: nextId('gp-r-'), value: r[key] === undefined ? '' : String(r[key]) };\n      Object.keys(attrs || {}).forEach(function (k) {\n        a[k] = attrs[k];\n      });\n      return bindText(el('input', a), r, key);\n    }\n    var role = input('text', 'role', { maxlength: '60', placeholder: 'e.g. Bring a meal' });\n    var needed = input('number', 'needed', { min: '1', max: '200', step: '1' });\n    var start = input('time', 'start');\n    var end = input('time', 'end');\n    var roleNote = input('text', 'roleNote', { maxlength: '300' });\n    var prompt = input('text', 'bringingPrompt', { maxlength: '100', placeholder: 'e.g. What are you bringing?' });\n    var key = function (fieldName) {\n      return slotErrorKey(f, di, ri, fieldName);\n    };\n    return el('div', { class: 'gp-role' }, [\n      el('div', { class: 'gp-row' }, [field('Role', role, key('role')), field('How many people', needed, key('needed'))]),\n      el('div', { class: 'gp-row' }, [field('Start (optional)', start, key('start')), field('End (optional)', end, key('end'))]),\n      field('Note for this role (optional)', roleNote, key('roleNote')),\n      field('Ask volunteers (optional)', prompt, key('bringingPrompt')),\n      r.filled ? el('p', { class: 'gp-meta' }, r.filled + ' signed up') : null,\n      d.roles.length > 1\n        ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { d.roles.splice(ri, 1); render(); } }, 'Remove role')\n        : null,\n    ]);\n  }\n\n  function addDatesPanel(f) {\n    var start = el('input', { type: 'date', id: 'gp-many-start' });\n    var end = el('input', { type: 'date', id: 'gp-many-end' });\n    var boxes = WEEKDAYS.map(function (w, i) {\n      return el('input', { type: 'checkbox', value: String(i) });\n    });\n    var msg = el('div');\n    return el('details', { class: 'gp-card' }, [\n      el('summary', {}, 'Add dates (for meal trains and other repeating needs)'),\n      el('div', { class: 'gp-row' }, [field('From', start, ''), field('To', end, '')]),\n      el('p', { class: 'gp-meta' }, 'On these days (none ticked means every day):'),\n      el('div', { class: 'gp-row' }, boxes.map(function (b, i) {\n        return el('label', { class: 'gp-check' }, [b, WEEKDAYS[i]]);\n      })),\n      el('p', {}, [\n        el('button', { type: 'button', class: 'gp-light', onclick: function () {\n          var days = boxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); });\n          var list = GP.expandDates(start.value, end.value, days);\n          if (!list.length) return GP.show(msg, GP.message('alert', 'Pick a start and an end date (the end on or after the start).'));\n          var template = f.dates[f.dates.length - 1];\n          var roles = template ? template.roles : [blankRole()];\n          // Fill the first empty date block before adding new ones.\n          if (f.dates.length === 1 && !f.dates[0].date) f.dates = [];\n          list.forEach(function (day) {\n            f.dates.push({ date: day, roles: roles.map(copyRole) });\n          });\n          render();\n        } }, 'Add these dates'),\n      ]),\n      msg,\n    ]);\n  }\n\n  function save(action) {\n    var f = state.form;\n    var post = {\n      postId: f.postId,\n      organization: f.organization,\n      category: f.category,\n      title: f.title,\n      audiences: f.audiences,\n      publicNote: f.publicNote,\n      privateDetails: f.privateDetails,\n      cutoffHours: f.cutoffHours,\n      slots: flatten(f).slots,\n    };\n    call('savePost', { mode: action, post: post }).then(function (res) {\n      if (!res.ok) {\n        state.errors = res.fields || {};\n        state.formError = GP.errorText(res);\n        render();\n        window.scrollTo(0, 0);\n        return;\n      }\n      state.form = null;\n      state.errors = {};\n      state.formError = '';\n      state.tab = 'list';\n      flash('ok', action === 'publish' ? 'Published. Share this link: ' + res.publicUrl : 'Saved as a draft. Nobody else sees it until you publish it.');\n      render();\n      window.scrollTo(0, 0);\n    }, function (e) {\n      if (e && e.handled) return;\n      state.formError = \"Can't reach the portal right now. What you typed is still here; try Save again in a minute.\";\n      render();\n      window.scrollTo(0, 0);\n    });\n  }\n\n  // ---------- start ----------\n\n  GP.hash().then(function (h) {\n    K = h.k || '';\n    if (!K) return showRequest('');\n    call('whoami').then(function (res) {\n      if (!res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));\n      me = res;\n      render();\n    }, failed);\n  });\n})();\n</script>\n</body>\n</html>\n",
- "me": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<base target=\"_top\">\n<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>\n<meta property=\"og:title\" content=\"{{WARD_NAME}} · {{PAGE_TITLE}}\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:image\" content=\"{{PREVIEW_IMAGE}}\">\n<style>\n:root {\n  /* Recolour here: every colour on the pages comes from these. */\n  --gp-ink: #2c3a4a;\n  --gp-heading: #1d3557;\n  --gp-accent: #c9b882;\n  --gp-muted: #6b7a8d;\n  --gp-link: #4a6fa5;\n  --gp-page: #eef2f7;\n  --gp-card: #ffffff;\n  --gp-line: #dde3ed;\n  --gp-soft: #f4f7fc;\n  --gp-good: #2f7d4f;\n  --gp-warn: #a4472b;\n  --gp-bar: #4a6fa5;\n  --gp-font: Georgia, 'Times New Roman', serif;\n}\n\n* { box-sizing: border-box; }\n\nhtml { -webkit-text-size-adjust: 100%; }\n\nbody {\n  margin: 0;\n  font-family: var(--gp-font);\n  color: var(--gp-ink);\n  background: var(--gp-page);\n  line-height: 1.5;\n  min-height: 100vh;\n}\n\n.gp-wrap {\n  max-width: 560px;\n  margin: 0 auto;\n  padding: 1.5rem 1rem 3rem;\n}\n\n.gp-wrap.gp-wide { max-width: 760px; }\n\n.gp-head { text-align: center; margin-bottom: 1.25rem; }\n.gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }\nh1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }\nh2 {\n  font-size: 1.05rem;\n  color: var(--gp-heading);\n  margin: 1.5rem 0 0.6rem;\n  padding-bottom: 0.3rem;\n  border-bottom: 2px solid var(--gp-accent);\n}\nh3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }\n\na { color: var(--gp-link); overflow-wrap: anywhere; }\n\n.gp-card {\n  background: var(--gp-card);\n  border: 1px solid var(--gp-line);\n  border-radius: 14px;\n  box-shadow: 0 2px 10px rgba(29, 53, 87, 0.07);\n  padding: 0.9rem 1rem;\n  margin: 0 0 0.75rem;\n}\n\na.gp-card { display: block; text-decoration: none; color: inherit; }\na.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }\n\n.gp-meta { font-size: 0.85rem; color: var(--gp-muted); margin: 0.1rem 0; }\n.gp-note { white-space: pre-wrap; margin: 0.4rem 0; }\n\n.gp-bar {\n  height: 8px;\n  border-radius: 4px;\n  background: var(--gp-line);\n  overflow: hidden;\n  margin: 0.45rem 0 0.2rem;\n}\n.gp-bar > span { display: block; height: 100%; background: var(--gp-bar); }\n.gp-count { font-size: 0.85rem; color: var(--gp-muted); }\n.gp-filled { color: var(--gp-good); font-weight: bold; }\n.gp-full { opacity: 0.75; }\n\n.gp-btn, button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 44px;\n  padding: 0.55rem 1rem;\n  border-radius: 10px;\n  border: 1px solid var(--gp-heading);\n  background: var(--gp-heading);\n  color: #ffffff;\n  font: inherit;\n  font-size: 0.95rem;\n  cursor: pointer;\n  text-decoration: none;\n  margin: 0.2rem 0.3rem 0.2rem 0;\n}\n.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }\n.gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }\nbutton:disabled { opacity: 0.55; cursor: default; }\n\nlabel { display: block; font-size: 0.9rem; margin: 0.7rem 0 0.2rem; color: var(--gp-heading); }\ninput[type='text'], input[type='email'], input[type='number'], input[type='date'], input[type='time'], select, textarea {\n  width: 100%;\n  min-height: 44px;\n  padding: 0.5rem 0.6rem;\n  border: 1px solid var(--gp-line);\n  border-radius: 8px;\n  font: inherit;\n  background: #ffffff;\n  color: var(--gp-ink);\n}\ntextarea { min-height: 88px; }\n.gp-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.95rem; min-height: 44px; }\n.gp-check input { width: 22px; height: 22px; }\n.gp-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }\n.gp-row > * { flex: 1 1 140px; }\n\n.gp-error { color: var(--gp-warn); font-size: 0.88rem; margin: 0.25rem 0; }\n.gp-ok { background: #eef7f1; border: 1px solid #b9dcc6; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-alert { background: #fbf1ec; border: 1px solid #e7c2b3; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-muted { color: var(--gp-muted); }\n.gp-loading { color: var(--gp-muted); text-align: center; padding: 1.5rem 0; }\n.gp-hidden { display: none !important; }\n\n.gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }\n.gp-slot:first-child { border-top: none; }\n.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }\n/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */\n.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }\n.gp-pair > .gp-section { min-width: 0; }\n.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }\n.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }\n@media (min-width: 720px) {\n  .gp-pair { grid-template-columns: 1fr 1fr; }\n}\n.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }\n\n.gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }\n.gp-tabs button { flex: 1 1 auto; }\n.gp-tabs button[aria-selected='false'] { background: var(--gp-card); color: var(--gp-heading); }\n\n.gp-date { background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 12px; padding: 0.7rem; margin: 0.7rem 0; }\n.gp-role { background: var(--gp-card); border: 1px solid var(--gp-line); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }\n\n.gp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }\n.gp-tile { text-align: center; padding: 1.1rem 0.6rem; min-height: 120px; }\n.gp-tile .gp-icon { font-size: 2.2rem; display: block; margin-bottom: 0.4rem; }\n\n.gp-footer {\n  max-width: 560px;\n  margin: 2rem auto 1rem;\n  padding: 0 1rem;\n  font-size: 0.78rem;\n  color: var(--gp-muted);\n  text-align: center;\n}\n.gp-footer p { margin: 0.3rem 0; }\n\n@media (max-width: 400px) {\n  .gp-wrap { padding: 1rem 0.75rem 2.5rem; }\n  h1 { font-size: 1.25rem; }\n}\n</style>\n</head>\n<body>\n<main class=\"gp-wrap\">\n  <header class=\"gp-head\">\n    <p class=\"gp-ward\">{{WARD_NAME}}</p>\n    <h1>{{PAGE_TITLE}}</h1>\n  </header>\n  <div id=\"gp-main\"><p class=\"gp-loading\">Loading…</p></div>\n</main>\n<footer class=\"gp-footer\" id=\"gp-footer\">\n  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>\n  <p class=\"gp-contact\">Contact: <a href=\"mailto:{{CONTACT_EMAIL}}\">{{CONTACT_EMAIL}}</a></p>\n</footer>\n<script>\n/* Service Portal page code, shared by every page (inlined by build.mjs).\n   Hub pages talk to the web app with fetch; the fallback pages served by the script itself use\n   google.script.run. Data only ever reaches the page through textContent, never as HTML. */\nvar GP = (function () {\n  'use strict';\n  var cfg = { page: '', wardName: '', webAppUrl: '', contact: '', fallback: false };\n  var GET_ACTIONS = { serve: true, post: true, help: true };\n  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  var AUDIENCES = ['Brothers', 'Sisters', 'Youth', 'Children'];\n\n  function init(c) {\n    cfg = {\n      page: c.page || '',\n      wardName: c.wardName || '',\n      webAppUrl: c.webAppUrl || '',\n      contact: c.contact || '',\n      fallback: !!c.fallback,\n    };\n    return cfg;\n  }\n\n  function config() {\n    return cfg;\n  }\n\n  // ---------- talking to the script ----------\n\n  function call(action, data) {\n    data = data || {};\n    var req = { action: action };\n    Object.keys(data).forEach(function (k) {\n      req[k] = data[k];\n    });\n    if (cfg.fallback) {\n      return new Promise(function (resolve, reject) {\n        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).gpApi(req);\n      });\n    }\n    var opts;\n    var url = cfg.webAppUrl;\n    if (GET_ACTIONS[action]) {\n      url += '?api=' + encodeURIComponent(action) + (data.p ? '&p=' + encodeURIComponent(data.p) : '');\n      opts = { method: 'GET', redirect: 'follow' };\n    } else {\n      // A text/plain body keeps this a \"simple\" request: no preflight.\n      opts = { method: 'POST', body: JSON.stringify(req), redirect: 'follow' };\n    }\n    return fetch(url, opts).then(function (res) {\n      if (!res.ok) throw new Error('HTTP ' + res.status);\n      return res.json();\n    });\n  }\n\n  function parseHash(h) {\n    var out = {};\n    String(h || '')\n      .replace(/^#/, '')\n      .split('&')\n      .forEach(function (part) {\n        if (!part) return;\n        var i = part.indexOf('=');\n        var k = i < 0 ? part : part.slice(0, i);\n        var v = i < 0 ? '' : part.slice(i + 1);\n        try {\n          out[decodeURIComponent(k)] = decodeURIComponent(v);\n        } catch (e) {\n          out[k] = v;\n        }\n      });\n    return out;\n  }\n\n  function hash() {\n    if (cfg.fallback) {\n      return new Promise(function (resolve) {\n        google.script.url.getLocation(function (loc) {\n          resolve(parseHash(loc.hash));\n        });\n      });\n    }\n    return Promise.resolve(parseHash(window.location.hash));\n  }\n\n  function hashString(h) {\n    return Object.keys(h || {})\n      .map(function (k) {\n        return k + '=' + encodeURIComponent(h[k]);\n      })\n      .join('&');\n  }\n\n  /** Address of another portal page: hub file, or the web app's ?page= in the fallback. */\n  function pageUrl(page, h) {\n    var tail = hashString(h);\n    var base = cfg.fallback ? cfg.webAppUrl + '?page=' + page : page + '.html';\n    return base + (tail ? '#' + tail : '');\n  }\n\n  // ---------- DOM ----------\n\n  /** el('a', {href: x, class: 'y', onclick: fn}, ['text', node]) — text only via textContent. */\n  function el(tag, attrs, children) {\n    var node = document.createElement(tag);\n    Object.keys(attrs || {}).forEach(function (k) {\n      var v = attrs[k];\n      if (v === null || v === undefined || v === false) return;\n      if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);\n      else if (k === 'class') node.className = v;\n      else if (k === 'text') node.textContent = v;\n      else if (k === 'value') node.value = v;\n      else if (k === 'checked') node.checked = !!v;\n      else if (k === 'href') node.setAttribute('href', safeHref(v));\n      else node.setAttribute(k, v === true ? '' : String(v));\n    });\n    (Array.isArray(children) ? children : children === undefined ? [] : [children]).forEach(function (c) {\n      if (c === null || c === undefined || c === false) return;\n      node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);\n    });\n    return node;\n  }\n\n  function safeHref(v) {\n    var s = String(v);\n    return /^(https?:|mailto:|[a-z0-9-]+\\.html|#|\\?)/i.test(s) ? s : '#';\n  }\n\n  function $(id) {\n    return document.getElementById(id);\n  }\n\n  function clear(node) {\n    node.innerHTML = '';\n    return node;\n  }\n\n  function show(node, children) {\n    clear(node);\n    (Array.isArray(children) ? children : [children]).forEach(function (c) {\n      if (c) node.appendChild(c);\n    });\n  }\n\n  function message(kind, text) {\n    return el('div', { class: kind === 'ok' ? 'gp-ok' : 'gp-alert', role: kind === 'ok' ? 'status' : 'alert' }, text);\n  }\n\n  /** Turns the footer's contact into a mail link, or hides it when there is no contact. */\n  function footer() {\n    var f = $('gp-footer');\n    if (!f) return;\n    var c = f.querySelector('.gp-contact');\n    if (c && !cfg.contact) c.className += ' gp-hidden';\n  }\n\n  function unreachable(page) {\n    var url = cfg.webAppUrl + '?page=' + page + (window.location && window.location.hash ? window.location.hash : '');\n    return el('div', { class: 'gp-alert', role: 'alert' }, [\n      \"Can't load right now. Try this link instead: \",\n      el('a', { href: url }, url),\n    ]);\n  }\n\n  function errorText(res) {\n    return (res && res.error) || 'Something went wrong. Please try again.';\n  }\n\n  function copyText(text, button) {\n    function done() {\n      if (button) {\n        var old = button.textContent;\n        button.textContent = 'Copied';\n        setTimeout(function () {\n          button.textContent = old;\n        }, 1500);\n      }\n    }\n    if (navigator.clipboard && navigator.clipboard.writeText) {\n      navigator.clipboard.writeText(text).then(done, function () {\n        window.prompt('Copy this link:', text);\n      });\n    } else {\n      window.prompt('Copy this link:', text);\n    }\n  }\n\n  // ---------- pure helpers ----------\n\n  function isDate(s) {\n    if (typeof s !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return false;\n    var d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));\n    return d.getUTCMonth() === +s.slice(5, 7) - 1 && d.getUTCDate() === +s.slice(8, 10);\n  }\n\n  function utc(s) {\n    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));\n  }\n\n  function iso(ms) {\n    var d = new Date(ms);\n    var m = d.getUTCMonth() + 1;\n    var day = d.getUTCDate();\n    return d.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;\n  }\n\n  /** Every date from start to end (inclusive) on the given weekdays (0 = Sunday; none = all). At most 100. */\n  function expandDates(start, end, weekdays) {\n    if (!isDate(start) || !isDate(end)) return [];\n    var days = weekdays && weekdays.length ? weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];\n    var out = [];\n    for (var t = utc(start); t <= utc(end) && out.length < 100; t += 86400000) {\n      if (days.indexOf(new Date(t).getUTCDay()) >= 0) out.push(iso(t));\n    }\n    return out;\n  }\n\n  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */\n  function groupByAudience(posts) {\n    var out = {};\n    AUDIENCES.forEach(function (a) {\n      out[a] = [];\n    });\n    (posts || []).forEach(function (p) {\n      (p.audiences || []).forEach(function (a) {\n        if (out[a]) out[a].push(p);\n      });\n    });\n    AUDIENCES.forEach(function (a) {\n      out[a] = out[a]\n        .filter(function (p) {\n          return !p.full;\n        })\n        .concat(\n          out[a].filter(function (p) {\n            return p.full;\n          })\n        );\n    });\n    return out;\n  }\n\n  /** 'Thu, Dec 3' */\n  function fmtDate(s) {\n    if (!isDate(s)) return String(s || '');\n    var d = new Date(utc(s));\n    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();\n  }\n\n  /** '6:30 PM' */\n  function fmtTime(t) {\n    if (!/^\\d{2}:\\d{2}$/.test(String(t || ''))) return '';\n    var h = +t.slice(0, 2);\n    return (h % 12 === 0 ? 12 : h % 12) + ':' + t.slice(3) + (h < 12 ? ' AM' : ' PM');\n  }\n\n  function fmtTimes(start, end) {\n    if (!start) return '';\n    return fmtTime(start) + (end ? '–' + fmtTime(end) : '');\n  }\n\n  function fillBar(filled, needed) {\n    var pct = needed ? Math.min(100, Math.round((filled / needed) * 100)) : 0;\n    return el('div', { class: 'gp-bar', role: 'img', 'aria-label': filled + ' of ' + needed + ' filled' }, [\n      el('span', { style: 'width:' + pct + '%' }),\n    ]);\n  }\n\n  return {\n    init: init,\n    config: config,\n    call: call,\n    hash: hash,\n    parseHash: parseHash,\n    pageUrl: pageUrl,\n    el: el,\n    $: $,\n    clear: clear,\n    show: show,\n    message: message,\n    footer: footer,\n    unreachable: unreachable,\n    errorText: errorText,\n    copyText: copyText,\n    expandDates: expandDates,\n    groupByAudience: groupByAudience,\n    fmtDate: fmtDate,\n    fmtTime: fmtTime,\n    fmtTimes: fmtTimes,\n    fillBar: fillBar,\n    isDate: isDate,\n    AUDIENCES: AUDIENCES,\n  };\n})();\n</script>\n<script>\nGP.init({ page: 'me', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });\nGP.footer();\n(function () {\n  var el = GP.el;\n  var main = GP.$('gp-main');\n  var STATUS = { 'Waiting-email': 'Waiting: please click the link in your confirm email', 'Waiting-approval': 'Waiting for a leader to approve' };\n  var T = '';\n\n  /** No link (or an old one): ask for a new one by email. */\n  function showRequest(error) {\n    var email = el('input', { type: 'email', id: 'gp-me-email', autocomplete: 'email', maxlength: '254' });\n    var out = el('div');\n    var button = el('button', { type: 'submit' }, 'Email me my link');\n    var form = el(\n      'form',\n      {\n        onsubmit: function (e) {\n          e.preventDefault();\n          button.disabled = true;\n          GP.call('requestMeLink', { email: email.value }).then(\n            function (res) {\n              button.disabled = false;\n              GP.show(out, GP.message(res && res.ok ? 'ok' : 'alert', res && res.ok ? res.message : GP.errorText(res)));\n            },\n            function () {\n              button.disabled = false;\n              GP.show(out, GP.unreachable('me'));\n            }\n          );\n        },\n      },\n      [el('label', { for: 'gp-me-email' }, 'The email you signed up with'), email, el('p', {}, [button])]\n    );\n    GP.show(main, [\n      error ? GP.message('alert', error) : null,\n      el('p', {}, 'Your sign-ups open from a personal link in your confirmation email. Type your email and we will send you a new one.'),\n      form,\n      out,\n    ]);\n  }\n\n  function when(s) {\n    return GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '');\n  }\n\n  function card(s, upcoming) {\n    var out = el('div');\n    var bits = [\n      el('h3', {}, [el('a', { href: s.publicUrl }, s.title)]),\n      el('p', { class: 'gp-meta' }, when(s) + ' · ' + s.role + (s.childName ? ' · for ' + s.childName : '')),\n    ];\n    if (STATUS[s.status]) bits.push(el('p', {}, [el('span', { class: 'gp-tag' }, STATUS[s.status])]));\n    if (s.bringing) bits.push(el('p', { class: 'gp-meta' }, 'Bringing: ' + s.bringing));\n    if (s.privateDetails) bits.push(el('div', { class: 'gp-note' }, [el('strong', {}, 'Details (please keep them private): '), s.privateDetails]));\n    if (s.others && s.others.length) bits.push(el('p', { class: 'gp-meta' }, 'Also serving: ' + s.others.join(', ')));\n    if (upcoming && s.cancelToken) {\n      var button = el('button', {\n        type: 'button',\n        class: 'gp-danger',\n        onclick: function () {\n          if (!window.confirm('Cancel ' + s.role + ' on ' + GP.fmtDate(s.date) + '?')) return;\n          button.disabled = true;\n          GP.call('cancel', { t: s.cancelToken }).then(\n            function (r) {\n              if (r && r.ok) return load(r.message);\n              button.disabled = false;\n              GP.show(out, GP.message('alert', GP.errorText(r)));\n            },\n            function () {\n              button.disabled = false;\n              GP.show(out, GP.unreachable('me'));\n            }\n          );\n        },\n      }, 'Cancel');\n      bits.push(el('p', {}, [button]));\n    }\n    bits.push(out);\n    return el('div', { class: 'gp-card' }, bits);\n  }\n\n  function render(res, note) {\n    var parts = [];\n    if (note) parts.push(GP.message('ok', note));\n    parts.push(el('h2', {}, 'Coming up'));\n    if (!res.upcoming.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing coming up.'));\n    res.upcoming.forEach(function (s) {\n      parts.push(card(s, true));\n    });\n    if (res.otherWays.length) {\n      parts.push(el('h2', {}, 'Other ways to serve'));\n      res.otherWays.forEach(function (o) {\n        parts.push(el('a', { class: 'gp-card', href: o.url }, [\n          el('h3', {}, o.title),\n          GP.fillBar(o.filled, o.needed),\n          el('p', { class: 'gp-count' }, o.filled + ' of ' + o.needed + ' filled'),\n        ]));\n      });\n    }\n    if (res.past.length) {\n      parts.push(el('h2', {}, 'Past'));\n      res.past.forEach(function (s) {\n        parts.push(card(s, false));\n      });\n    }\n    GP.show(main, parts);\n  }\n\n  function load(note) {\n    GP.call('me', { t: T }).then(\n      function (res) {\n        if (!res || !res.ok) return showRequest(GP.errorText(res));\n        render(res, note);\n      },\n      function () {\n        GP.show(main, GP.unreachable('me'));\n      }\n    );\n  }\n\n  GP.hash().then(function (h) {\n    T = h.t || '';\n    if (!T) return showRequest('');\n    load('');\n  });\n})();\n</script>\n</body>\n</html>\n"
+ "leader": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<base target=\"_top\">\n<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>\n<meta property=\"og:title\" content=\"{{WARD_NAME}} · {{PAGE_TITLE}}\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:image\" content=\"{{PREVIEW_IMAGE}}\">\n<style>\n:root {\n  /* Recolour here: every colour on the pages comes from these. */\n  --gp-ink: #2c3a4a;\n  --gp-heading: #1d3557;\n  --gp-accent: #c9b882;\n  --gp-muted: #6b7a8d;\n  --gp-link: #4a6fa5;\n  --gp-page: #eef2f7;\n  --gp-card: #ffffff;\n  --gp-line: #dde3ed;\n  --gp-soft: #f4f7fc;\n  --gp-good: #2f7d4f;\n  --gp-warn: #a4472b;\n  --gp-bar: #4a6fa5;\n  --gp-font: Georgia, 'Times New Roman', serif;\n}\n\n* { box-sizing: border-box; }\n\nhtml { -webkit-text-size-adjust: 100%; }\n\nbody {\n  margin: 0;\n  font-family: var(--gp-font);\n  color: var(--gp-ink);\n  background: var(--gp-page);\n  line-height: 1.5;\n  min-height: 100vh;\n}\n\n.gp-wrap {\n  max-width: 560px;\n  margin: 0 auto;\n  padding: 1.5rem 1rem 3rem;\n}\n\n.gp-wrap.gp-wide { max-width: 760px; }\n\n.gp-head { text-align: center; margin-bottom: 1.25rem; }\n.gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }\nh1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }\nh2 {\n  font-size: 1.05rem;\n  color: var(--gp-heading);\n  margin: 1.5rem 0 0.6rem;\n  padding-bottom: 0.3rem;\n  border-bottom: 2px solid var(--gp-accent);\n}\nh3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }\n\na { color: var(--gp-link); overflow-wrap: anywhere; }\n\n.gp-card {\n  background: var(--gp-card);\n  border: 1px solid var(--gp-line);\n  border-radius: 14px;\n  box-shadow: 0 2px 10px rgba(29, 53, 87, 0.07);\n  padding: 0.9rem 1rem;\n  margin: 0 0 0.75rem;\n}\n\na.gp-card { display: block; text-decoration: none; color: inherit; }\na.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }\n\n.gp-meta { font-size: 0.85rem; color: var(--gp-muted); margin: 0.1rem 0; }\n.gp-note { white-space: pre-wrap; margin: 0.4rem 0; }\n\n.gp-bar {\n  height: 8px;\n  border-radius: 4px;\n  background: var(--gp-line);\n  overflow: hidden;\n  margin: 0.45rem 0 0.2rem;\n}\n.gp-bar > span { display: block; height: 100%; background: var(--gp-bar); }\n.gp-count { font-size: 0.85rem; color: var(--gp-muted); }\n.gp-filled { color: var(--gp-good); font-weight: bold; }\n.gp-full { opacity: 0.75; }\n\n.gp-btn, button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 44px;\n  padding: 0.55rem 1rem;\n  border-radius: 10px;\n  border: 1px solid var(--gp-heading);\n  background: var(--gp-heading);\n  color: #ffffff;\n  font: inherit;\n  font-size: 0.95rem;\n  cursor: pointer;\n  text-decoration: none;\n  margin: 0.2rem 0.3rem 0.2rem 0;\n}\n.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }\n.gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }\nbutton:disabled { opacity: 0.55; cursor: default; }\n\nlabel { display: block; font-size: 0.9rem; margin: 0.7rem 0 0.2rem; color: var(--gp-heading); }\ninput[type='text'], input[type='email'], input[type='number'], input[type='date'], input[type='time'], select, textarea {\n  width: 100%;\n  min-height: 44px;\n  padding: 0.5rem 0.6rem;\n  border: 1px solid var(--gp-line);\n  border-radius: 8px;\n  font: inherit;\n  background: #ffffff;\n  color: var(--gp-ink);\n}\ntextarea { min-height: 88px; }\n.gp-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.95rem; min-height: 44px; }\n.gp-check input { width: 22px; height: 22px; }\n.gp-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }\n.gp-row > * { flex: 1 1 140px; }\n\n.gp-error { color: var(--gp-warn); font-size: 0.88rem; margin: 0.25rem 0; }\n.gp-ok { background: #eef7f1; border: 1px solid #b9dcc6; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-alert { background: #fbf1ec; border: 1px solid #e7c2b3; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-muted { color: var(--gp-muted); }\n.gp-loading { color: var(--gp-muted); text-align: center; padding: 1.5rem 0; }\n.gp-hidden { display: none !important; }\n\n.gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }\n.gp-slot:first-child { border-top: none; }\n.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }\n/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */\n.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }\n.gp-pair > .gp-section { min-width: 0; }\n.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }\n.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }\n@media (min-width: 720px) {\n  .gp-pair { grid-template-columns: 1fr 1fr; }\n}\n.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }\n\n.gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }\n.gp-tabs button { flex: 1 1 auto; }\n.gp-tabs button[aria-selected='false'] { background: var(--gp-card); color: var(--gp-heading); }\n\n.gp-date { background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 12px; padding: 0.7rem; margin: 0.7rem 0; }\n.gp-role { background: var(--gp-card); border: 1px solid var(--gp-line); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }\n\n.gp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }\n.gp-tile { text-align: center; padding: 1.1rem 0.6rem; min-height: 120px; }\n.gp-tile .gp-icon { font-size: 2.2rem; display: block; margin-bottom: 0.4rem; }\n\n.gp-footer {\n  max-width: 560px;\n  margin: 2rem auto 1rem;\n  padding: 0 1rem;\n  font-size: 0.78rem;\n  color: var(--gp-muted);\n  text-align: center;\n}\n.gp-footer p { margin: 0.3rem 0; }\n\n@media (max-width: 400px) {\n  .gp-wrap { padding: 1rem 0.75rem 2.5rem; }\n  h1 { font-size: 1.25rem; }\n}\n</style>\n</head>\n<body>\n<main class=\"gp-wrap gp-wide\">\n  <header class=\"gp-head\">\n    <p class=\"gp-ward\">{{WARD_NAME}}</p>\n    <h1>{{PAGE_TITLE}}</h1>\n  </header>\n  <div id=\"gp-main\"><p class=\"gp-loading\">Loading…</p></div>\n</main>\n<footer class=\"gp-footer\" id=\"gp-footer\">\n  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>\n  <p class=\"gp-contact\">Contact: <a href=\"mailto:{{CONTACT_EMAIL}}\">{{CONTACT_EMAIL}}</a></p>\n</footer>\n<script>\n/* Service Portal page code, shared by every page (inlined by build.mjs).\n   Hub pages talk to the web app with fetch; the fallback pages served by the script itself use\n   google.script.run. Data only ever reaches the page through textContent, never as HTML. */\nvar GP = (function () {\n  'use strict';\n  var cfg = { page: '', wardName: '', webAppUrl: '', contact: '', fallback: false };\n  var GET_ACTIONS = { serve: true, post: true, help: true };\n  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  var AUDIENCES = ['Brothers', 'Sisters', 'Youth', 'Children'];\n\n  function init(c) {\n    cfg = {\n      page: c.page || '',\n      wardName: c.wardName || '',\n      webAppUrl: c.webAppUrl || '',\n      contact: c.contact || '',\n      fallback: !!c.fallback,\n    };\n    return cfg;\n  }\n\n  function config() {\n    return cfg;\n  }\n\n  // ---------- talking to the script ----------\n\n  function call(action, data) {\n    data = data || {};\n    var req = { action: action };\n    Object.keys(data).forEach(function (k) {\n      req[k] = data[k];\n    });\n    if (cfg.fallback) {\n      return new Promise(function (resolve, reject) {\n        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).gpApi(req);\n      });\n    }\n    var opts;\n    var url = cfg.webAppUrl;\n    if (GET_ACTIONS[action]) {\n      url += '?api=' + encodeURIComponent(action) + (data.p ? '&p=' + encodeURIComponent(data.p) : '');\n      opts = { method: 'GET', redirect: 'follow' };\n    } else {\n      // A text/plain body keeps this a \"simple\" request: no preflight.\n      opts = { method: 'POST', body: JSON.stringify(req), redirect: 'follow' };\n    }\n    return fetch(url, opts).then(function (res) {\n      if (!res.ok) throw new Error('HTTP ' + res.status);\n      return res.json();\n    });\n  }\n\n  function parseHash(h) {\n    var out = {};\n    String(h || '')\n      .replace(/^#/, '')\n      .split('&')\n      .forEach(function (part) {\n        if (!part) return;\n        var i = part.indexOf('=');\n        var k = i < 0 ? part : part.slice(0, i);\n        var v = i < 0 ? '' : part.slice(i + 1);\n        try {\n          out[decodeURIComponent(k)] = decodeURIComponent(v);\n        } catch (e) {\n          out[k] = v;\n        }\n      });\n    return out;\n  }\n\n  function hash() {\n    if (cfg.fallback) {\n      return new Promise(function (resolve) {\n        google.script.url.getLocation(function (loc) {\n          resolve(parseHash(loc.hash));\n        });\n      });\n    }\n    return Promise.resolve(parseHash(window.location.hash));\n  }\n\n  function hashString(h) {\n    return Object.keys(h || {})\n      .map(function (k) {\n        return k + '=' + encodeURIComponent(h[k]);\n      })\n      .join('&');\n  }\n\n  /** Address of another portal page: hub file, or the web app's ?page= in the fallback. */\n  function pageUrl(page, h) {\n    var tail = hashString(h);\n    var base = cfg.fallback ? cfg.webAppUrl + '?page=' + page : page + '.html';\n    return base + (tail ? '#' + tail : '');\n  }\n\n  // ---------- DOM ----------\n\n  /** el('a', {href: x, class: 'y', onclick: fn}, ['text', node]) — text only via textContent. */\n  function el(tag, attrs, children) {\n    var node = document.createElement(tag);\n    Object.keys(attrs || {}).forEach(function (k) {\n      var v = attrs[k];\n      if (v === null || v === undefined || v === false) return;\n      if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);\n      else if (k === 'class') node.className = v;\n      else if (k === 'text') node.textContent = v;\n      else if (k === 'value') node.value = v;\n      else if (k === 'checked') node.checked = !!v;\n      else if (k === 'href') node.setAttribute('href', safeHref(v));\n      else node.setAttribute(k, v === true ? '' : String(v));\n    });\n    (Array.isArray(children) ? children : children === undefined ? [] : [children]).forEach(function (c) {\n      if (c === null || c === undefined || c === false) return;\n      node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);\n    });\n    return node;\n  }\n\n  function safeHref(v) {\n    var s = String(v);\n    return /^(https?:|mailto:|[a-z0-9-]+\\.html|#|\\?)/i.test(s) ? s : '#';\n  }\n\n  function $(id) {\n    return document.getElementById(id);\n  }\n\n  function clear(node) {\n    node.innerHTML = '';\n    return node;\n  }\n\n  function show(node, children) {\n    clear(node);\n    (Array.isArray(children) ? children : [children]).forEach(function (c) {\n      if (c) node.appendChild(c);\n    });\n  }\n\n  function message(kind, text) {\n    return el('div', { class: kind === 'ok' ? 'gp-ok' : 'gp-alert', role: kind === 'ok' ? 'status' : 'alert' }, text);\n  }\n\n  /** Turns the footer's contact into a mail link, or hides it when there is no contact. */\n  function footer() {\n    var f = $('gp-footer');\n    if (!f) return;\n    var c = f.querySelector('.gp-contact');\n    if (c && !cfg.contact) c.className += ' gp-hidden';\n  }\n\n  function unreachable(page) {\n    var url = cfg.webAppUrl + '?page=' + page + (window.location && window.location.hash ? window.location.hash : '');\n    return el('div', { class: 'gp-alert', role: 'alert' }, [\n      \"Can't load right now. Try this link instead: \",\n      el('a', { href: url }, url),\n    ]);\n  }\n\n  function errorText(res) {\n    return (res && res.error) || 'Something went wrong. Please try again.';\n  }\n\n  function copyText(text, button) {\n    function done() {\n      if (button) {\n        var old = button.textContent;\n        button.textContent = 'Copied';\n        setTimeout(function () {\n          button.textContent = old;\n        }, 1500);\n      }\n    }\n    if (navigator.clipboard && navigator.clipboard.writeText) {\n      navigator.clipboard.writeText(text).then(done, function () {\n        window.prompt('Copy this link:', text);\n      });\n    } else {\n      window.prompt('Copy this link:', text);\n    }\n  }\n\n  // ---------- pure helpers ----------\n\n  function isDate(s) {\n    if (typeof s !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return false;\n    var d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));\n    return d.getUTCMonth() === +s.slice(5, 7) - 1 && d.getUTCDate() === +s.slice(8, 10);\n  }\n\n  function utc(s) {\n    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));\n  }\n\n  function iso(ms) {\n    var d = new Date(ms);\n    var m = d.getUTCMonth() + 1;\n    var day = d.getUTCDate();\n    return d.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;\n  }\n\n  /** Every date from start to end (inclusive) on the given weekdays (0 = Sunday; none = all). At most 100. */\n  function expandDates(start, end, weekdays) {\n    if (!isDate(start) || !isDate(end)) return [];\n    var days = weekdays && weekdays.length ? weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];\n    var out = [];\n    for (var t = utc(start); t <= utc(end) && out.length < 100; t += 86400000) {\n      if (days.indexOf(new Date(t).getUTCDay()) >= 0) out.push(iso(t));\n    }\n    return out;\n  }\n\n  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */\n  function groupByAudience(posts) {\n    var out = {};\n    AUDIENCES.forEach(function (a) {\n      out[a] = [];\n    });\n    (posts || []).forEach(function (p) {\n      (p.audiences || []).forEach(function (a) {\n        if (out[a]) out[a].push(p);\n      });\n    });\n    AUDIENCES.forEach(function (a) {\n      out[a] = out[a]\n        .filter(function (p) {\n          return !p.full;\n        })\n        .concat(\n          out[a].filter(function (p) {\n            return p.full;\n          })\n        );\n    });\n    return out;\n  }\n\n  /** 'Thu, Dec 3' */\n  function fmtDate(s) {\n    if (!isDate(s)) return String(s || '');\n    var d = new Date(utc(s));\n    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();\n  }\n\n  /** '6:30 PM' */\n  function fmtTime(t) {\n    if (!/^\\d{2}:\\d{2}$/.test(String(t || ''))) return '';\n    var h = +t.slice(0, 2);\n    return (h % 12 === 0 ? 12 : h % 12) + ':' + t.slice(3) + (h < 12 ? ' AM' : ' PM');\n  }\n\n  function fmtTimes(start, end) {\n    if (!start) return '';\n    return fmtTime(start) + (end ? '–' + fmtTime(end) : '');\n  }\n\n  function fillBar(filled, needed) {\n    var pct = needed ? Math.min(100, Math.round((filled / needed) * 100)) : 0;\n    return el('div', { class: 'gp-bar', role: 'img', 'aria-label': filled + ' of ' + needed + ' filled' }, [\n      el('span', { style: 'width:' + pct + '%' }),\n    ]);\n  }\n\n  return {\n    init: init,\n    config: config,\n    call: call,\n    hash: hash,\n    parseHash: parseHash,\n    pageUrl: pageUrl,\n    el: el,\n    $: $,\n    clear: clear,\n    show: show,\n    message: message,\n    footer: footer,\n    unreachable: unreachable,\n    errorText: errorText,\n    copyText: copyText,\n    expandDates: expandDates,\n    groupByAudience: groupByAudience,\n    fmtDate: fmtDate,\n    fmtTime: fmtTime,\n    fmtTimes: fmtTimes,\n    fillBar: fillBar,\n    isDate: isDate,\n    AUDIENCES: AUDIENCES,\n  };\n})();\n</script>\n<script>\nGP.init({ page: 'leader', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });\nGP.footer();\n(function () {\n  var el = GP.el;\n  var main = GP.$('gp-main');\n  var STATUS_LABEL = { 'Waiting-email': 'Waiting for their email click', 'Waiting-approval': 'Waiting for approval' };\n  var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var K = '';\n  var me = null;\n  var state = { tab: 'list', past: false, form: null, errors: {}, formError: '', flash: null };\n\n  // ---------- helpers ----------\n\n  function call(action, data) {\n    data = data || {};\n    data.k = K;\n    return GP.call(action, data).then(function (res) {\n      if (res && res.relink) {\n        showRequest(res.error);\n        throw { handled: true };\n      }\n      return res;\n    });\n  }\n\n  function failed(err, box) {\n    if (err && err.handled) return;\n    GP.show(box || main, GP.unreachable('leader'));\n  }\n\n  function flash(kind, text) {\n    state.flash = { kind: kind, text: text };\n  }\n\n  function uniq(list) {\n    var out = [];\n    list.forEach(function (x) {\n      if (out.indexOf(x) < 0) out.push(x);\n    });\n    return out;\n  }\n\n  function blankRole() {\n    return { slotId: '', start: '', end: '', role: '', needed: 1, roleNote: '', bringingPrompt: '' };\n  }\n\n  function copyRole(r) {\n    return { slotId: '', start: r.start, end: r.end, role: r.role, needed: r.needed, roleNote: r.roleNote, bringingPrompt: r.bringingPrompt };\n  }\n\n  /**\n   * Organizations this form may use: with no category the leader's own; in a category, the ones\n   * its rule gives this leader (whoami catOrgs). An edit that keeps the category keeps the post's\n   * organization too.\n   */\n  function orgsFor(f) {\n    var list = f.category ? (me.access.catOrgs && me.access.catOrgs[f.category]) || [] : me.access.baseCreateOrgs;\n    if (f.postId && f.category === f.origCategory && f.origOrganization) list = list.concat([f.origOrganization]);\n    return uniq(list);\n  }\n\n  function categoryById(id) {\n    for (var i = 0; i < me.categories.length; i++) if (me.categories[i].id === id) return me.categories[i];\n    return null;\n  }\n\n  function newForm() {\n    // A coordinator with no organization of their own starts in their first category.\n    var cat = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';\n    var f = {\n      postId: '',\n      status: '',\n      organization: '',\n      category: cat,\n      title: '',\n      audiences: [],\n      publicNote: '',\n      privateDetails: '',\n      cutoffHours: '',\n      dates: [{ date: '', roles: [blankRole()] }],\n    };\n    f.organization = orgsFor(f)[0] || '';\n    var c = categoryById(cat);\n    if (c && c.audiences) f.audiences = c.audiences.slice();\n    return f;\n  }\n\n  /** Server post → form model (slots grouped by date). */\n  function toForm(post) {\n    var dates = [];\n    var at = {};\n    post.slots.forEach(function (s) {\n      if (!(s.date in at)) {\n        at[s.date] = dates.length;\n        dates.push({ date: s.date, roles: [] });\n      }\n      dates[at[s.date]].roles.push({\n        slotId: s.slotId,\n        start: s.start || '',\n        end: s.end || '',\n        role: s.role,\n        needed: s.needed,\n        roleNote: s.roleNote || '',\n        bringingPrompt: s.bringingPrompt || '',\n        filled: s.filled || 0,\n      });\n    });\n    return {\n      postId: post.postId,\n      status: post.status,\n      origCategory: post.category || '',\n      origOrganization: post.organization,\n      organization: post.organization,\n      category: post.category || '',\n      title: post.title,\n      audiences: post.audiences.slice(),\n      publicNote: post.publicNote || '',\n      privateDetails: post.privateDetails || '',\n      cutoffHours: post.cutoffHours === '' || post.cutoffHours === null || post.cutoffHours === undefined ? '' : String(post.cutoffHours),\n      dates: dates.length ? dates : [{ date: '', roles: [blankRole()] }],\n    };\n  }\n\n  /** Form model → [slots], plus where each slot index sits ([dateIndex, roleIndex]). */\n  function flatten(form) {\n    var slots = [];\n    var where = [];\n    form.dates.forEach(function (d, di) {\n      d.roles.forEach(function (r, ri) {\n        slots.push({\n          slotId: r.slotId,\n          date: d.date,\n          start: r.start,\n          end: r.end,\n          role: r.role,\n          needed: r.needed,\n          roleNote: r.roleNote,\n          bringingPrompt: r.bringingPrompt,\n        });\n        where.push([di, ri]);\n      });\n    });\n    return { slots: slots, where: where };\n  }\n\n  function slotErrorKey(form, di, ri, field) {\n    var map = flatten(form).where;\n    for (var i = 0; i < map.length; i++) if (map[i][0] === di && map[i][1] === ri) return 'slots[' + i + '].' + field;\n    return '';\n  }\n\n  function err(key) {\n    var msg = state.errors[key];\n    return msg ? el('p', { class: 'gp-error', role: 'alert' }, msg) : null;\n  }\n\n  function field(label, input, key) {\n    return el('div', {}, [el('label', { for: input.id }, label), input, err(key)]);\n  }\n\n  var uid = 0;\n  function nextId(prefix) {\n    uid += 1;\n    return prefix + uid;\n  }\n\n  // ---------- request a link ----------\n\n  function showRequest(error) {\n    var email = el('input', { type: 'email', id: 'gp-req-email', autocomplete: 'email', maxlength: '254' });\n    var out = el('div');\n    var button = el('button', { type: 'submit' }, 'Email me a leader link');\n    var form = el(\n      'form',\n      {\n        onsubmit: function (e) {\n          e.preventDefault();\n          button.disabled = true;\n          GP.call('requestLeaderLink', { email: email.value }).then(\n            function (res) {\n              button.disabled = false;\n              GP.show(out, GP.message(res && res.ok ? 'ok' : 'alert', res && res.ok ? res.message : GP.errorText(res)));\n            },\n            function () {\n              button.disabled = false;\n              GP.show(out, GP.unreachable('leader'));\n            }\n          );\n        },\n      },\n      [el('label', { for: 'gp-req-email' }, 'Your email, as it is on the ward leader list'), email, el('p', {}, [button])]\n    );\n    GP.show(main, [\n      error ? GP.message('alert', error) : null,\n      el('p', {}, 'Leaders open this page with a personal link sent by email. Type your email and we will send you one.'),\n      form,\n      out,\n    ]);\n  }\n\n  // ---------- the signed-in page ----------\n\n  function tab(name, label, before) {\n    return el('button', {\n      type: 'button',\n      role: 'tab',\n      'aria-selected': String(state.tab === name),\n      onclick: function () {\n        if (before) before();\n        state.tab = name;\n        render();\n      },\n    }, label);\n  }\n\n  function render() {\n    var a = me.access;\n    var tabs = el('div', { class: 'gp-tabs', role: 'tablist' }, [\n      tab('list', 'My opportunities'),\n      a.canApprove ? tab('waiting', 'Waiting for approval') : null,\n      a.isCouncil ? tab('needs', 'Needs help soon') : null,\n      tab('form', state.form && state.form.postId ? 'Edit opportunity' : 'New opportunity', function () {\n        if (!state.form) state.form = newForm();\n        state.errors = {};\n        state.formError = '';\n      }),\n      a.isBishopric ? tab('volunteers', 'Volunteers') : null,\n    ]);\n    var signOut = el('button', {\n      type: 'button',\n      class: 'gp-light',\n      onclick: function () {\n        if (!window.confirm('Sign out everywhere? Your current link stops working and we email you a new one.')) return;\n        call('signOutEverywhere').then(function (res) {\n          GP.show(main, GP.message(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res)));\n        }, failed);\n      },\n    }, 'Sign out everywhere');\n    var who = el('div', { class: 'gp-card' }, [\n      el('p', { style: 'margin:0' }, 'Signed in as ' + me.leader.name + (me.leader.organization ? ', ' + me.leader.organization : '')),\n      signOut,\n    ]);\n    var body = el('div');\n    var note = state.flash ? GP.message(state.flash.kind, state.flash.text) : null;\n    state.flash = null;\n    GP.show(main, [who, tabs, note, body]);\n    if (state.tab === 'waiting') renderWaiting(body);\n    else if (state.tab === 'needs') renderNeeds(body);\n    else if (state.tab === 'volunteers') renderVolunteers(body);\n    else if (state.tab === 'form') renderForm(body);\n    else renderList(body);\n  }\n\n  /** Runs a leader action, then shows its answer above the current tab. */\n  function act(action, data, box, btn) {\n    if (btn) btn.disabled = true;\n    call(action, data).then(function (res) {\n      flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));\n      render();\n    }, function (e) {\n      if (btn) btn.disabled = false;\n      failed(e, box);\n    });\n  }\n\n  // ---------- Waiting for approval ----------\n\n  function renderWaiting(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('waiting').then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [\n        el('p', { class: 'gp-meta' }, 'People who confirmed their email and wait for a leader. Check the ward directory, then approve or decline. Approval counts for the whole ward; you and the time are recorded.'),\n      ];\n      if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'Nobody is waiting for you.'));\n      res.volunteers.forEach(function (v) {\n        var out = el('div');\n        var approve = el('button', { type: 'button', onclick: function () { act('decide', { email: v.email, decision: 'approve' }, out, approve); } }, 'Approve');\n        var decline = el('button', {\n          type: 'button',\n          class: 'gp-danger',\n          onclick: function () {\n            if (!window.confirm('Decline ' + v.name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;\n            act('decide', { email: v.email, decision: 'decline' }, out, decline);\n          },\n        }, 'Decline');\n        parts.push(el('div', { class: 'gp-card' }, [\n          el('h3', {}, v.name),\n          el('p', { class: 'gp-meta' }, v.email + ' · first signed up for ' + (v.firstPost || 'an opportunity') + (v.firstPostOrganization ? ' (' + v.firstPostOrganization + ')' : '')),\n          v.signups.length\n            ? el('div', {}, v.signups.map(function (s) {\n                return el('div', { class: 'gp-person' }, (s.childName ? s.childName + ': ' : '') + s.title + ' · ' + GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTime(s.start) : '') + ' · ' + s.role);\n              }))\n            : el('p', { class: 'gp-muted' }, 'No sign-ups waiting right now.'),\n          el('p', {}, [approve, decline]),\n          out,\n        ]));\n      });\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  // ---------- Needs help soon ----------\n\n  function renderNeeds(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('needsHelp').then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [el('p', { class: 'gp-meta' }, 'Open roles still short in the next 14 days, soonest first.')];\n      if (!res.rows.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing is short in the next 14 days.'));\n      res.rows.forEach(function (r) {\n        parts.push(el('div', { class: 'gp-slot' }, [\n          el('strong', {}, GP.fmtDate(r.date) + (r.start ? ', ' + GP.fmtTimes(r.start, r.end) : '') + ' · ' + r.role),\n          el('span', { class: 'gp-count' }, ' ' + r.filled + ' of ' + r.needed + ' filled'),\n          el('div', { class: 'gp-meta' }, [r.organization + ' · ', el('a', { href: r.publicUrl, target: '_blank', rel: 'noopener' }, r.title)]),\n        ]));\n      });\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  // ---------- Volunteers (bishopric) ----------\n\n  function renderVolunteers(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('volunteers').then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [el('p', { class: 'gp-meta' }, 'Everyone who has signed up. Undo a decline to let someone sign up again; revoke an approval when someone should no longer serve (their current sign-ups stay until you remove them).')];\n      if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'No volunteers yet.'));\n      res.volunteers.forEach(function (v) {\n        var out = el('div');\n        var bits = [\n          el('strong', {}, v.name),\n          el('span', { class: 'gp-meta' }, ' ' + v.email),\n          el('div', { class: 'gp-meta' }, v.status + (v.status === 'Pending' && !v.emailConfirmed ? ' (has not clicked the email yet)' : '') + (v.decidedBy ? ' · ' + v.decidedBy + ', ' + v.decidedAt : '') + (v.firstPost ? ' · first: ' + v.firstPost : '')),\n        ];\n        if (v.status === 'Declined' || v.status === 'Revoked') {\n          var undo = el('button', { type: 'button', class: 'gp-light', onclick: function () { act('bishopric', { email: v.email, decision: 'undo' }, out, undo); } }, 'Undo ' + (v.status === 'Declined' ? 'decline' : 'revoke'));\n          bits.push(undo);\n        }\n        if (v.status === 'Approved') {\n          var revoke = el('button', {\n            type: 'button',\n            class: 'gp-danger',\n            onclick: function () {\n              if (!window.confirm('Revoke ' + v.name + '? They can no longer sign up. Their current sign-ups stay until you remove them.')) return;\n              act('bishopric', { email: v.email, decision: 'revoke' }, out, revoke);\n            },\n          }, 'Revoke');\n          bits.push(revoke);\n        }\n        bits.push(out);\n        parts.push(el('div', { class: 'gp-person' }, bits));\n      });\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  // ---------- My opportunities ----------\n\n  function renderList(body) {\n    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));\n    call('listPosts', { past: state.past }).then(function (res) {\n      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));\n      var parts = [];\n      if (!res.posts.length) {\n        parts.push(el('p', { class: 'gp-muted' }, state.past ? 'No past opportunities.' : 'No opportunities yet. Use New opportunity to make one.'));\n      }\n      res.posts.forEach(function (p) {\n        parts.push(postCard(p));\n      });\n      parts.push(\n        el('p', {}, [\n          el('button', { type: 'button', class: 'gp-light', onclick: function () { state.past = !state.past; render(); } }, state.past ? 'Show current opportunities' : 'Show past opportunities'),\n        ])\n      );\n      GP.show(body, parts);\n    }, function (e) { failed(e, body); });\n  }\n\n  /** The inline \"are you sure\" panel for cancelling a post (date blank) or one date. */\n  function cancelPanel(p, date, box) {\n    var note = el('textarea', { id: nextId('gp-cancel-note-'), maxlength: '300', placeholder: 'Optional note for the email (up to 300 characters)' });\n    var msg = el('div');\n    var question = date\n      ? 'Cancel ' + GP.fmtDate(date) + '? Everyone signed up for that date gets an email, and no reminders go out for it.'\n      : 'Cancel this opportunity? Everyone signed up gets an email, and no reminders go out.';\n    var yes = el('button', {\n      type: 'button',\n      class: 'gp-danger',\n      onclick: function () {\n        yes.disabled = true;\n        call(date ? 'cancelDate' : 'cancelPost', { postId: p.postId, date: date || '', note: note.value }).then(function (res) {\n          if (!res.ok) {\n            yes.disabled = false;\n            return GP.show(msg, GP.message('alert', GP.errorText(res)));\n          }\n          flash('ok', res.message);\n          render();\n        }, function (e) {\n          yes.disabled = false;\n          failed(e, msg);\n        });\n      },\n    }, date ? 'Yes, cancel this date' : 'Yes, cancel it');\n    var no = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.clear(box); } }, 'Keep it');\n    GP.show(box, el('div', { class: 'gp-alert' }, [\n      el('p', { style: 'margin-top:0' }, question),\n      el('label', { for: note.id }, 'Note (optional)'),\n      note,\n      el('p', {}, [yes, no]),\n      msg,\n    ]));\n  }\n\n  function postCard(p) {\n    var bySlot = {};\n    p.signups.forEach(function (s) {\n      (bySlot[s.slotId] = bySlot[s.slotId] || []).push(s);\n    });\n    var live = p.status !== 'Past' && p.status !== 'Cancelled';\n    var out = el('div');\n    var items = [\n      el('h3', {}, p.title),\n      el('p', { class: 'gp-meta' }, p.status + ' · ' + p.organization + (p.audiences.length ? ' · ' + p.audiences.join(', ') : '')),\n    ];\n    if (p.status === 'Open') {\n      var copyBtn = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');\n      items.push(el('p', { class: 'gp-meta' }, ['Public link: ', el('a', { href: p.publicUrl, target: '_blank', rel: 'noopener' }, p.publicUrl), ' ', copyBtn]));\n    }\n    if (p.status === 'Closed' || p.status === 'Draft') {\n      items.push(el('p', { class: 'gp-meta' }, 'No one new can sign up. People already signed up keep their place and still get their reminder.'));\n    }\n    var dates = {};\n    p.slots.forEach(function (s) {\n      dates[s.date] = true;\n    });\n    var multiDate = Object.keys(dates).length > 1;\n    var bookedDates = {};\n    p.signups.forEach(function (su) {\n      p.slots.forEach(function (x) {\n        if (x.slotId === su.slotId) bookedDates[x.date] = true;\n      });\n    });\n    var cancelShown = {};\n    p.slots.forEach(function (s) {\n      var people = (bySlot[s.slotId] || []).map(function (su) {\n        return personRow(p, s, su, out);\n      });\n      var dateBits = [];\n      // One \"Cancel this date\" per date with people signed up, when the post has other dates.\n      if (p.canEdit && live && multiDate && bookedDates[s.date] && !cancelShown[s.date]) {\n        cancelShown[s.date] = true;\n        var dateBox = el('div');\n        dateBits.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, s.date, dateBox); } }, 'Cancel this date'));\n        dateBits.push(dateBox);\n      }\n      items.push(\n        el('div', { class: 'gp-slot' }, [\n          el('strong', {}, GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '') + ' · ' + s.role),\n          el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.waiting ? ' · ' + s.waiting + ' waiting' : '') + (s.filled >= s.needed ? ' · Filled ✓' : '')),\n        ].concat(people.length ? people : [el('div', { class: 'gp-person gp-muted' }, 'No one yet.')]).concat(dateBits))\n      );\n    });\n    if (p.canEdit && live) {\n      var cancelBox = el('div');\n      var actions = [\n        el('button', { type: 'button', onclick: function () { openForEdit(p.postId, false, out); } }, 'Edit'),\n        el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post'),\n      ];\n      if (p.status === 'Open' || p.status === 'Draft') {\n        actions.push(\n          el('button', {\n            type: 'button',\n            class: 'gp-light',\n            onclick: function () {\n              var q = 'Close \"' + p.title + '\"? No one new can sign up. People already signed up keep their place and still get their reminder. (If it is not happening at all, use Cancel this opportunity.)';\n              if (!window.confirm(q)) return;\n              call('savePost', { mode: 'close', post: { postId: p.postId } }).then(function (res) {\n                flash(res.ok ? 'ok' : 'alert', res.ok ? 'Closed.' : GP.errorText(res));\n                render();\n              }, function (e) { failed(e, out); });\n            },\n          }, 'Close')\n        );\n      }\n      actions.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, '', cancelBox); } }, 'Cancel this opportunity'));\n      items.push(el('p', {}, actions));\n      items.push(cancelBox);\n    } else if (p.canEdit && p.status === 'Past') {\n      items.push(el('p', {}, [el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post')]));\n    }\n    items.push(out);\n    return el('div', { class: 'gp-card' }, items);\n  }\n\n  function personRow(p, s, su, out) {\n    var bits = [el('span', {}, su.label || su.name)];\n    if (STATUS_LABEL[su.status]) bits.push(el('span', { class: 'gp-tag' }, STATUS_LABEL[su.status]));\n    if (su.overLimit) bits.push(el('span', { class: 'gp-tag' }, 'Over the number'));\n    if (su.bringing) bits.push(el('span', { class: 'gp-meta' }, 'Bringing: ' + su.bringing));\n    if (su.email) bits.push(el('span', { class: 'gp-meta' }, su.email));\n    if (p.canEdit && p.status !== 'Past' && p.status !== 'Cancelled') {\n      bits.push(\n        el('button', {\n          type: 'button',\n          class: 'gp-danger',\n          onclick: function () {\n            if (!window.confirm('Remove ' + su.name + ' from ' + s.role + ' on ' + GP.fmtDate(s.date) + '? We will email them.')) return;\n            call('removeSignup', { signupId: su.signupId }).then(function (res) {\n              flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));\n              render();\n            }, function (e) { failed(e, out); });\n          },\n        }, 'Remove')\n      );\n    }\n    return el('div', { class: 'gp-person' }, bits);\n  }\n\n  function openForEdit(postId, asCopy, out) {\n    call('getPost', { postId: postId }).then(function (res) {\n      if (!res.ok) return GP.show(out, GP.message('alert', GP.errorText(res)));\n      var f = toForm(res.post);\n      if (asCopy) {\n        f.postId = '';\n        f.status = '';\n        f.title = ('Copy of ' + f.title).slice(0, 100);\n        f.dates.forEach(function (d) {\n          d.roles = d.roles.map(copyRole);\n        });\n        // A copy goes in a category this leader may create in (or none, with an organization of their own).\n        if (!categoryById(f.category)) f.category = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';\n        if (orgsFor(f).indexOf(f.organization) < 0) f.organization = orgsFor(f)[0] || '';\n      }\n      state.form = f;\n      state.errors = {};\n      state.formError = '';\n      state.tab = 'form';\n      render();\n    }, function (e) { failed(e, out); });\n  }\n\n  // ---------- New / edit opportunity ----------\n\n  function bindText(input, obj, key) {\n    input.addEventListener('input', function () {\n      obj[key] = input.value;\n    });\n    return input;\n  }\n\n  function renderForm(body) {\n    var f = state.form || (state.form = newForm());\n    var orgs = orgsFor(f);\n    if (!orgs.length) {\n      return GP.show(body, GP.message('alert', \"Your leader role can't create opportunities yet. Ask the bishopric to tick Org editor for you on the Leaders tab, or to add your email to a category's Coordinators.\"));\n    }\n    if (orgs.indexOf(f.organization) < 0) f.organization = orgs[0];\n\n    var org = el('select', { id: 'gp-org', onchange: function () { f.organization = org.value; } }, orgs.map(function (o) {\n      return el('option', { value: o, selected: o === f.organization ? 'selected' : null }, o);\n    }));\n    org.value = f.organization;\n    // Leaders with an organization of their own may leave the category blank; coordinators pick one of theirs.\n    var catChoices = (me.access.baseCreateOrgs.length ? [el('option', { value: '' }, '(none)')] : []).concat(\n      me.categories.map(function (c) {\n        return el('option', { value: c.id }, (c.icon ? c.icon + ' ' : '') + c.name);\n      })\n    );\n    if (f.category && !categoryById(f.category)) catChoices.push(el('option', { value: f.category }, f.category));\n    var cat = el('select', {\n      id: 'gp-cat',\n      onchange: function () {\n        f.category = cat.value;\n        var c = categoryById(f.category);\n        if (c && c.audiences && c.audiences.length && !f.audiences.length) f.audiences = c.audiences.slice();\n        render();\n      },\n    }, catChoices);\n    cat.value = f.category;\n    var childNote = el('p', { class: 'gp-meta' + (f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0 ? '' : ' gp-hidden') },\n      'Who is serving: the sign-up form asks \"Me / My child\" and takes a child\\'s first name. Every email goes to the parent; you see \"Ana (signed up by …)\".');\n    var title = bindText(el('input', { type: 'text', id: 'gp-title-in', maxlength: '100', value: f.title }), f, 'title');\n    var audiences = el('div', { role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {\n      var box = el('input', {\n        type: 'checkbox',\n        checked: f.audiences.indexOf(a) >= 0,\n        onchange: function () {\n          f.audiences = GP.AUDIENCES.filter(function (x) {\n            return x === a ? box.checked : f.audiences.indexOf(x) >= 0;\n          });\n          var young = f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0;\n          childNote.className = 'gp-meta' + (young ? '' : ' gp-hidden');\n        },\n      });\n      return el('label', { class: 'gp-check' }, [box, a]);\n    }));\n    var note = bindText(el('textarea', { id: 'gp-note', maxlength: '2000' }), f, 'publicNote');\n    note.value = f.publicNote;\n    var priv = bindText(el('textarea', { id: 'gp-priv', maxlength: '1000' }), f, 'privateDetails');\n    priv.value = f.privateDetails;\n    var cutoff = bindText(el('input', { type: 'number', id: 'gp-cutoff', min: '0', max: '168', step: '1', value: f.cutoffHours, placeholder: String(me.defaults.cutoffHours) }), f, 'cutoffHours');\n\n    var parts = [\n      el('h2', {}, f.postId ? 'Edit opportunity' : 'New opportunity'),\n      state.formError ? GP.message('alert', state.formError) : null,\n      field('Category', cat, 'category'),\n      field('Organization', org, 'organization'),\n      field('Title (everyone sees this)', title, 'title'),\n      el('div', {}, [el('label', {}, 'Who is it for?'), audiences, err('audiences'), childNote]),\n      field('Public note (everyone sees this)', note, 'publicNote'),\n      field('Private details: an address, a gate code (sent only to approved volunteers who are signed up: in their confirmation email, their reminder and My sign-ups, until the date is over)', priv, 'privateDetails'),\n      field('Cancel cutoff in hours (after this, a cancellation tells you that you are short)', cutoff, 'cutoffHours'),\n      el('h2', {}, 'Dates and roles'),\n      err('slots'),\n    ];\n    f.dates.forEach(function (d, di) {\n      parts.push(dateBlock(f, d, di));\n    });\n    parts.push(\n      el('p', {}, [\n        el('button', { type: 'button', class: 'gp-light', onclick: function () {\n          var last = f.dates[f.dates.length - 1];\n          f.dates.push({ date: '', roles: last ? last.roles.map(copyRole) : [blankRole()] });\n          render();\n        } }, 'Add date'),\n      ])\n    );\n    parts.push(addDatesPanel(f));\n    var actions = [];\n    if (f.status === 'Open') {\n      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Save changes'));\n      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft (hide it)'));\n      parts.push(el('p', { class: 'gp-meta' }, 'Save as draft hides it from the public page. People already signed up keep their place and still get their reminder.'));\n    } else if (f.status === 'Closed') {\n      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Reopen and save'));\n      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));\n    } else {\n      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));\n      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Publish'));\n    }\n    actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () {\n      if (!window.confirm('Leave this form? Changes you have not saved are lost.')) return;\n      state.form = null;\n      state.errors = {};\n      state.formError = '';\n      state.tab = 'list';\n      render();\n    } }, 'Cancel'));\n    parts.push(el('p', {}, actions));\n    GP.show(body, parts);\n  }\n\n  function dateBlock(f, d, di) {\n    var date = el('input', { type: 'date', id: nextId('gp-date-'), value: d.date });\n    date.addEventListener('input', function () {\n      d.date = date.value;\n    });\n    var roles = d.roles.map(function (r, ri) {\n      return roleBlock(f, d, di, r, ri);\n    });\n    return el('div', { class: 'gp-date' }, [\n      el('div', {}, [el('label', { for: date.id }, 'Date'), date, err(slotErrorKey(f, di, 0, 'date'))]),\n    ].concat(roles).concat([\n      el('p', {}, [\n        el('button', { type: 'button', class: 'gp-light', onclick: function () { d.roles.push(blankRole()); render(); } }, 'Add role'),\n        el('button', { type: 'button', class: 'gp-light', onclick: function () {\n          f.dates.splice(di + 1, 0, { date: '', roles: d.roles.map(copyRole) });\n          render();\n        } }, 'Copy this date'),\n        f.dates.length > 1\n          ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { f.dates.splice(di, 1); render(); } }, 'Remove date')\n          : null,\n      ]),\n    ]));\n  }\n\n  function roleBlock(f, d, di, r, ri) {\n    function input(type, key, attrs) {\n      var a = { type: type, id: nextId('gp-r-'), value: r[key] === undefined ? '' : String(r[key]) };\n      Object.keys(attrs || {}).forEach(function (k) {\n        a[k] = attrs[k];\n      });\n      return bindText(el('input', a), r, key);\n    }\n    var role = input('text', 'role', { maxlength: '60', placeholder: 'e.g. Bring a meal' });\n    var needed = input('number', 'needed', { min: '1', max: '200', step: '1' });\n    var start = input('time', 'start');\n    var end = input('time', 'end');\n    var roleNote = input('text', 'roleNote', { maxlength: '300' });\n    var prompt = input('text', 'bringingPrompt', { maxlength: '100', placeholder: 'e.g. What are you bringing?' });\n    var key = function (fieldName) {\n      return slotErrorKey(f, di, ri, fieldName);\n    };\n    return el('div', { class: 'gp-role' }, [\n      el('div', { class: 'gp-row' }, [field('Role', role, key('role')), field('How many people', needed, key('needed'))]),\n      el('div', { class: 'gp-row' }, [field('Start (optional)', start, key('start')), field('End (optional)', end, key('end'))]),\n      field('Note for this role (optional)', roleNote, key('roleNote')),\n      field('Ask volunteers (optional)', prompt, key('bringingPrompt')),\n      r.filled ? el('p', { class: 'gp-meta' }, r.filled + ' signed up') : null,\n      d.roles.length > 1\n        ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { d.roles.splice(ri, 1); render(); } }, 'Remove role')\n        : null,\n    ]);\n  }\n\n  function addDatesPanel(f) {\n    var start = el('input', { type: 'date', id: 'gp-many-start' });\n    var end = el('input', { type: 'date', id: 'gp-many-end' });\n    var boxes = WEEKDAYS.map(function (w, i) {\n      return el('input', { type: 'checkbox', value: String(i) });\n    });\n    var msg = el('div');\n    return el('details', { class: 'gp-card' }, [\n      el('summary', {}, 'Add dates (for meal trains and other repeating needs)'),\n      el('div', { class: 'gp-row' }, [field('From', start, ''), field('To', end, '')]),\n      el('p', { class: 'gp-meta' }, 'On these days (none ticked means every day):'),\n      el('div', { class: 'gp-row' }, boxes.map(function (b, i) {\n        return el('label', { class: 'gp-check' }, [b, WEEKDAYS[i]]);\n      })),\n      el('p', {}, [\n        el('button', { type: 'button', class: 'gp-light', onclick: function () {\n          var days = boxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); });\n          var list = GP.expandDates(start.value, end.value, days);\n          if (!list.length) return GP.show(msg, GP.message('alert', 'Pick a start and an end date (the end on or after the start).'));\n          var template = f.dates[f.dates.length - 1];\n          var roles = template ? template.roles : [blankRole()];\n          // Fill the first empty date block before adding new ones.\n          if (f.dates.length === 1 && !f.dates[0].date) f.dates = [];\n          list.forEach(function (day) {\n            f.dates.push({ date: day, roles: roles.map(copyRole) });\n          });\n          render();\n        } }, 'Add these dates'),\n      ]),\n      msg,\n    ]);\n  }\n\n  function save(action) {\n    var f = state.form;\n    var post = {\n      postId: f.postId,\n      organization: f.organization,\n      category: f.category,\n      title: f.title,\n      audiences: f.audiences,\n      publicNote: f.publicNote,\n      privateDetails: f.privateDetails,\n      cutoffHours: f.cutoffHours,\n      slots: flatten(f).slots,\n    };\n    call('savePost', { mode: action, post: post }).then(function (res) {\n      if (!res.ok) {\n        state.errors = res.fields || {};\n        state.formError = GP.errorText(res);\n        render();\n        window.scrollTo(0, 0);\n        return;\n      }\n      state.form = null;\n      state.errors = {};\n      state.formError = '';\n      state.tab = 'list';\n      flash('ok', action === 'publish' ? 'Published. Share this link: ' + res.publicUrl : 'Saved as a draft. Nobody else sees it until you publish it.');\n      render();\n      window.scrollTo(0, 0);\n    }, function (e) {\n      if (e && e.handled) return;\n      state.formError = \"Can't reach the portal right now. What you typed is still here; try Save again in a minute.\";\n      render();\n      window.scrollTo(0, 0);\n    });\n  }\n\n  // ---------- start ----------\n\n  GP.hash().then(function (h) {\n    K = h.k || '';\n    if (!K) return showRequest('');\n    call('whoami').then(function (res) {\n      if (!res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));\n      me = res;\n      render();\n    }, failed);\n  });\n})();\n</script>\n</body>\n</html>\n",
+ "me": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<base target=\"_top\">\n<title>{{PAGE_TITLE}} · {{WARD_NAME}}</title>\n<meta property=\"og:title\" content=\"{{WARD_NAME}} · {{PAGE_TITLE}}\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:image\" content=\"{{PREVIEW_IMAGE}}\">\n<style>\n:root {\n  /* Recolour here: every colour on the pages comes from these. */\n  --gp-ink: #2c3a4a;\n  --gp-heading: #1d3557;\n  --gp-accent: #c9b882;\n  --gp-muted: #6b7a8d;\n  --gp-link: #4a6fa5;\n  --gp-page: #eef2f7;\n  --gp-card: #ffffff;\n  --gp-line: #dde3ed;\n  --gp-soft: #f4f7fc;\n  --gp-good: #2f7d4f;\n  --gp-warn: #a4472b;\n  --gp-bar: #4a6fa5;\n  --gp-font: Georgia, 'Times New Roman', serif;\n}\n\n* { box-sizing: border-box; }\n\nhtml { -webkit-text-size-adjust: 100%; }\n\nbody {\n  margin: 0;\n  font-family: var(--gp-font);\n  color: var(--gp-ink);\n  background: var(--gp-page);\n  line-height: 1.5;\n  min-height: 100vh;\n}\n\n.gp-wrap {\n  max-width: 560px;\n  margin: 0 auto;\n  padding: 1.5rem 1rem 3rem;\n}\n\n.gp-wrap.gp-wide { max-width: 760px; }\n\n.gp-head { text-align: center; margin-bottom: 1.25rem; }\n.gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }\nh1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }\nh2 {\n  font-size: 1.05rem;\n  color: var(--gp-heading);\n  margin: 1.5rem 0 0.6rem;\n  padding-bottom: 0.3rem;\n  border-bottom: 2px solid var(--gp-accent);\n}\nh3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }\n\na { color: var(--gp-link); overflow-wrap: anywhere; }\n\n.gp-card {\n  background: var(--gp-card);\n  border: 1px solid var(--gp-line);\n  border-radius: 14px;\n  box-shadow: 0 2px 10px rgba(29, 53, 87, 0.07);\n  padding: 0.9rem 1rem;\n  margin: 0 0 0.75rem;\n}\n\na.gp-card { display: block; text-decoration: none; color: inherit; }\na.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }\n\n.gp-meta { font-size: 0.85rem; color: var(--gp-muted); margin: 0.1rem 0; }\n.gp-note { white-space: pre-wrap; margin: 0.4rem 0; }\n\n.gp-bar {\n  height: 8px;\n  border-radius: 4px;\n  background: var(--gp-line);\n  overflow: hidden;\n  margin: 0.45rem 0 0.2rem;\n}\n.gp-bar > span { display: block; height: 100%; background: var(--gp-bar); }\n.gp-count { font-size: 0.85rem; color: var(--gp-muted); }\n.gp-filled { color: var(--gp-good); font-weight: bold; }\n.gp-full { opacity: 0.75; }\n\n.gp-btn, button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  min-height: 44px;\n  padding: 0.55rem 1rem;\n  border-radius: 10px;\n  border: 1px solid var(--gp-heading);\n  background: var(--gp-heading);\n  color: #ffffff;\n  font: inherit;\n  font-size: 0.95rem;\n  cursor: pointer;\n  text-decoration: none;\n  margin: 0.2rem 0.3rem 0.2rem 0;\n}\n.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }\n.gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }\nbutton:disabled { opacity: 0.55; cursor: default; }\n\nlabel { display: block; font-size: 0.9rem; margin: 0.7rem 0 0.2rem; color: var(--gp-heading); }\ninput[type='text'], input[type='email'], input[type='number'], input[type='date'], input[type='time'], select, textarea {\n  width: 100%;\n  min-height: 44px;\n  padding: 0.5rem 0.6rem;\n  border: 1px solid var(--gp-line);\n  border-radius: 8px;\n  font: inherit;\n  background: #ffffff;\n  color: var(--gp-ink);\n}\ntextarea { min-height: 88px; }\n.gp-check { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; font-size: 0.95rem; min-height: 44px; }\n.gp-check input { width: 22px; height: 22px; }\n.gp-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }\n.gp-row > * { flex: 1 1 140px; }\n\n.gp-error { color: var(--gp-warn); font-size: 0.88rem; margin: 0.25rem 0; }\n.gp-ok { background: #eef7f1; border: 1px solid #b9dcc6; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-alert { background: #fbf1ec; border: 1px solid #e7c2b3; border-radius: 10px; padding: 0.8rem 1rem; }\n.gp-muted { color: var(--gp-muted); }\n.gp-loading { color: var(--gp-muted); text-align: center; padding: 1.5rem 0; }\n.gp-hidden { display: none !important; }\n\n.gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }\n.gp-slot:first-child { border-top: none; }\n.gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }\n/* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */\n.gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }\n.gp-pair > .gp-section { min-width: 0; }\n.gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }\n.gp-cat-icon { margin-right: 0.35rem; text-transform: none; }\n@media (min-width: 720px) {\n  .gp-pair { grid-template-columns: 1fr 1fr; }\n}\n.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }\n\n.gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }\n.gp-tabs button { flex: 1 1 auto; }\n.gp-tabs button[aria-selected='false'] { background: var(--gp-card); color: var(--gp-heading); }\n\n.gp-date { background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 12px; padding: 0.7rem; margin: 0.7rem 0; }\n.gp-role { background: var(--gp-card); border: 1px solid var(--gp-line); border-radius: 10px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }\n\n.gp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }\n.gp-tile { text-align: center; padding: 1.1rem 0.6rem; min-height: 120px; }\n.gp-tile .gp-icon { font-size: 2.2rem; display: block; margin-bottom: 0.4rem; }\n\n.gp-footer {\n  max-width: 560px;\n  margin: 2rem auto 1rem;\n  padding: 0 1rem;\n  font-size: 0.78rem;\n  color: var(--gp-muted);\n  text-align: center;\n}\n.gp-footer p { margin: 0.3rem 0; }\n\n@media (max-width: 400px) {\n  .gp-wrap { padding: 1rem 0.75rem 2.5rem; }\n  h1 { font-size: 1.25rem; }\n}\n</style>\n</head>\n<body>\n<main class=\"gp-wrap\">\n  <header class=\"gp-head\">\n    <p class=\"gp-ward\">{{WARD_NAME}}</p>\n    <h1>{{PAGE_TITLE}}</h1>\n  </header>\n  <div id=\"gp-main\"><p class=\"gp-loading\">Loading…</p></div>\n</main>\n<footer class=\"gp-footer\" id=\"gp-footer\">\n  <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>\n  <p class=\"gp-contact\">Contact: <a href=\"mailto:{{CONTACT_EMAIL}}\">{{CONTACT_EMAIL}}</a></p>\n</footer>\n<script>\n/* Service Portal page code, shared by every page (inlined by build.mjs).\n   Hub pages talk to the web app with fetch; the fallback pages served by the script itself use\n   google.script.run. Data only ever reaches the page through textContent, never as HTML. */\nvar GP = (function () {\n  'use strict';\n  var cfg = { page: '', wardName: '', webAppUrl: '', contact: '', fallback: false };\n  var GET_ACTIONS = { serve: true, post: true, help: true };\n  var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];\n  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  var AUDIENCES = ['Brothers', 'Sisters', 'Youth', 'Children'];\n\n  function init(c) {\n    cfg = {\n      page: c.page || '',\n      wardName: c.wardName || '',\n      webAppUrl: c.webAppUrl || '',\n      contact: c.contact || '',\n      fallback: !!c.fallback,\n    };\n    return cfg;\n  }\n\n  function config() {\n    return cfg;\n  }\n\n  // ---------- talking to the script ----------\n\n  function call(action, data) {\n    data = data || {};\n    var req = { action: action };\n    Object.keys(data).forEach(function (k) {\n      req[k] = data[k];\n    });\n    if (cfg.fallback) {\n      return new Promise(function (resolve, reject) {\n        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).gpApi(req);\n      });\n    }\n    var opts;\n    var url = cfg.webAppUrl;\n    if (GET_ACTIONS[action]) {\n      url += '?api=' + encodeURIComponent(action) + (data.p ? '&p=' + encodeURIComponent(data.p) : '');\n      opts = { method: 'GET', redirect: 'follow' };\n    } else {\n      // A text/plain body keeps this a \"simple\" request: no preflight.\n      opts = { method: 'POST', body: JSON.stringify(req), redirect: 'follow' };\n    }\n    return fetch(url, opts).then(function (res) {\n      if (!res.ok) throw new Error('HTTP ' + res.status);\n      return res.json();\n    });\n  }\n\n  function parseHash(h) {\n    var out = {};\n    String(h || '')\n      .replace(/^#/, '')\n      .split('&')\n      .forEach(function (part) {\n        if (!part) return;\n        var i = part.indexOf('=');\n        var k = i < 0 ? part : part.slice(0, i);\n        var v = i < 0 ? '' : part.slice(i + 1);\n        try {\n          out[decodeURIComponent(k)] = decodeURIComponent(v);\n        } catch (e) {\n          out[k] = v;\n        }\n      });\n    return out;\n  }\n\n  function hash() {\n    if (cfg.fallback) {\n      return new Promise(function (resolve) {\n        google.script.url.getLocation(function (loc) {\n          resolve(parseHash(loc.hash));\n        });\n      });\n    }\n    return Promise.resolve(parseHash(window.location.hash));\n  }\n\n  function hashString(h) {\n    return Object.keys(h || {})\n      .map(function (k) {\n        return k + '=' + encodeURIComponent(h[k]);\n      })\n      .join('&');\n  }\n\n  /** Address of another portal page: hub file, or the web app's ?page= in the fallback. */\n  function pageUrl(page, h) {\n    var tail = hashString(h);\n    var base = cfg.fallback ? cfg.webAppUrl + '?page=' + page : page + '.html';\n    return base + (tail ? '#' + tail : '');\n  }\n\n  // ---------- DOM ----------\n\n  /** el('a', {href: x, class: 'y', onclick: fn}, ['text', node]) — text only via textContent. */\n  function el(tag, attrs, children) {\n    var node = document.createElement(tag);\n    Object.keys(attrs || {}).forEach(function (k) {\n      var v = attrs[k];\n      if (v === null || v === undefined || v === false) return;\n      if (k.slice(0, 2) === 'on' && typeof v === 'function') node.addEventListener(k.slice(2), v);\n      else if (k === 'class') node.className = v;\n      else if (k === 'text') node.textContent = v;\n      else if (k === 'value') node.value = v;\n      else if (k === 'checked') node.checked = !!v;\n      else if (k === 'href') node.setAttribute('href', safeHref(v));\n      else node.setAttribute(k, v === true ? '' : String(v));\n    });\n    (Array.isArray(children) ? children : children === undefined ? [] : [children]).forEach(function (c) {\n      if (c === null || c === undefined || c === false) return;\n      node.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);\n    });\n    return node;\n  }\n\n  function safeHref(v) {\n    var s = String(v);\n    return /^(https?:|mailto:|[a-z0-9-]+\\.html|#|\\?)/i.test(s) ? s : '#';\n  }\n\n  function $(id) {\n    return document.getElementById(id);\n  }\n\n  function clear(node) {\n    node.innerHTML = '';\n    return node;\n  }\n\n  function show(node, children) {\n    clear(node);\n    (Array.isArray(children) ? children : [children]).forEach(function (c) {\n      if (c) node.appendChild(c);\n    });\n  }\n\n  function message(kind, text) {\n    return el('div', { class: kind === 'ok' ? 'gp-ok' : 'gp-alert', role: kind === 'ok' ? 'status' : 'alert' }, text);\n  }\n\n  /** Turns the footer's contact into a mail link, or hides it when there is no contact. */\n  function footer() {\n    var f = $('gp-footer');\n    if (!f) return;\n    var c = f.querySelector('.gp-contact');\n    if (c && !cfg.contact) c.className += ' gp-hidden';\n  }\n\n  function unreachable(page) {\n    var url = cfg.webAppUrl + '?page=' + page + (window.location && window.location.hash ? window.location.hash : '');\n    return el('div', { class: 'gp-alert', role: 'alert' }, [\n      \"Can't load right now. Try this link instead: \",\n      el('a', { href: url }, url),\n    ]);\n  }\n\n  function errorText(res) {\n    return (res && res.error) || 'Something went wrong. Please try again.';\n  }\n\n  function copyText(text, button) {\n    function done() {\n      if (button) {\n        var old = button.textContent;\n        button.textContent = 'Copied';\n        setTimeout(function () {\n          button.textContent = old;\n        }, 1500);\n      }\n    }\n    if (navigator.clipboard && navigator.clipboard.writeText) {\n      navigator.clipboard.writeText(text).then(done, function () {\n        window.prompt('Copy this link:', text);\n      });\n    } else {\n      window.prompt('Copy this link:', text);\n    }\n  }\n\n  // ---------- pure helpers ----------\n\n  function isDate(s) {\n    if (typeof s !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return false;\n    var d = new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)));\n    return d.getUTCMonth() === +s.slice(5, 7) - 1 && d.getUTCDate() === +s.slice(8, 10);\n  }\n\n  function utc(s) {\n    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));\n  }\n\n  function iso(ms) {\n    var d = new Date(ms);\n    var m = d.getUTCMonth() + 1;\n    var day = d.getUTCDate();\n    return d.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;\n  }\n\n  /** Every date from start to end (inclusive) on the given weekdays (0 = Sunday; none = all). At most 100. */\n  function expandDates(start, end, weekdays) {\n    if (!isDate(start) || !isDate(end)) return [];\n    var days = weekdays && weekdays.length ? weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];\n    var out = [];\n    for (var t = utc(start); t <= utc(end) && out.length < 100; t += 86400000) {\n      if (days.indexOf(new Date(t).getUTCDay()) >= 0) out.push(iso(t));\n    }\n    return out;\n  }\n\n  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */\n  function groupByAudience(posts) {\n    var out = {};\n    AUDIENCES.forEach(function (a) {\n      out[a] = [];\n    });\n    (posts || []).forEach(function (p) {\n      (p.audiences || []).forEach(function (a) {\n        if (out[a]) out[a].push(p);\n      });\n    });\n    AUDIENCES.forEach(function (a) {\n      out[a] = out[a]\n        .filter(function (p) {\n          return !p.full;\n        })\n        .concat(\n          out[a].filter(function (p) {\n            return p.full;\n          })\n        );\n    });\n    return out;\n  }\n\n  /** 'Thu, Dec 3' */\n  function fmtDate(s) {\n    if (!isDate(s)) return String(s || '');\n    var d = new Date(utc(s));\n    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();\n  }\n\n  /** '6:30 PM' */\n  function fmtTime(t) {\n    if (!/^\\d{2}:\\d{2}$/.test(String(t || ''))) return '';\n    var h = +t.slice(0, 2);\n    return (h % 12 === 0 ? 12 : h % 12) + ':' + t.slice(3) + (h < 12 ? ' AM' : ' PM');\n  }\n\n  function fmtTimes(start, end) {\n    if (!start) return '';\n    return fmtTime(start) + (end ? '–' + fmtTime(end) : '');\n  }\n\n  function fillBar(filled, needed) {\n    var pct = needed ? Math.min(100, Math.round((filled / needed) * 100)) : 0;\n    return el('div', { class: 'gp-bar', role: 'img', 'aria-label': filled + ' of ' + needed + ' filled' }, [\n      el('span', { style: 'width:' + pct + '%' }),\n    ]);\n  }\n\n  return {\n    init: init,\n    config: config,\n    call: call,\n    hash: hash,\n    parseHash: parseHash,\n    pageUrl: pageUrl,\n    el: el,\n    $: $,\n    clear: clear,\n    show: show,\n    message: message,\n    footer: footer,\n    unreachable: unreachable,\n    errorText: errorText,\n    copyText: copyText,\n    expandDates: expandDates,\n    groupByAudience: groupByAudience,\n    fmtDate: fmtDate,\n    fmtTime: fmtTime,\n    fmtTimes: fmtTimes,\n    fillBar: fillBar,\n    isDate: isDate,\n    AUDIENCES: AUDIENCES,\n  };\n})();\n</script>\n<script>\nGP.init({ page: 'me', wardName: {{WARD_NAME}}, webAppUrl: {{WEB_APP_URL}}, contact: {{CONTACT_EMAIL}}, fallback: {{FALLBACK}} });\nGP.footer();\n(function () {\n  var el = GP.el;\n  var main = GP.$('gp-main');\n  var STATUS = { 'Waiting-email': 'Waiting: please click the link in your confirm email', 'Waiting-approval': 'Waiting for a leader to approve' };\n  var T = '';\n\n  /** No link (or an old one): ask for a new one by email. */\n  function showRequest(error) {\n    var email = el('input', { type: 'email', id: 'gp-me-email', autocomplete: 'email', maxlength: '254' });\n    var out = el('div');\n    var button = el('button', { type: 'submit' }, 'Email me my link');\n    var form = el(\n      'form',\n      {\n        onsubmit: function (e) {\n          e.preventDefault();\n          button.disabled = true;\n          GP.call('requestMeLink', { email: email.value }).then(\n            function (res) {\n              button.disabled = false;\n              GP.show(out, GP.message(res && res.ok ? 'ok' : 'alert', res && res.ok ? res.message : GP.errorText(res)));\n            },\n            function () {\n              button.disabled = false;\n              GP.show(out, GP.unreachable('me'));\n            }\n          );\n        },\n      },\n      [el('label', { for: 'gp-me-email' }, 'The email you signed up with'), email, el('p', {}, [button])]\n    );\n    GP.show(main, [\n      error ? GP.message('alert', error) : null,\n      el('p', {}, 'Your sign-ups open from a personal link in your confirmation email. Type your email and we will send you a new one.'),\n      form,\n      out,\n    ]);\n  }\n\n  function when(s) {\n    return GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '');\n  }\n\n  function card(s, upcoming) {\n    var out = el('div');\n    var bits = [\n      el('h3', {}, [el('a', { href: s.publicUrl }, s.title)]),\n      el('p', { class: 'gp-meta' }, when(s) + ' · ' + s.role + (s.childName ? ' · for ' + s.childName : '')),\n    ];\n    if (STATUS[s.status]) bits.push(el('p', {}, [el('span', { class: 'gp-tag' }, STATUS[s.status])]));\n    if (s.bringing) bits.push(el('p', { class: 'gp-meta' }, 'Bringing: ' + s.bringing));\n    if (s.privateDetails) bits.push(el('div', { class: 'gp-note' }, [el('strong', {}, 'Details (please keep them private): '), s.privateDetails]));\n    if (s.others && s.others.length) bits.push(el('p', { class: 'gp-meta' }, 'Also serving: ' + s.others.join(', ')));\n    if (upcoming && s.canResend) {\n      var resend = el('button', {\n        type: 'button',\n        class: 'gp-light',\n        onclick: function () {\n          resend.disabled = true;\n          GP.call('resendConfirm', { t: T, signupId: s.signupId }).then(\n            function (r) {\n              resend.disabled = false;\n              GP.show(out, GP.message(r && r.ok ? 'ok' : 'alert', r && r.ok ? r.message : GP.errorText(r)));\n            },\n            function () {\n              resend.disabled = false;\n              GP.show(out, GP.unreachable('me'));\n            }\n          );\n        },\n      }, 'Send the confirm email again');\n      bits.push(el('p', {}, [resend]));\n    }\n    if (upcoming && s.signupId) {\n      var button = el('button', {\n        type: 'button',\n        class: 'gp-danger',\n        onclick: function () {\n          if (!window.confirm('Cancel ' + s.role + ' on ' + GP.fmtDate(s.date) + '?')) return;\n          button.disabled = true;\n          GP.call('cancelMine', { t: T, signupId: s.signupId }).then(\n            function (r) {\n              if (r && r.ok) return load(r.message);\n              button.disabled = false;\n              GP.show(out, GP.message('alert', GP.errorText(r)));\n            },\n            function () {\n              button.disabled = false;\n              GP.show(out, GP.unreachable('me'));\n            }\n          );\n        },\n      }, 'Cancel');\n      bits.push(el('p', {}, [button]));\n    }\n    bits.push(out);\n    return el('div', { class: 'gp-card' }, bits);\n  }\n\n  function render(res, note) {\n    var parts = [];\n    if (note) parts.push(GP.message('ok', note));\n    parts.push(el('h2', {}, 'Coming up'));\n    if (!res.upcoming.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing coming up.'));\n    res.upcoming.forEach(function (s) {\n      parts.push(card(s, true));\n    });\n    if (res.otherWays.length) {\n      parts.push(el('h2', {}, 'Other ways to serve'));\n      res.otherWays.forEach(function (o) {\n        parts.push(el('a', { class: 'gp-card', href: o.url }, [\n          el('h3', {}, o.title),\n          GP.fillBar(o.filled, o.needed),\n          el('p', { class: 'gp-count' }, o.filled + ' of ' + o.needed + ' filled'),\n        ]));\n      });\n    }\n    if (res.past.length) {\n      parts.push(el('h2', {}, 'Past'));\n      res.past.forEach(function (s) {\n        parts.push(card(s, false));\n      });\n    }\n    GP.show(main, parts);\n  }\n\n  function load(note) {\n    GP.call('me', { t: T }).then(\n      function (res) {\n        if (!res || !res.ok) return showRequest(GP.errorText(res));\n        render(res, note);\n      },\n      function () {\n        GP.show(main, GP.unreachable('me'));\n      }\n    );\n  }\n\n  GP.hash().then(function (h) {\n    T = h.t || '';\n    if (!T) return showRequest('');\n    load('');\n  });\n})();\n</script>\n</body>\n</html>\n"
 };
 
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";

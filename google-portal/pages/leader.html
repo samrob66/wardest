@@ -75,11 +75,15 @@ GP.footer();
     return { slotId: '', start: r.start, end: r.end, role: r.role, needed: r.needed, roleNote: r.roleNote, bringingPrompt: r.bringingPrompt };
   }
 
-  /** Organizations this form may use: the leader's own, plus the chosen category's when they coordinate it. */
+  /**
+   * Organizations this form may use: with no category the leader's own; in a category, the ones
+   * its rule gives this leader (whoami catOrgs). An edit that keeps the category keeps the post's
+   * organization too.
+   */
   function orgsFor(f) {
-    var extra = (me.access.catOrgs && me.access.catOrgs[f.category]) || [];
-    var base = f.postId ? me.access.editOrgs.concat([f.organization]) : me.access.baseCreateOrgs;
-    return uniq(base.concat(extra));
+    var list = f.category ? (me.access.catOrgs && me.access.catOrgs[f.category]) || [] : me.access.baseCreateOrgs;
+    if (f.postId && f.category === f.origCategory && f.origOrganization) list = list.concat([f.origOrganization]);
+    return uniq(list);
   }
 
   function categoryById(id) {
@@ -131,6 +135,8 @@ GP.footer();
     return {
       postId: post.postId,
       status: post.status,
+      origCategory: post.category || '',
+      origOrganization: post.organization,
       organization: post.organization,
       category: post.category || '',
       title: post.title,
@@ -550,7 +556,8 @@ GP.footer();
         f.dates.forEach(function (d) {
           d.roles = d.roles.map(copyRole);
         });
-        if (!me.access.baseCreateOrgs.length && !categoryById(f.category)) f.category = me.categories[0] ? me.categories[0].id : '';
+        // A copy goes in a category this leader may create in (or none, with an organization of their own).
+        if (!categoryById(f.category)) f.category = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';
         if (orgsFor(f).indexOf(f.organization) < 0) f.organization = orgsFor(f)[0] || '';
       }
       state.form = f;

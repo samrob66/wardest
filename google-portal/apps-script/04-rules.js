@@ -360,15 +360,22 @@ function postsToMarkPast(posts, slotsByPost, todayLocal) {
 }
 
 /**
- * What a leader may do, from the Leaders tab's role boxes and the Categories tab:
- * Bishopric: every organization. Ward council: see every post's names; edit and create for
- * their own organization. Org editor: see, edit and create for their own organization only.
- * Coordinator: a leader whose email is in an opportunity category's Coordinators column sees and
- * edits that category's posts (any organization) and creates in it for the category's owning
- * organizations (their own organization when it has none). "Any ward council may create" lets
- * every Ward council leader create in that category the same way. The Coordinator box alone
- * gives nothing: a category must list them.
- * categories: Categories rows (optional).
+ * What a leader may do, from the Leaders tab's role boxes and the Categories tab.
+ * Base rights (no category): Bishopric: every organization. Ward council: see every post's
+ * names; edit and create for their own organization. Org editor: see, edit and create for their
+ * own organization only.
+ * Creating in an opportunity category (service spec section 3; catOrgs[id] = the organizations a
+ * new post in it may belong to):
+ *   - the bishopric always (any organization);
+ *   - its Coordinators (the category's owning organizations; any organization when it has none);
+ *   - a category WITH coordinators: only those, the bishopric, and Ward council leaders when
+ *     "Any ward council may create" is ticked;
+ *   - a category WITHOUT coordinators: leaders (Org editor / Ward council) of its owning
+ *     organizations, anyone with base rights when it has no owning organization, and Ward
+ *     council leaders when "Any ward council may create" is ticked.
+ * Coordinators also see and edit every post of their categories, of any organization. The
+ * Coordinator box alone gives nothing: a category must list them.
+ * categories: Categories rows (optional; without them only the base rights apply).
  */
 function leaderAccess(leader, organizations, categories) {
   var orgs = (organizations || []).slice();
@@ -381,16 +388,28 @@ function leaderAccess(leader, organizations, categories) {
   var me = normEmail(leader.Email);
   var coordinated = [];
   var catOrgs = {};
+  var catIds = [];
   (categories || []).forEach(function (c) {
     var id = str_(c.Id);
     if (!id || c.Kind !== CATEGORY_KIND.opportunity || isTicked(c.Archived)) return;
-    var listed = !!me && splitList(c.Coordinators).map(normEmail).indexOf(me) >= 0;
-    if (listed) coordinated.push(id);
-    if (!listed && !(wardCouncil && isTicked(c['Any ward council may create']))) return;
+    catIds.push(id);
+    var coords = splitList(c.Coordinators).filter(isEmail).map(normEmail);
     var owners = splitList(c['Owning organizations']).filter(function (o) {
       return orgs.indexOf(o) >= 0;
     });
-    catOrgs[id] = owners.length ? owners : ownList.slice();
+    var isCoord = !!me && coords.indexOf(me) >= 0;
+    var wcFlag = wardCouncil && isTicked(c['Any ward council may create']);
+    if (isCoord) coordinated.push(id);
+    var allowed;
+    if (bishopric) allowed = orgs.slice();
+    else if (isCoord) allowed = owners.length ? owners : orgs.slice();
+    else if (coords.length) allowed = wcFlag ? (owners.length ? owners : ownList.slice()) : [];
+    else if (owners.length) {
+      allowed = owners.filter(function (o) {
+        return edit.indexOf(o) >= 0 || wcFlag;
+      });
+    } else allowed = uniq_(edit.concat(wcFlag ? ownList : []));
+    if (allowed.length) catOrgs[id] = allowed;
   });
   var create = edit.slice();
   Object.keys(catOrgs).forEach(function (id) {
@@ -404,13 +423,15 @@ function leaderAccess(leader, organizations, categories) {
     baseCreateOrgs: edit.slice(),
     categories: coordinated,
     catOrgs: catOrgs,
+    catIds: catIds,
   };
 }
 
-/** Organizations a new post in this category may belong to, for this leader. */
+/** Organizations a new post may belong to: the base ones without a category, else the category's rule. */
 function allowedOrgsFor_(access, category) {
-  var extra = (access.catOrgs && access.catOrgs[str_(category)]) || [];
-  return uniq_((access.baseCreateOrgs || access.createOrgs || []).concat(extra));
+  var cat = str_(category);
+  if (!cat) return (access.baseCreateOrgs || access.createOrgs || []).slice();
+  return ((access.catOrgs && access.catOrgs[cat]) || []).slice();
 }
 
 function coordinates_(access, post) {
@@ -421,11 +442,19 @@ function canSeePost(access, post) {
   return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post));
 }
 
-/** The post's creator may always edit it; otherwise an organization they edit, or a category they coordinate. */
+/**
+ * Who may edit a post: its creator; the bishopric; its category's coordinators (any
+ * organization); otherwise whoever may create a post in its category for its organization (the
+ * base organization rights when it has no category, or a category the Categories tab no longer
+ * lists).
+ */
 function canEditPost(access, leaderEmail, post) {
   var me = normEmail(leaderEmail);
   if (me && normEmail(post['Created by']) === me) return true;
-  return access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post);
+  if (access.isBishopric || coordinates_(access, post)) return true;
+  var cat = str_(post.Category);
+  if (cat && (access.catIds || []).indexOf(cat) >= 0) return allowedOrgsFor_(access, cat).indexOf(post.Organization) >= 0;
+  return access.editOrgs.indexOf(post.Organization) >= 0;
 }
 
 /**

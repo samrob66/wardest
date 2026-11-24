@@ -43,6 +43,9 @@ function runJob_(name, e, fn) {
     return;
   }
   try {
+    // A sheet not yet set up for this version (the script pasted, Set up not run) is upgraded
+    // first, so no job works on missing columns.
+    ensureUpgraded_();
     fn();
     props_().setProperty('LAST_RAN_' + name, nowLocal_());
   } catch (err) {
@@ -54,6 +57,32 @@ function runJob_(name, e, fn) {
       log_('alert failed', name + ' | ' + e2);
     }
   }
+}
+
+/**
+ * Runs a job's parts one after another, each on its own: one failing doesn't stop the rest. While
+ * the sheet is not yet upgraded to this version (ensureUpgraded_ could not run), a part that meets
+ * a missing tab or column is skipped and logged; any other failure is thrown at the end, so
+ * runJob_ logs it and alerts once a day.
+ */
+function runParts_(job, parts) {
+  var errors = [];
+  var upgraded = props_().getProperty('SCHEMA_VERSION') === GP_VERSION;
+  parts.forEach(function (p) {
+    try {
+      p[1]();
+    } catch (err) {
+      if (err && err.gpBusy) {
+        errors.push(p[0] + ': ' + TEXT.busy);
+        return;
+      }
+      var msg = clip(err && err.message ? err.message : err, 300);
+      // Before the sheet could be upgraded, a missing column is expected: skip. After, it is a real problem.
+      if (!upgraded && /Missing column|is missing\. Run/.test(msg)) log_('job part skipped', job + ' / ' + p[0] + ' | ' + msg);
+      else errors.push(p[0] + ': ' + msg);
+    }
+  });
+  if (errors.length) throw new Error(errors.join(' ; '));
 }
 
 /** Writes every slot's Filled and Waiting from the Sign-ups tab (only cells that changed). */
@@ -149,7 +178,7 @@ function sendNudges_() {
     });
     var t = tplNudge_(s, post, n.date, here.length);
     uniq_(to).forEach(function (e) {
-      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+      sendAll_('job notice', [mailMsg_(e, t, 'high')]);
     });
     markSent_(SENT_NUDGE, n.key);
   });
@@ -176,7 +205,7 @@ function sendWarnings_() {
     if (!to.length) return;
     var t = tplWarning_(s, post, w.date, w.short, pageUrl_(s, 'post', { p: post['Public id'] }));
     to.forEach(function (e) {
-      sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
+      sendAll_('job notice', [mailMsg_(e, t, 'high')]);
     });
     markSent_(SENT_WARN, w.key);
   });
@@ -232,14 +261,13 @@ function sendReminders_() {
       var stamp = { 'Reminded at': now };
       if (details) stamp['Details sent at'] = now;
       signupsT.update(su, stamp);
-      return { su: su, slot: slotsById[su['Slot id']], post: post, details: details };
+      var slot = slotsById[su['Slot id']];
+      // The cancel link is made with the claim, so a stamped reminder always has its email.
+      var token = issueToken_('cancel', su['Sign-up id'], addDays(slot.Date, 1) + ' 23:59');
+      return mailMsg_(normEmail(su.Email), tplReminder_(s, post, slot, su, pageUrl_(s, 'confirm', { t: token }), details), 'high');
     });
   });
-  claimed.forEach(function (c) {
-    var token = issueToken_('cancel', c.su['Sign-up id'], addDays(c.slot.Date, 1) + ' 23:59');
-    var t = tplReminder_(s, c.post, c.slot, c.su, pageUrl_(s, 'confirm', { t: token }), c.details);
-    sendOrQueue_({ to: c.su.Email, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
-  });
+  sendAll_('reminder', claimed);
   return claimed.length;
 }
 
@@ -257,21 +285,25 @@ function markPastPosts_() {
 
 function gpTenMinute(e) {
   runJob_('gpTenMinute', e, function () {
-    drainOutbox_();
-    processLeaderLinkTicks_();
-    refreshAllFilled_();
-    writeNeedsHelpTab_();
+    runParts_('gpTenMinute', [
+      ['outbox', drainOutbox_],
+      ['leader links', processLeaderLinkTicks_],
+      ['counts', refreshAllFilled_],
+      ['needs help soon', writeNeedsHelpTab_],
+    ]);
   });
 }
 
 function gpHourly(e) {
   runJob_('gpHourly', e, function () {
-    lapseWaiting_();
-    sendReminders_();
-    sendNudges_();
-    sendWarnings_();
-    markPastPosts_();
-    clearServeCache_();
+    runParts_('gpHourly', [
+      ['lapses', lapseWaiting_],
+      ['reminders', sendReminders_],
+      ['nudges', sendNudges_],
+      ['warnings', sendWarnings_],
+      ['past posts', markPastPosts_],
+      ['serve cache', clearServeCache_],
+    ]);
   });
 }
 
@@ -312,6 +344,7 @@ function gpDaily(e) {
     });
     if (problems.length) alertOncePerDay_('gpDaily-report', problems);
     pruneSentKeys_(today);
+    pruneCounters_();
     // The health email: only the PROBLEM lines of Check health, and only when there is one.
     var bad = healthLines_({ job: true }).filter(function (l) {
       return l.indexOf('PROBLEM') === 0;

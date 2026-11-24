@@ -38,10 +38,11 @@ describe('apiMe_', () => {
       ['Meals for the Sample family', '2026-12-03', 'Bring a meal', 'Confirmed'],
       ['Last week service', '2026-12-10', 'Bring a meal', 'Confirmed'],
     ]);
-    expect(me.upcoming[0].others).toEqual(['Sister']);
+    // Titles are skipped: "Sister Other" shows as "Other".
+    expect(me.upcoming[0].others).toEqual(['Other']);
     expect(me.upcoming[0].privateDetails).toBe('123 Example Lane');
     const json = JSON.stringify(me);
-    for (const bad of ['@example.test', 'Brother New', 'Other']) expect(json).not.toContain(bad);
+    for (const bad of ['@example.test', 'Brother New', 'Brother Volunteer', 'cancelToken']) expect(json).not.toContain(bad);
     expect(me.otherWays.map((o) => o.title)).toEqual(['Clean the building']);
     expect(Object.keys(me.otherWays[0]).sort()).toEqual(['filled', 'needed', 'title', 'url']);
     expect(json).not.toContain('Door code 42');
@@ -51,7 +52,7 @@ describe('apiMe_', () => {
     expect(later.past.map((s) => s.title)).toEqual(['Meals for the Sample family', 'Last week service']);
     expect(JSON.stringify(later)).not.toContain('123 Example Lane');
     expect(JSON.stringify(later)).not.toContain('Old secret');
-    expect(later.past[0].cancelToken).toBeUndefined();
+    expect(later.past[0].signupId).toBeUndefined();
   });
 
   it('a waiting volunteer sees their sign-up without details, names or other ways to serve, and can cancel it', () => {
@@ -66,7 +67,19 @@ describe('apiMe_', () => {
     expect(me.upcoming[0].privateDetails).toBeUndefined();
     expect(me.otherWays).toEqual([]);
     expect(JSON.stringify(me)).not.toContain('123 Example Lane');
-    expect(plain(gp.apiCancel_({ t: me.upcoming[0].cancelToken })).ok).toBe(true);
+    expect(me.upcoming[0].canResend).toBe(true);
+    // My sign-ups is read-only: no tokens are written by showing it.
+    const tokens = gp.fakes.system.rowsOf('Tokens').length;
+    gp.apiMe_({ t });
+    expect(gp.fakes.system.rowsOf('Tokens')).toHaveLength(tokens);
+    // Another address's sign-up can't be cancelled with this link.
+    const other = gp.fakes.spreadsheet.rowsOf('Sign-ups').find((s) => s.Email === 'sister.other@example.test');
+    expect(plain(gp.apiCancelMine_({ t, signupId: other['Sign-up id'] }))).toEqual({ ok: false, error: 'Not found.' });
+    // "Send the confirm email again".
+    gp.fakes.mail.sent.length = 0;
+    expect(plain(gp.apiResendConfirm_({ t, signupId: me.upcoming[0].signupId })).ok).toBe(true);
+    expect(gp.fakes.mail.sent.map((m) => m.subject)).toEqual(['Please confirm your email: Meals for the Sample family']);
+    expect(plain(gp.apiCancelMine_({ t, signupId: me.upcoming[0].signupId })).ok).toBe(true);
     expect(gp.fakes.spreadsheet.rowsOf('Sign-ups').find((s) => s['Sign-up id'] === pending['Sign-up id']).Status).toBe('Cancelled');
     expect(plain(gp.apiMe_({ t })).upcoming).toEqual([]);
   });

@@ -78,7 +78,8 @@ function gpMenuSetUp() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   props_().setProperty('SERVICE_ID', ss.getId());
   gpEnsureTabs_(ss);
-  var migrated = migratePhase1Volunteers_();
+  if (!props_().getProperty('PHASE2_AT')) props_().setProperty('PHASE2_AT', nowLocal_());
+  var migrated = migratePhase1Volunteers_(true);
   var s = settings_();
   if (!s.ward_name || !s.time_zone || !s.contact_email) {
     ui_().alert('Fill in Settings (ward name, time zone, contact email) and the Leaders tab, then run Set up again.');
@@ -92,6 +93,7 @@ function gpMenuSetUp() {
   }
   var folder = ensurePortalFolder_(ss);
   ensureSystemSheet_(s, folder);
+  props_().setProperty('SCHEMA_VERSION', GP_VERSION);
   var made = buildRequestForms_(s, serviceTab_(TAB.categories).rows());
   var lines = ['Set up is done.'];
   if (migrated) lines.push('Volunteers from before phase 2 marked Approved: ' + migrated + '.');
@@ -462,21 +464,27 @@ function healthLines_(opts) {
 // ---------- upgrade from phase 1 ----------
 
 /**
- * Phase 1 had no approval step: a leader removed anyone they didn't recognize. On the first Set up
- * after the upgrade, every address with a Confirmed sign-up and no Volunteers row (leaders aside)
- * becomes Approved, Decided by "Phase 1 sign-up", so their reminders keep the private details.
- * Runs once (Script Property VOLUNTEERS_MIGRATED). Returns how many rows it added.
+ * Phase 1 had no approval step: a leader removed anyone they didn't recognize. Every non-leader
+ * address holding a Confirmed sign-up is marked Approved (Decided by "Phase 1 sign-up") when
+ *   - it has no Volunteers row (phase 1 code, including the old web app still serving between
+ *     pasting the script and making its new version, never writes one), or
+ *   - its only row is Pending and the Confirmed sign-up was made before phase 2 began (PHASE2_AT):
+ *     a phase 2 sign-up made in that gap, by someone phase 1 had already accepted.
+ * Phase 2 never confirms a Pending address, so nothing else matches. Runs at every Set up
+ * (force) and once, lazily, from ensureUpgraded_. Returns how many rows it added or changed.
  */
-function migratePhase1Volunteers_() {
+function migratePhase1Volunteers_(force) {
   var p = props_();
-  if (p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
+  if (!force && p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
+  var cut = p.getProperty('PHASE2_AT') || nowLocal_();
   var n = withLock_(function () {
     var volsT = serviceTab_(TAB.volunteers);
     var have = volunteersByEmail_(volsT.rows());
     var leaders = leaderEmails_();
     var now = nowLocal_();
     var add = [];
-    var seen = {};
+    var done = {};
+    var changed = 0;
     serviceTab_(TAB.signups)
       .rows()
       .sort(function (a, b) {
@@ -484,13 +492,43 @@ function migratePhase1Volunteers_() {
       })
       .forEach(function (su) {
         var e = normEmail(su.Email);
-        if (su.Status !== SIGNUP_STATUS.confirmed || !isEmail(e) || have[e] || seen[e] || leaders.indexOf(e) >= 0) return;
-        seen[e] = true;
-        add.push({ Email: e, Name: su.Name, Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now, 'First post': su['Post id'] });
+        if (su.Status !== SIGNUP_STATUS.confirmed || !isEmail(e) || done[e] || leaders.indexOf(e) >= 0) return;
+        var v = have[e];
+        var record = { Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now };
+        if (!v) {
+          done[e] = true;
+          add.push(merge_({ Email: e, Name: su.Name, 'First post': su['Post id'] }, record));
+        } else if (v.Status === VOLUNTEER_STATUS.pending && cmpLocal(su['Signed up at'], cut) <= 0) {
+          done[e] = true;
+          volsT.update(v, record);
+          changed++;
+        }
       });
     volsT.appendMany(add);
-    return add.length;
+    return add.length + changed;
   });
   p.setProperty('VOLUNTEERS_MIGRATED', nowLocal_());
   return n;
+}
+
+/**
+ * Brings a sheet set up by an earlier version up to this one before any job or web call uses it:
+ * adds missing tabs, columns and Settings rows (gpEnsureTabs_, the System Sheet's tabs), records
+ * when phase 2 began, and runs the phase 1 volunteer migration once. Does nothing until Set up has
+ * made the portal's tabs (no Posts tab), and nothing more once SCHEMA_VERSION is this version.
+ */
+function ensureUpgraded_() {
+  var p = props_();
+  if (p.getProperty('SCHEMA_VERSION') === GP_VERSION) return;
+  var ss = serviceSs_();
+  if (!ss.getSheetByName(TAB.posts)) return;
+  withLock_(function () {
+    if (p.getProperty('SCHEMA_VERSION') === GP_VERSION) return;
+    gpEnsureTabs_(ss);
+    if (p.getProperty('SYSTEM_ID')) gpEnsureSystemTabs_(systemSs_());
+    if (!p.getProperty('PHASE2_AT')) p.setProperty('PHASE2_AT', nowLocal_());
+    migratePhase1Volunteers_(false);
+    p.setProperty('SCHEMA_VERSION', GP_VERSION);
+    log_('upgraded', GP_VERSION);
+  });
 }

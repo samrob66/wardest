@@ -179,9 +179,9 @@ private window, use a separate Chrome profile signed in only to the shared accou
 
    | Column | What it does | Example (Meals) |
    |---|---|---|
-   | Owning organizations | The organizations its opportunities belong to | `Relief Society` |
+   | Owning organizations | The organizations its opportunities belong to. Without coordinators, those organizations' leaders (Org editor or Ward council ticked) make its opportunities; leave it blank and any leader who can make opportunities may | `Relief Society` |
    | Default audiences | Ticked for a new opportunity in it | `Sisters` |
-   | Coordinators | Emails, separated by commas. Each person must also have a row in **Leaders** (that is where their leader link comes from). They see and edit every opportunity in this category, whatever its organization, can make new ones in it, and get its *Fully filled* and *still short* emails | `sister.coordinator@example.test` |
+   | Coordinators | Emails, separated by commas. Each person must also have a row in **Leaders** (that is where their leader link comes from). Once a category has coordinators it is theirs: only they, the bishopric, and the ward council when the next column is ticked make and edit its opportunities (anyone still edits what they made themselves). Coordinators see and edit every opportunity in it, whatever its organization (any organization when it has no owner), and get its *Fully filled*, *Still short* and cancellation emails | `sister.coordinator@example.test` |
    | Any ward council may create | Tick to let every ward council member make opportunities in it | (blank) |
    | Warn hours | How many hours before a date to warn if a role is still short. Blank means 48; `0` turns warnings off | `72` |
    | Also warn | More emails for that warning, separated by commas | `brother.clerk@example.test` |
@@ -333,12 +333,13 @@ and click **Run**.
 - [ ] Open your leader link. The page says *Signed in as …* and shows the tabs **My
       opportunities**, **Waiting for approval**, **Needs help soon** (ward council and
       bishopric) and **New opportunity** (and **Volunteers** for bishopric members).
-- [ ] **New opportunity**: Category **Meals** (Category comes first; Sisters is ticked for you),
+- [ ] **New opportunity**: Category **Service project** (Category comes first; it has no
+      owning organization, so any leader who makes opportunities may use it), tick **Sisters**,
       a title, two dates (**tomorrow** and **in three days**), each with role `Bring a meal`,
       how many `1`, and private details `Test address`. **Save as draft**. It shows under My
       opportunities as **Draft** and is not on the serve page.
 - [ ] **Edit** it and **Publish**. Copy the public link.
-- [ ] Open the serve page (short link) **on a phone**: the card shows the Meals icon 🍲 above
+- [ ] Open the serve page (short link) **on a phone**: the card shows the Service project icon 🛠️ above
       its title and a fill bar. On a computer, **Brothers** and **Sisters** sit side by side;
       on the phone they are stacked.
 
@@ -366,7 +367,8 @@ and click **Run**.
       offer** button and a **See all your sign-ups** link. The public page shows
       **Filled ✓ · 2 of 1**; the leader page shows **2 of 1** and the tag *Over the number*.
 - [ ] Click **Withdraw my offer**, then the button on the page: *Your offer is withdrawn.*
-      Nobody gets an email (the role is still full).
+      Nobody gets an email (the role is still full). (Once the role has started, the withdraw
+      link says it has expired.)
 - [ ] With address A, sign up for the **in three days** role. A is approved now, so *You're
       signed up* arrives at once, with **Test address**, **Cancel my sign-up**, **See all your
       sign-ups** and **Other ways to serve** (other open opportunities with how full they are,
@@ -386,7 +388,12 @@ and click **Run**.
 **D. Decline, nudge, lapse (test address B)**
 
 - [ ] Make a second test opportunity for **tomorrow**, how many `2`. With test address B,
-      sign up and click **Confirm my address**.
+      sign up, but don't click the confirm email yet.
+- [ ] Open `me.html` with nothing after it and ask for B's link (**Email me my link**). B's My
+      sign-ups shows the sign-up as *Waiting: please click the link in your confirm email* and a
+      **Send the confirm email again** button: click it, a new confirm email arrives, and the
+      first one no longer works. (Signing up again for the same role does the same.) Now click
+      **Confirm my address** in the newest email.
 - [ ] Run **gpHourly**. Because B's role starts within 48 hours, the organization's leaders
       and the bishopric each get *Urgent: waiting for approval* (no names). Run **gpHourly**
       again: no second one.
@@ -405,13 +412,17 @@ and click **Run**.
 - [ ] Make an opportunity with audience **Children** (category Primary help). The New
       opportunity form shows the *Who is serving* note. On its public page choose **My
       child**, type a first name (for example `Ana`) and your own name and email: the leader
-      page shows *Ana (signed up by …)*, and every email goes to you.
+      page shows *Ana (signed up by …)*, and every email goes to you. Sign up two more
+      children for the same role: a parent may sign up any number of children for one role.
 - [ ] Categories tab: put your email in **Meals**' **Coordinators**, **Warn hours** `48`,
-      and test address A in **Also warn**. With a Meals opportunity tomorrow still short, run
-      **gpHourly**: you and A each get *Still short: …* listing the short roles. Run it again:
-      no second one.
+      and test address A in **Also warn**. Reload the leader page: **New opportunity** now
+      offers **Meals** (for Relief Society). Make a Meals opportunity for tomorrow, publish it
+      and leave it short. Run **gpHourly**: you and A each get *Still short: …* listing the
+      short roles. Run it again: no second one. (Meals is now the coordinators': the Relief
+      Society's leaders can't make or edit Meals opportunities they didn't make.)
 - [ ] Fill every role of a new Meals opportunity: its creator, its organization's editors and
-      you (as coordinator) get *Fully filled: …* once (one email each).
+      you (as coordinator) get *Fully filled: …* once (one email each). Cancel one of those
+      sign-ups: you get the *Cancellation:* email too.
 - [ ] Leader page > **Needs help soon**: short roles in the next 14 days, soonest first. Run
       **gpTenMinute**: the Service Sheet's **Needs help soon** tab shows the same rows.
 
@@ -472,36 +483,52 @@ health. Add the portal to the ward's hand-off note.
 
 **Updating the script.** When a new version is released: copy the new `Code.gs` (and
 `appsscript.json` if it changed), paste over the old one as in section 2 (steps 10–14), save,
-then **Deploy > Manage deployments > pencil > Version: New version > Deploy**. If the pages
-changed too, run **Make hub files** and give the hub owner the new files.
+run **Set up** straight away (it adds any new columns, and the timed jobs use the new script as
+soon as it is saved), then **Deploy > Manage deployments > pencil > Version: New version >
+Deploy**. If the pages changed too, run **Make hub files** and give the hub owner the new files;
+until they are uploaded, empty **hub_url** in Settings so emails use the script's own pages
+(section 11 shows how, for the phase 2 upgrade).
 
 ---
 
 ## 11. Upgrading from phase 1
 
-Do this once, in a browser window signed in only to the shared account. Nothing you or the
-leaders made is lost: posts, sign-ups, requests and leader links all carry on.
+Do this once, in one sitting, in a browser window signed in only to the shared account. Nothing
+you or the leaders made is lost: posts, sign-ups, requests and leader links all carry on. Keep
+to this order: the timed jobs start using the new script the moment you save it, and the
+public pages keep using the old one until step 4.
 
-1. **Paste the new script.** Copy the new **`Code.gs`** (and **`appsscript.json`**) from
+1. **Point emails at the script's own pages for now.** In Settings, copy the **hub_url** value
+   somewhere safe (a note), then **empty** that cell. Until the hub owner has uploaded the new
+   pages (step 7), emails then link to the script's own pages (`…/exec?page=confirm`,
+   `?page=me`, …), which are always the current version. The old hub pages would show a
+   *Confirm my address* link as *already cancelled* and have no My sign-ups page.
+2. **Paste the new script.** Copy the new **`Code.gs`** (and **`appsscript.json`**) from
    `google-portal/dist/` and paste each over the old one, as in section 2 steps 10–14. Save.
-2. **New version of the web app.** **Deploy > Manage deployments**, select the deployment,
+3. **Run Set up right away** (Service Portal > Set up). It adds what phase 2 needs by itself:
+   **Email confirmed at** in Volunteers, the **Needs help soon** columns, the System Sheet's
+   **Counters** tab, and **confirm_limit_per_day** in Settings. It marks everyone who already
+   has a **Confirmed** sign-up from phase 1 as **Approved** (Decided by *Phase 1 sign-up*), so
+   people you already accepted don't wait for approval and their reminders keep the private
+   details. If it asks to authorize again, do it as in section 3 step 2. (If a timed job runs
+   before you get here, it makes the same changes itself first, so nothing goes out wrong.)
+4. **New version of the web app.** **Deploy > Manage deployments**, select the deployment,
    click the **pencil**, set **Version** to **New version**, click **Deploy**. (Not *New
    deployment*: that changes the address and breaks every link.)
-3. **Run Set up again** (Service Portal > Set up). It adds the new columns and rows by
-   itself: **Email confirmed at** in Volunteers, the **Needs help soon** columns, and
-   **confirm_limit_per_day** in Settings. It also marks everyone who already had a
-   **Confirmed** sign-up in phase 1 as **Approved** (Decided by *Phase 1 sign-up*), once, so
-   people you already accepted don't have to wait for approval and their reminders keep the
-   private details. If it asks to authorize again, do it as in section 3 step 2.
-4. **Install triggers again** (Service Portal > Install triggers), so the jobs pick up the new
-   work (nudges, warnings, lapses, Needs help soon, the health email).
-5. **Categories and coordinators.** Fill in **Coordinators**, **Warn hours** and **Also warn**
+5. **Install triggers again** (Service Portal > Install triggers), then **run Set up once
+   more**: it approves anyone who signed up through the old page in the minutes between steps 2
+   and 4.
+6. **Categories and coordinators.** Fill in **Coordinators**, **Warn hours** and **Also warn**
    for the opportunity categories as in section 3 step 6, add a **Leaders** row for each
-   coordinator, tick **Send leader link** for them, then run **Sync sharing**.
-6. **Make hub files again** and give the hub owner all six page files, **including the new
-   `me.html`** (the My sign-ups page). The other five changed too, so they replace the old
-   ones.
-7. **Tell the leaders.** Send them the new LEADER-GUIDE: first-timers now wait under **Waiting
+   coordinator, tick **Send leader link** for them, then run **Sync sharing**. Remember that a
+   category with coordinators is theirs: from then on only they, the bishopric (and the ward
+   council, if *Any ward council may create* is ticked) make and edit its opportunities.
+7. **New hub pages.** Run **Make hub files** and give the hub owner all six page files,
+   **including the new `me.html`** (the My sign-ups page); the other five changed too, so they
+   replace the old ones. **Once the hub owner says they are uploaded**, put the **hub_url** you
+   saved in step 1 back into Settings and run **Check health** (the *Hub serve.html* line must
+   be OK). Until then, members simply see the script's own pages, which work the same.
+8. **Tell the leaders.** Send them the new LEADER-GUIDE: first-timers now wait under **Waiting
    for approval**, and there is no more *Send details* button (approved volunteers get the
    details in their confirmation).
-8. **Check health**, then go through the test checklist in section 9.
+9. **Check health**, then go through the test checklist in section 9.

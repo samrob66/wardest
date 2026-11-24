@@ -175,22 +175,62 @@ describe('Check health: trigger owners', () => {
   });
 });
 
-describe('Set up: phase 1 volunteers become approved once', () => {
-  it('every phase 1 Confirmed address without a Volunteers row is approved, leaders excepted', () => {
+describe('upgrading a ward live on phase 1', () => {
+  it('Set up approves phase 1 volunteers: no row, or Pending with a sign-up from before phase 2; leaders excepted', () => {
     const gp = loadPortal({ seed: { approved: [] } });
-    seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-03', Needed: 5 }]);
+    seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-03', Needed: 9 }]);
     gp.serviceTab_('Sign-ups').appendMany([
       { 'Sign-up id': 's1', 'Post id': 'p1', 'Slot id': 'm1', Email: 'old.volunteer@example.test', Name: 'Old Volunteer', Status: 'Confirmed', 'Signed up at': '2026-11-20 10:00' },
       { 'Sign-up id': 's2', 'Post id': 'p1', 'Slot id': 'm1', Email: 'sister.example@example.test', Name: 'Sister Example', Status: 'Confirmed', 'Signed up at': '2026-11-20 10:00' },
       { 'Sign-up id': 's3', 'Post id': 'p1', 'Slot id': 'm1', Email: 'gone@example.test', Name: 'Gone Person', Status: 'Cancelled', 'Signed up at': '2026-11-20 10:00' },
+      { 'Sign-up id': 's4', 'Post id': 'p1', 'Slot id': 'm1', Email: 'gap.person@example.test', Name: 'Gap Person', Status: 'Confirmed', 'Signed up at': '2026-11-21 10:00' },
     ]);
+    // A phase 2 sign-up in the gap made a Pending row for someone phase 1 had already accepted.
+    gp.serviceTab_('Volunteers').append({ Email: 'gap.person@example.test', Name: 'Gap Person', Status: 'Pending', 'First post': 'p1' });
     gp.gpBegin_();
     gp.fakes.props.delete('SYSTEM_ID');
     gp.gpMenuSetUp();
-    expect(rows(gp, 'Volunteers').map((v) => [v.Email, v.Status, v['Decided by'], v['First post']])).toEqual([['old.volunteer@example.test', 'Approved', 'Phase 1 sign-up', 'p1']]);
-    // Only once: a later Set up adds nothing.
-    gp.serviceTab_('Sign-ups').append({ 'Sign-up id': 's4', 'Post id': 'p1', 'Slot id': 'm1', Email: 'later@example.test', Name: 'Later', Status: 'Confirmed', 'Signed up at': '2026-11-21 10:00' });
+    const vols = () => rows(gp, 'Volunteers').map((v) => [v.Email, v.Status, v['Decided by']]);
+    expect(vols()).toEqual([
+      ['gap.person@example.test', 'Approved', 'Phase 1 sign-up'],
+      ['old.volunteer@example.test', 'Approved', 'Phase 1 sign-up'],
+    ]);
+    expect(gp.fakes.props.get('SCHEMA_VERSION')).toBe(gp.GP_VERSION);
+    // A Confirmed sign-up the old web app took after that (no row) is covered by the next Set up;
+    // a Pending address whose Confirmed sign-up came after phase 2 began (an undone revoke) is not.
+    gp.fakes.setNow('2026-12-01 11:00');
+    gp.serviceTab_('Sign-ups').appendMany([
+      { 'Sign-up id': 's5', 'Post id': 'p1', 'Slot id': 'm1', Email: 'later@example.test', Name: 'Later', Status: 'Confirmed', 'Signed up at': '2026-12-01 10:30' },
+      { 'Sign-up id': 's6', 'Post id': 'p1', 'Slot id': 'm1', Email: 'undone@example.test', Name: 'Undone', Status: 'Confirmed', 'Signed up at': '2026-12-01 10:45' },
+    ]);
+    gp.serviceTab_('Volunteers').append({ Email: 'undone@example.test', Name: 'Undone', Status: 'Pending', 'Email confirmed at': '2026-11-25 10:00' });
+    gp.gpBegin_();
     gp.gpMenuSetUp();
-    expect(rows(gp, 'Volunteers')).toHaveLength(1);
+    expect(vols()).toContainEqual(['later@example.test', 'Approved', 'Phase 1 sign-up']);
+    expect(vols()).toContainEqual(['undone@example.test', 'Pending', '']);
+  });
+
+  it('jobs and web calls on a sheet not yet set up for phase 2 upgrade it first: reminders keep their details', () => {
+    const gp = loadPortal({ seed: { approved: [] } });
+    seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-02', Needed: 2 }]);
+    gp.serviceTab_('Sign-ups').append({ 'Sign-up id': 's1', 'Post id': 'p1', 'Slot id': 'm1', Email: 'old.volunteer@example.test', Name: 'Old Volunteer', Status: 'Confirmed', 'Signed up at': '2026-11-20 10:00' });
+    // Make it look like phase 1: no 'Email confirmed at', no Needs help soon headers, no Counters tab.
+    const vsh = gp.fakes.spreadsheet.getSheetByName('Volunteers');
+    vsh.getRange(1, vsh.raw()[0].indexOf('Email confirmed at') + 1).setValue('');
+    const nsh = gp.fakes.spreadsheet.getSheetByName('Needs help soon');
+    nsh.getRange(1, 1, 1, 8).clearContent();
+    gp.fakes.system.deleteSheet(gp.fakes.system.getSheetByName('Counters'));
+    gp.gpBegin_();
+    gp.fakes.setNow('2026-12-01 18:00');
+    gp.gpHourly();
+    const reminder = gp.fakes.mail.sent.find((m) => m.to === 'old.volunteer@example.test');
+    expect(reminder.subject).toMatch(/^Reminder/);
+    expect(reminder.body).toContain('123 Example Lane');
+    gp.gpTenMinute();
+    expect(rows(gp, 'Needs help soon').map((r) => r.Date)).toEqual(['2026-12-02']);
+    expect(gp.fakes.system.rowsOf('Log').filter((l) => l.What === 'job error')).toEqual([]);
+    // A web call works too.
+    const res = JSON.parse(gp.doPost({ postData: { contents: JSON.stringify({ action: 'signup', publicId: 'pubmeals01', slotId: 'm1', name: 'New Person', email: 'new.person@example.test' }) } }).getContent());
+    expect(res).toEqual({ ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' });
   });
 });

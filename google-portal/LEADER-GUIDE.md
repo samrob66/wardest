@@ -31,7 +31,7 @@ Check the ward directory, then:
   sign-ups count straight away.
 - **Decline**: their waiting sign-ups end and they get a polite email asking them to contact
   the ward. They can't sign up again unless a bishopric member undoes it.
-Your name and the time are recorded in the Volunteers tab. Approval belongs to the
+Waiting for approval lists all of their waiting sign-ups, in every organization, because approving them makes every one of those count. Your name and the time are recorded in the Volunteers tab. Approval belongs to the
 organization's leaders and the bishopric only; a category coordinator doesn't approve. If
 someone is still waiting 48 hours before they would serve, you get an *Urgent: waiting for
 approval* email. Leaders on the ward's leader list never need approval.
@@ -58,8 +58,12 @@ soon** tab.
 **Coordinators.** The Categories tab can name coordinators for a kind of opportunity (a meal
 coordinator, a building specialist). A coordinator sees and edits every opportunity in their
 categories, whatever its organization, can make new ones there, and gets the category's
-*Fully filled* and *Still short* emails (a *Still short* email comes once per date, at the
-category's Warn hours before it, when a role is still short). They don't approve volunteers.
+*Fully filled*, *Still short* and cancellation emails (a *Still short* email comes once per
+date, at the category's Warn hours before it, when a role is still short). They don't approve
+volunteers. A category with coordinators is theirs: only they, the bishopric (and the ward
+council, when the category allows it) make and edit its opportunities; you can always edit
+the ones you made. A category without coordinators belongs to its owning organizations'
+leaders (or to any leader, when it has no owner).
 
 **Bishopric: Volunteers.** The **Volunteers** tab lists everyone who has signed up, with who
 approved or declined them and when. **Undo decline** lets someone sign up again (their next

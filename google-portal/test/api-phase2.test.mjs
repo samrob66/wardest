@@ -97,35 +97,67 @@ describe('signing up: outcomes go by email only', () => {
     const mails = mailTo(gp, 'declined@example.test');
     expect(mails).toHaveLength(1);
     expect(mails[0].body).toContain('Please contact help@riverbend.example to sign up.');
-    // A refused or blocked attempt still counts toward the per-address limit like any other.
-    expect(signup(gp, { email: 'declined@example.test' }).ok).toBe(true);
-    expect(signup(gp, { email: 'declined@example.test' }).error).toMatch(/^Too many sign-ups right now/);
+    // A blocked attempt counts toward the per-address limit like any other: a third role, then a fourth.
+    expect(signup(gp, { email: 'declined@example.test', slotId: 'm1' }).ok).toBe(true);
+    expect(signup(gp, { email: 'declined@example.test', publicId: 'pubyouth01', slotId: 'y1' }).error).toMatch(/^Too many sign-ups right now/);
   });
 
-  it('a duplicate answers the same sentence and sends nothing new', () => {
+  it('review item 1: after 7 hours, declined, approved and new addresses answer the 4th role alike', () => {
+    const gp = setup();
+    gp.serviceTab_('Volunteers').append({ Email: 'declined@example.test', Name: 'Declined Person', Status: 'Declined' });
+    approve(gp, 'sister.approved@example.test');
+    const people = ['declined@example.test', 'sister.approved@example.test', 'brand.new@example.test'];
+    const roles = [{ slotId: 'm1' }, { slotId: 'm2' }, { slotId: 'm3' }];
+    for (const email of people) for (const r of roles) expect(signup(gp, { email, ...r })).toEqual({ ok: true, message: THANKS });
+    gp.fakes.setNow('2026-12-01 17:00'); // longer than the script cache keeps anything
+    const answers = people.map((email) => signup(gp, { email, publicId: 'pubyouth01', slotId: 'y1' }));
+    for (const a of answers) expect(a).toEqual(answers[0]);
+    expect(answers[0].error).toMatch(/^Too many sign-ups right now/);
+    // The confirm-email counters last the day too.
+    expect(gp.fakes.mail.sent.filter((m) => m.to === 'brand.new@example.test' && /confirm/i.test(m.subject))).toHaveLength(3);
+  });
+
+  it('a duplicate of a sign-up still waiting for its email click sends a fresh confirm email; others send nothing', () => {
     const gp = setup();
     signup(gp);
+    const first = tokenFrom(mailTo(gp, 'brother.new@example.test')[0].body, 'confirm.html');
+    gp.fakes.setNow('2026-12-03 11:00'); // the first link has expired
     gp.fakes.mail.sent.length = 0;
     expect(signup(gp)).toEqual({ ok: true, message: THANKS });
     expect(rows(gp)).toHaveLength(1);
+    const again = mailTo(gp, 'brother.new@example.test');
+    expect(again).toHaveLength(1);
+    const fresh = tokenFrom(again[0].body, 'confirm.html');
+    expect(fresh).not.toBe(first);
+    expect(plain(gp.apiTokenInfo_({ t: first })).ok).toBe(false);
+    expect(plain(gp.apiConfirm_({ t: fresh })).ok).toBe(true);
+    // A confirmed duplicate sends nothing.
+    approve(gp, 'sister.approved@example.test');
+    signup(gp, { name: 'Sister Approved', email: 'sister.approved@example.test' });
+    gp.fakes.mail.sent.length = 0;
+    expect(signup(gp, { name: 'Sister Approved', email: 'sister.approved@example.test' })).toEqual({ ok: true, message: THANKS });
     expect(gp.fakes.mail.sent).toEqual([]);
   });
 
-  it('an approved address on a full role is told by email, not on screen', () => {
+  it('an approved address on a full role is told by email (once a day), not on screen', () => {
     const gp = setup();
     approve(gp, 'sister.approved@example.test');
     approve(gp, 'brother.approved@example.test', 'Brother Approved');
     signup(gp, { slotId: 'm1', name: 'Sister Approved', email: 'sister.approved@example.test' });
     expect(signup(gp, { slotId: 'm1', name: 'Brother Approved', email: 'brother.approved@example.test' })).toEqual({ ok: true, message: THANKS });
+    expect(signup(gp, { slotId: 'm1', name: 'Brother Approved', email: 'brother.approved@example.test' })).toEqual({ ok: true, message: THANKS });
     expect(rows(gp).filter((r) => r.Email === 'brother.approved@example.test')).toEqual([]);
-    const [m] = mailTo(gp, 'brother.approved@example.test');
-    expect(m.subject).toMatch(/already filled/);
+    const mails = mailTo(gp, 'brother.approved@example.test');
+    expect(mails).toHaveLength(1);
+    expect(mails[0].subject).toMatch(/already filled/);
   });
 
   it('confirm-your-address emails: at most 3 a day to one address and the daily total', () => {
     const gp = setup();
-    const keys = plain(gp.confirmKeys_('brother.new@example.test', '2026-12-01 10:00'));
-    gp.cache_().put(keys.addr, '3', 21600);
+    gp.withLock_(() => {
+      const dc = gp.dayCounters_();
+      for (let i = 0; i < 3; i++) dc.bump('CA:' + gp.addrTag_('brother.new@example.test'));
+    });
     signup(gp);
     expect(rows(gp)).toHaveLength(1);
     expect(rows(gp)[0].Status).toBe('Waiting-email');
@@ -135,6 +167,29 @@ describe('signing up: outcomes go by email only', () => {
     signup(gp, { email: 'new.second@example.test' });
     expect(gp.fakes.mail.sent.map((m) => m.to)).toEqual(['new.first@example.test']);
     expect(rows(gp).map((r) => r.Status)).toEqual(['Waiting-email', 'Waiting-email', 'Waiting-email']);
+  });
+
+  it('review item 3: a failure after the sign-up is stored still answers the usual sentence', () => {
+    const gp = setup();
+    approve(gp, 'sister.approved@example.test');
+    gp.sendOrQueue_ = () => {
+      throw new Error('Busy, please try again.');
+    };
+    expect(signup(gp, { name: 'Sister Approved', email: 'sister.approved@example.test' })).toEqual({ ok: true, message: THANKS });
+    const su = rows(gp)[0];
+    expect(su.Status).toBe('Confirmed');
+    // The links were made with the sign-up, inside the lock.
+    expect(gp.fakes.system.rowsOf('Tokens').filter((t) => t.Subject === su['Sign-up id']).map((t) => t.Kind)).toEqual(['cancel']);
+    expect(gp.fakes.system.rowsOf('Log').some((l) => l.What === 'email not sent')).toBe(true);
+  });
+
+  it('review item 12: control characters in the name, child name and bringing become spaces', () => {
+    const gp = setup();
+    approve(gp, 'sister.approved@example.test');
+    signup(gp, { publicId: 'pubyouth01', slotId: 'y1', name: 'Sister\r\nBcc: x@example.test', email: 'sister.approved@example.test', childName: 'A\u0085na', bringing: 'Soup\tand\nbread' });
+    expect(rows(gp)[0]).toMatchObject({ Name: 'Sister Bcc: x@example.test', 'Child first name': 'A na' });
+    signup(gp, { slotId: 'm2', name: 'Line\nBreak', email: 'brand.new@example.test' });
+    for (const m of gp.fakes.mail.sent) expect(m.subject).not.toMatch(/[\r\n]/);
   });
 });
 
@@ -266,8 +321,9 @@ describe('children', () => {
     expect(rows(gp, 'Slots').find((s) => s['Slot id'] === 'y1').Filled).toBe(3);
     const child = mailTo(gp, 'sister.approved@example.test')[1];
     expect(child.body).toContain('Ana');
-    // The phase 1 limit of 3 sign-ups per address a day still holds (a fourth child waits a day).
-    expect(signup(gp, { ...base, childName: 'Cal' }).error).toMatch(/^Too many sign-ups right now/);
+    // Review Q2: one role from one address is one attempt, so any number of children fit.
+    for (const childName of ['Cal', 'Dee', 'Eli']) expect(signup(gp, { ...base, childName })).toEqual({ ok: true, message: THANKS });
+    expect(rows(gp)).toHaveLength(6);
     const refused = signup(gp, { publicId: 'pubsisters1', slotId: 'x1', name: 'Sister Two', email: 'two@example.test', childName: 'Ana' });
     expect(refused.ok).toBe(false);
     expect(refused.fields.childName).toBe('Children and youth can be signed up only for opportunities for youth or children.');
@@ -296,5 +352,35 @@ describe('serve feed', () => {
     expect(serve.posts.find((p) => p.publicId === 'pubmeals01')).toMatchObject({ categoryName: 'Meals', categoryIcon: '🍲', filled: 0 });
     const json = JSON.stringify(serve);
     for (const bad of ['Brother New', 'brother.new@example.test', 'waiting', '123 Example Lane']) expect(json).not.toContain(bad);
+  });
+});
+
+describe('review round 1: withdraw timing and coordinators on cancellations', () => {
+  it('item 6: a withdraw link ends when the role starts; after it, withdrawing is refused', () => {
+    const gp = setup();
+    gp.serviceTab_('Sign-ups').append({ 'Sign-up id': 'sw', 'Post id': 'p1', 'Slot id': 'm1', Email: 'a@example.test', Name: 'A Person', Status: 'Confirmed', 'Over limit': 'Yes', 'Signed up at': '2026-11-30 10:00' });
+    const raw = gp.withLock_(() => gp.confirmationMsgs_([{ signup: gp.signupById_('sw').signup, post: gp.signupById_('sw').post, slot: gp.signupById_('sw').slot, over: true }], gp.volunteerData_()));
+    const wt = tokenFrom(raw[0].text, 'confirm.html');
+    const tok = gp.fakes.system.rowsOf('Tokens').find((t) => t.Kind === 'withdraw');
+    expect(tok.Expires).toBe('2026-12-03 17:00');
+    gp.fakes.setNow('2026-12-03 17:00');
+    expect(plain(gp.apiWithdraw_({ t: wt }))).toEqual({ ok: false, error: 'This link has expired.' });
+    // An older link that lasted longer is refused all the same.
+    const late = gp.issueToken_('withdraw', 'sw', '2026-12-04 23:59');
+    expect(plain(gp.apiWithdraw_({ t: late }))).toEqual({ ok: false, error: 'This has already happened.' });
+    expect(rows(gp)[0].Status).toBe('Confirmed');
+  });
+
+  it('Q4: the category coordinators also get cancellation notices, once each', () => {
+    const gp = setup();
+    const ct = gp.serviceTab_('Categories');
+    ct.update(ct.find('Id', 'meals'), { Coordinators: 'sister.coordinator@example.test, sister.example@example.test' });
+    gp.gpBegin_();
+    approve(gp, 'sister.approved@example.test');
+    signup(gp, { slotId: 'm2', name: 'Sister Approved', email: 'sister.approved@example.test' });
+    const t = tokenFrom(mailTo(gp, 'sister.approved@example.test')[0].body, 'confirm.html');
+    gp.fakes.mail.sent.length = 0;
+    expect(plain(gp.apiCancel_({ t })).ok).toBe(true);
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['sister.coordinator@example.test', 'sister.example@example.test']);
   });
 });

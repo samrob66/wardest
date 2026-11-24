@@ -347,20 +347,20 @@ describe('me.html', () => {
       me: {
         ok: true,
         name: 'Sister Approved',
-        upcoming: [{ title: 'Meals', publicUrl: 'post.html#p=pub1', date: '2026-12-03', start: '17:00', end: '', role: 'Bring a meal', childName: '', bringing: 'Soup', status: 'Confirmed', others: ['Sister'], privateDetails: '123 Example Lane', cancelToken: 'c'.repeat(64) }],
+        upcoming: [{ title: 'Meals', publicUrl: 'post.html#p=pub1', date: '2026-12-03', start: '17:00', end: '', role: 'Bring a meal', childName: '', bringing: 'Soup', status: 'Confirmed', others: ['Jones'], privateDetails: '123 Example Lane', signupId: 'sx', canResend: false }],
         past: [{ title: 'Old', publicUrl: 'post.html#p=old', date: '2026-11-03', start: '', end: '', role: 'Helper', childName: 'Ana', bringing: '', status: 'Confirmed', others: [] }],
         otherWays: [{ title: 'Clean the building', filled: 1, needed: 4, url: 'post.html#p=o' }],
       },
-      cancel: (body) => {
+      cancelMine: (body) => {
         cancelled = body;
         return { ok: true, message: 'Your sign-up is cancelled. Thank you for letting us know.' };
       },
     });
     const main = doc.ids['gp-main'];
-    for (const s of ['Coming up', '123 Example Lane', 'Also serving: Sister', 'Other ways to serve', 'Clean the building', '1 of 4 filled', 'Past', 'for Ana']) expect(main.textContent).toContain(s);
+    for (const s of ['Coming up', '123 Example Lane', 'Also serving: Jones', 'Other ways to serve', 'Clean the building', '1 of 4 filled', 'Past', 'for Ana']) expect(main.textContent).toContain(s);
     click(byText(main, 'button', 'Cancel'));
     await tick();
-    expect(cancelled).toMatchObject({ action: 'cancel', t: 'c'.repeat(64) });
+    expect(cancelled).toMatchObject({ action: 'cancelMine', t: 'b'.repeat(64), signupId: 'sx' });
   });
 
   it('without a link it offers "Email me my link"', async () => {

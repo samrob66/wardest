@@ -190,11 +190,45 @@ describe('coordinators and categories in leaderAccess', () => {
     // A request category's coordinators get nothing on the leader page.
     expect(a.categories).not.toContain('moving');
   });
-  it('"Any ward council may create" lets a ward council leader create there for its owners', () => {
+  it('Q3: creating in a category follows the service spec', () => {
     const rs = gp.leaderAccess(L('Sister Example'), ORGS, CATS);
-    expect(plain(gp.allowedOrgsFor_(rs, 'activity'))).toEqual(['Relief Society', 'Elders Quorum']);
-    expect(plain(gp.allowedOrgsFor_(rs, 'meals'))).toEqual(['Relief Society']);
+    const eq = gp.leaderAccess(L('Brother Sample'), ORGS, CATS);
     const helper = gp.leaderAccess(L('Sister Helper'), ORGS, CATS);
-    expect(plain(gp.allowedOrgsFor_(helper, 'activity'))).toEqual(['Primary']);
+    const bishop = gp.leaderAccess(L('Bishop Example'), ORGS, CATS);
+    // Meals has coordinators: only they, the bishopric (and ward council with the flag, unset here).
+    expect(plain(gp.allowedOrgsFor_(rs, 'meals'))).toEqual([]);
+    expect(plain(gp.allowedOrgsFor_(bishop, 'meals'))).toEqual(ORGS);
+    // Activity: no coordinators, owned by Elders Quorum, "Any ward council may create" ticked.
+    expect(plain(gp.allowedOrgsFor_(eq, 'activity'))).toEqual(['Elders Quorum']);
+    expect(plain(gp.allowedOrgsFor_(rs, 'activity'))).toEqual(['Elders Quorum']);
+    expect(plain(gp.allowedOrgsFor_(helper, 'activity'))).toEqual([]);
+    // Service project: no coordinators, no owners: anyone with create rights, for their own organization.
+    expect(plain(gp.allowedOrgsFor_(helper, 'service-project'))).toEqual(['Primary']);
+    expect(plain(gp.allowedOrgsFor_(rs, 'service-project'))).toEqual(['Relief Society']);
+    // No category: the base organization rights, as in phase 1.
+    expect(plain(gp.allowedOrgsFor_(helper, ''))).toEqual(['Primary']);
+  });
+
+  it('Q3: editing follows the same rule plus the creator; coordinators edit their categories in any organization', () => {
+    const rs = gp.leaderAccess(L('Sister Example'), ORGS, CATS);
+    const rsMeals = POST({ 'Created by': 'brother.counselor@example.test' });
+    expect(gp.canEditPost(rs, 'sister.example@example.test', rsMeals)).toBe(false);
+    expect(gp.canEditPost(rs, 'sister.example@example.test', POST())).toBe(true); // her own post
+    expect(gp.canEditPost(gp.leaderAccess(L('Bishop Example'), ORGS, CATS), 'bishop.example@example.test', rsMeals)).toBe(true);
+    const coord = gp.leaderAccess(L('Sister Coordinator'), ORGS, CATS);
+    expect(gp.canEditPost(coord, 'sister.coordinator@example.test', POST({ Organization: 'Elders Quorum', 'Created by': 'x@example.test' }))).toBe(true);
+    // A category without coordinators: its owning organization's leaders edit.
+    const cats2 = CATS.map((c) => (c.Id === 'meals' ? { ...c, Coordinators: '' } : c));
+    const rs2 = gp.leaderAccess(L('Sister Example'), ORGS, cats2);
+    expect(gp.canEditPost(rs2, 'sister.example@example.test', rsMeals)).toBe(true);
+    const helper2 = gp.leaderAccess(L('Sister Helper'), ORGS, cats2);
+    expect(gp.canEditPost(helper2, 'sister.helper@example.test', rsMeals)).toBe(false);
+  });
+
+  it('item 11: a coordinator of a category with no owning organization may pick any organization', () => {
+    const cats = [...CATS, { Id: 'hall', Name: 'Clean the building', Kind: 'Opportunity', 'Owning organizations': '', Coordinators: 'building.helper@example.test' }];
+    const a = gp.leaderAccess({ Name: 'Building Helper', Email: 'building.helper@example.test', Organization: '', Coordinator: true }, ORGS, cats);
+    expect(plain(gp.allowedOrgsFor_(a, 'hall'))).toEqual(ORGS);
+    expect(plain(a.categories)).toEqual(['hall']);
   });
 });

@@ -74,17 +74,23 @@ describe('details in the reminder (phase 2: Send details is gone)', () => {
 });
 
 describe('D3: refused attempts count toward the limits', () => {
-  it('probing "already signed up" stops after 3 tries from one address a day', () => {
-    const gp = setup();
+  it('one address may try 3 different roles a day; repeats on one role count once', () => {
+    const gp = setup([
+      { 'Slot id': 'm1', Date: '2026-12-02', Start: '17:00' },
+      { 'Slot id': 'm2', Date: '2026-12-02', Start: '18:00', End: '19:00', Role: 'Drive', Needed: 5 },
+      { 'Slot id': 'm3', Date: '2026-12-05', Needed: 20 },
+      { 'Slot id': 'm4', Date: '2026-12-06', Needed: 20 },
+    ]);
     // Phase 2: a duplicate answers the same sentence as everything else (outcomes by email only).
     const THANKS = { ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' };
-    expect(signup(gp).ok).toBe(true); // 1
-    expect(signup(gp)).toEqual(THANKS); // 2: duplicate
-    expect(signup(gp)).toEqual(THANKS); // 3: duplicate
-    expect(signup(gp).error).toBe(LIMIT);
-    expect(signup(gp, { slotId: 'm3' }).error).toBe(LIMIT);
-    gp.fakes.setNow('2026-12-02 08:00');
+    expect(signup(gp).ok).toBe(true); // m1
+    expect(signup(gp)).toEqual(THANKS); // m1 again: the same role, still one
+    expect(signup(gp, { slotId: 'm2' }).ok).toBe(true);
     expect(signup(gp, { slotId: 'm3' }).ok).toBe(true);
+    expect(signup(gp, { slotId: 'm4' }).error).toBe(LIMIT);
+    expect(signup(gp)).toEqual(THANKS); // m1 was already counted today
+    gp.fakes.setNow('2026-12-02 08:00');
+    expect(signup(gp, { slotId: 'm4' }).ok).toBe(true);
   });
 
   it('full and closed refusals count too, per address and per post per minute', () => {
@@ -100,15 +106,17 @@ describe('D3: refused attempts count toward the limits', () => {
     expect(signup(gp, { slotId: 'm3', email: 'fresh@example.test' }).ok).toBe(true);
   });
 
-  it('keeps the counters in the script cache (never Script Properties) and stores no address', () => {
+  it('keeps the counters in the cache (per minute) and the Counters tab (per day), never Script Properties or an address', () => {
     const gp = setup();
     const propsBefore = [...gp.fakes.props.keys()].sort();
     signup(gp);
     signup(gp);
     expect([...gp.fakes.props.keys()].sort()).toEqual(propsBefore);
-    const keys = [...gp.fakes.cache.keys()].filter((k) => /^R[AP]_/.test(k));
+    const keys = [...gp.fakes.cache.keys()].filter((k) => /^RP_/.test(k));
     expect(keys.length).toBeGreaterThan(0);
-    expect(keys.join(' ')).not.toContain('brother');
+    const rows = gp.fakes.system.rowsOf('Counters');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(JSON.stringify(rows) + keys.join(' ')).not.toContain('brother');
   });
 });
 

@@ -40,7 +40,12 @@ coordinators and fill warnings, Needs help soon, the daily health email).
   Church's name as branding or any of its symbols.
 - A public sign-up always answers the same sentence; whether the address was new, waiting,
   approved, declined, a duplicate or on a full role is told only by email to that address.
-  Refused and blocked attempts count toward the per-address limits all the same.
+  Every attempt counts toward the limits the same way: per address, the different roles tried
+  today (System Sheet Counters tab, salted hashes, kept one day); per post, attempts this minute
+  (script cache).
+- Sheet changes and their links (tokens) are made inside the script lock; emails go out after
+  it, and a failed email is logged without changing the answer. Jobs and web calls first bring
+  a sheet set up by an older version up to date (`ensureUpgraded_`).
 - Private details go only to a Confirmed sign-up of an Approved volunteer (or a Leaders-tab
   address), only in the confirmation, the reminder and My sign-ups, and only until the date is
   over.

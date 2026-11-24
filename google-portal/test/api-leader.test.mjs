@@ -33,8 +33,10 @@ describe('who am I', () => {
     const r = plain(gp.apiWhoami_({ k: linkFor(gp, 'sister.helper@example.test') }));
     expect(r.ok).toBe(true);
     expect(r.leader).toEqual({ name: 'Sister Helper', calling: 'Primary Secretary', organization: 'Primary' });
-    expect(r.access).toEqual({ isBishopric: false, isCouncil: false, canApprove: true, createOrgs: ['Primary'], baseCreateOrgs: ['Primary'], editOrgs: ['Primary'], catOrgs: {}, coordinates: [] });
-    expect(r.categories.map((c) => c.id)).toContain('meals');
+    expect(r.access).toMatchObject({ isBishopric: false, isCouncil: false, canApprove: true, createOrgs: ['Primary'], baseCreateOrgs: ['Primary'], editOrgs: ['Primary'], coordinates: [] });
+    // Phase 2 review Q3: a category with owning organizations is for their leaders.
+    expect(r.categories.map((c) => c.id)).toContain('children');
+    expect(r.categories.map((c) => c.id)).not.toContain('meals');
     expect(r.categories.map((c) => c.id)).not.toContain('moving');
     expect(r.defaults).toEqual({ cutoffHours: 24 });
   });

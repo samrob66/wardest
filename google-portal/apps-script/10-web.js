@@ -24,6 +24,8 @@ var POST_ACTIONS = [
   'withdraw',
   'me',
   'requestMeLink',
+  'cancelMine',
+  'resendConfirm',
   'requestLeaderLink',
   'whoami',
   'listPosts',
@@ -117,6 +119,12 @@ function dispatch_(action, data) {
     requestMeLink: function () {
       return apiRequestMeLink_(data);
     },
+    cancelMine: function () {
+      return apiCancelMine_(data);
+    },
+    resendConfirm: function () {
+      return apiResendConfirm_(data);
+    },
     requestLeaderLink: function () {
       return apiRequestLeaderLink_(data);
     },
@@ -161,6 +169,11 @@ function dispatch_(action, data) {
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };
+  try {
+    ensureUpgraded_();
+  } catch (e0) {
+    log_('upgrade failed', clip(e0 && e0.message ? e0.message : e0, 300));
+  }
   try {
     return handlers[action]();
   } catch (err) {

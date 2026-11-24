@@ -58,6 +58,7 @@ describe('gpHourly', () => {
 
   it('a job error is logged and alerts the administrators once a day', () => {
     const gp = withSignup();
+    gp.fakes.props.set('SCHEMA_VERSION', gp.GP_VERSION); // already upgraded: a missing tab is a real problem
     gp.fakes.spreadsheet.deleteSheet(gp.fakes.spreadsheet.getSheetByName('Slots'));
     gp.gpHourly();
     gp.gpHourly();

@@ -45,6 +45,11 @@ var TEXT = {
   confirmedPassed: 'Your address is confirmed. The date you signed up for has passed, so that sign-up has ended.',
   withdrawn: 'Your offer is withdrawn. Thank you for being willing to help.',
   notActive: 'This sign-up is no longer active.',
+  categoryNotAllowed: "You can't make opportunities in this category.",
+  alreadyHappened: 'This has already happened.',
+  notWaitingEmail: 'This sign-up is not waiting for its confirm email.',
+  resendLimit: 'Too many confirm emails today. Please try again tomorrow.',
+  resent: 'We sent the confirm email again. Please check your inbox (and the spam folder).',
   meLinkMessage: 'If that address has signed up for something, a link to your sign-ups is on its way.',
   alreadyCancelled: 'This sign-up is already cancelled.',
   cancelled: 'Your sign-up is cancelled. Thank you for letting us know.',
@@ -96,6 +101,7 @@ var SYS_TAB = {
   outbox: 'Outbox',
   log: 'Log',
   requestFiles: 'Request files',
+  counters: 'Counters',
 };
 
 /** Exact headers, in order. A header added later is appended by Set up (gpEnsureTabs_), never reordered. */
@@ -116,6 +122,7 @@ var SYSTEM_HEADERS = {
   Outbox: ['Id', 'Queued at', 'To', 'Subject', 'Html', 'Text', 'Priority', 'Status', 'Error'],
   Log: ['At', 'What', 'Detail'],
   'Request files': ['Category id', 'Folder id', 'Form id', 'Sheet id', 'Month'],
+  Counters: ['Key', 'Day', 'Count'],
 };
 
 /** Each request sheet's one tab. */
@@ -142,12 +149,12 @@ var VOLUNTEER_STATUS = { pending: 'Pending', approved: 'Approved', declined: 'De
 var CATEGORY_KIND = { opportunity: 'Opportunity', request: 'Request' };
 
 /** Column types, by header name (any tab). Read back as text; written with format '@'. */
-var DATE_COLS = ['Date', 'Moving date', 'Closed on'];
+var DATE_COLS = ['Date', 'Moving date', 'Closed on', 'Day'];
 var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Link', 'First post'];
+var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Link', 'First post', 'Key'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived'];
 
 /** Settings rows: [key, default, help]. */

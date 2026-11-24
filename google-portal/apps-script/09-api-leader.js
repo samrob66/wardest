@@ -29,11 +29,9 @@ function opportunityCategories_() {
     });
 }
 
-/** Categories this leader may create in: all of them with an organization of their own, else only theirs. */
+/** Categories this leader may create in (leaderAccess catOrgs). */
 function creatableCategories_(access) {
-  var all = opportunityCategories_();
-  if ((access.baseCreateOrgs || []).length) return all;
-  return all.filter(function (c) {
+  return opportunityCategories_().filter(function (c) {
     return access.catOrgs && access.catOrgs[c.id];
   });
 }
@@ -215,10 +213,12 @@ function apiSavePost_(data) {
     oldSlots.forEach(function (sl) {
       keepDates[sl['Slot id']] = sl.Date;
     });
+    // Organizations follow the category's rule (leaderAccess); an edit that keeps the category
+    // may keep the post's organization.
     var cat = String(input.category == null ? '' : input.category).trim();
-    var allowed = existing
-      ? uniq_(lc.access.editOrgs.concat([existing.Organization], (lc.access.catOrgs && lc.access.catOrgs[cat]) || []))
-      : allowedOrgsFor_(lc.access, cat);
+    var sameCat = !!existing && cat === String(existing.Category || '');
+    var allowed = allowedOrgsFor_(lc.access, cat);
+    if (sameCat) allowed = uniq_(allowed.concat([existing.Organization]));
     var catIds = opportunityCategories_().map(function (c) {
       return c.id;
     });
@@ -230,12 +230,9 @@ function apiSavePost_(data) {
       publish: action === 'publish',
       keepDates: keepDates,
     });
-    if (!v.ok) return { ok: false, error: 'Please fix the marked fields.', fields: v.errors };
-    // A leader who edits this post only as a coordinator of its category keeps it in one of theirs.
-    var byOrgOrCreator = existing && (normEmail(existing['Created by']) === lc.email || lc.access.editOrgs.indexOf(existing.Organization) >= 0);
-    if (existing && !byOrgOrCreator && lc.access.categories.indexOf(v.post.category) < 0) {
-      return { ok: false, error: 'Please fix the marked fields.', fields: { category: 'Keep it in a category you coordinate.' } };
-    }
+    var errors = v.ok ? {} : v.errors;
+    if (cat && !sameCat && !allowedOrgsFor_(lc.access, cat).length) errors.category = TEXT.categoryNotAllowed;
+    if (Object.keys(errors).length) return { ok: false, error: 'Please fix the marked fields.', fields: errors };
 
     var counts = countsBySlot(d.signups);
     var fields = {};
@@ -250,9 +247,9 @@ function apiSavePost_(data) {
       kept[sl.slotId] = true;
       var f = filledOf_(counts, sl.slotId);
       if (sl.needed < f) fields['slots[' + i + '].needed'] = f + ' people are signed up; needed cannot be less.';
-      // Moving a booked date or start time would leave the people signed up at the old time.
+      // Moving a booked date or start time (confirmed or waiting) would leave people at the old time.
       var old = oldById[sl.slotId];
-      if (f > 0 && (sl.date !== old.Date || sl.start !== String(old.Start || ''))) {
+      if (bookedOf_(counts, sl.slotId) > 0 && (sl.date !== old.Date || sl.start !== String(old.Start || ''))) {
         fields['slots[' + i + '].date'] = TEXT.removeSignupsFirst;
         moved = true;
       }
@@ -264,7 +261,7 @@ function apiSavePost_(data) {
       return !kept[sl['Slot id']];
     });
     var blocked = removed.some(function (sl) {
-      return filledOf_(counts, sl['Slot id']) > 0;
+      return bookedOf_(counts, sl['Slot id']) > 0;
     });
     if (blocked) return { ok: false, error: TEXT.removeSignupsFirst, fields: { slots: TEXT.removeSignupsFirst } };
 
@@ -322,6 +319,12 @@ function apiSavePost_(data) {
   return result;
 }
 
+/** Sign-ups holding (Confirmed) or waiting for (Waiting-*) a place in the slot. */
+function bookedOf_(counts, slotId) {
+  var c = (counts && counts[slotId]) || {};
+  return (c.filled || 0) + (c.waiting || 0);
+}
+
 function merge_(a, b) {
   var o = {};
   Object.keys(a).forEach(function (k) {
@@ -353,14 +356,14 @@ function apiRemoveSignup_(data) {
     if (!isActiveSignup_(f.signup.Status)) return { already: true };
     serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
     refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
+    revokeSignupTokens_(f.signup['Sign-up id']);
+    f.msgs = [mailMsg_(normEmail(f.signup.Email), tplRemoved_(lc.s, f.post, f.slot))];
     return f;
   });
   if (done.error) return { ok: false, error: done.error };
   if (done.already) return { ok: true, message: 'Already removed.' };
-  revokeSignupTokens_(done.signup['Sign-up id']);
   clearServeCache_();
-  var t = tplRemoved_(lc.s, done.post, done.slot);
-  sendOrQueue_({ to: done.signup.Email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+  sendAll_('remove', done.msgs);
   return { ok: true, message: 'Removed. We emailed ' + done.signup.Name + '.' };
 }
 
@@ -435,11 +438,13 @@ function cancelPostOrDate_(data) {
     var e = normEmail(su.Email);
     (byEmail[e] = byEmail[e] || []).push(slotById[su['Slot id']]);
   });
-  Object.keys(byEmail).forEach(function (to) {
-    var t = tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date);
-    // High: it must not wait behind the reserve and arrive after the event.
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
-  });
+  // High: it must not wait behind the reserve and arrive after the event.
+  sendAll_(
+    'cancel post',
+    Object.keys(byEmail).map(function (to) {
+      return mailMsg_(to, tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date), 'high');
+    })
+  );
   var n = Object.keys(byEmail).length;
   return { ok: true, message: (date ? 'Date cancelled.' : 'Opportunity cancelled.') + (n ? ' We emailed ' + n + ' ' + (n === 1 ? 'person' : 'people') + '.' : '') };
 }
@@ -564,7 +569,7 @@ function apiDecide_(data) {
     if (decision === 'decline') {
       x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.declined }, record));
       mine.forEach(lapse);
-      return { v: x.v, decision: decision };
+      return { v: x.v, decision: decision, msgs: [mailMsg_(email, tplContactToSignUp_(lc.s))] };
     }
     x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.approved }, record));
     var live = [];
@@ -575,27 +580,24 @@ function apiDecide_(data) {
       if (over) lapse(su);
       else live.push(su);
     });
-    return { v: x.v, decision: decision, d: x.d, confirmed: confirmSignupsLocked_(live, x.d) };
+    var confirmed = confirmSignupsLocked_(live, x.d);
+    var msgs = [mailMsg_(email, tplApproved_(lc.s, x.v))]
+      .concat(confirmationMsgs_(confirmed, x.d))
+      .concat(
+        filledMsgsLocked_(
+          confirmed.map(function (c) {
+            return c.post['Post id'];
+          }),
+          x.d
+        )
+      );
+    return { v: x.v, decision: decision, n: confirmed.length, msgs: msgs };
   });
   if (done.error) return { ok: false, error: done.error };
   clearServeCache_();
-  var s = lc.s;
-  var to = normEmail(done.v.Email);
-  var t;
-  if (done.decision === 'decline') {
-    t = tplContactToSignUp_(s);
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-    return { ok: true, message: 'Declined. We emailed ' + done.v.Name + '.' };
-  }
-  t = tplApproved_(s, done.v);
-  sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  sendConfirmations_(done.confirmed, done.d);
-  filledNotices_(
-    done.confirmed.map(function (c) {
-      return c.post['Post id'];
-    })
-  );
-  var n = done.confirmed.length;
+  sendAll_('decide', done.msgs);
+  if (done.decision === 'decline') return { ok: true, message: 'Declined. We emailed ' + done.v.Name + '.' };
+  var n = done.n;
   return { ok: true, message: 'Approved. ' + n + ' sign-up' + (n === 1 ? '' : 's') + ' now count' + (n === 1 ? 's' : '') + '. We emailed ' + done.v.Name + '.' };
 }
 
