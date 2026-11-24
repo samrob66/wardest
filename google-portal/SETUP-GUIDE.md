@@ -26,14 +26,19 @@ What you are building:
 > 3. Reload the Service Sheet, then in the **Leaders** tab tick **Bishopric** for the bishop,
 >    both counselors, the Executive Secretary and the Ward Clerk (add a row for anyone missing),
 >    and for nobody else.
-> 4. Run **Service Portal > Set up**. It keeps everything you typed, makes whatever is still
->    missing (this is also section 3, step 7), adds the **Notify** column to the Categories tab
->    (the **other** row gets `Bishop`), and updates the wording of any request forms it made
->    before (*Updated the wording of: …*). Then check the Categories tab as in section 3, step
->    6: Christmas coordinators in **Coordinators**, and **Notify**.
-> 5. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
->    5, step 2). If you hadn't reached section 5 yet, skip this; section 5 runs it.
-> 6. Carry on from where you stopped.
+> 4. Run **Service Portal > Set up**. It keeps everything you typed and makes whatever is still
+>    missing (this is also section 3, step 7). It adds two Categories columns, **Notify** (the
+>    **other** row gets `Bishop`) and **On Help page** (ticked for every row you had), and a new
+>    row, **Christmas giving offers**, then makes its private form, folder and sheet. It also
+>    updates the wording of request forms it made before (*Updated the wording of: …*), and
+>    ends by listing the giving form's link.
+> 5. In the **Categories** tab, type the Christmas gift coordinators' emails in
+>    **Coordinators** on both the **christmas** and **christmas-giving** rows (section 3, step
+>    6).
+> 6. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
+>    5, step 2), and make the giving short link (section 6, step 7). If you hadn't reached those
+>    sections yet, skip this; they come up in order.
+> 7. Carry on from where you stopped.
 
 ---
 
@@ -175,30 +180,39 @@ private window, use a separate Chrome profile signed in only to the shared accou
    role can't create opportunities yet* and you can't do the test in section 9.
 
 6. Open the **Categories** tab and check the owners. Request kinds (`moving`, `christmas`,
-   `other`) decide who reads each request folder:
+   `other`, `christmas-giving`) decide who reads each request folder:
    - **Moving help**: the Elders Quorum and Relief Society leaders (Owning organizations).
    - **Christmas help** and **Other help** are **Confidential**: only the bishopric (every
      Leaders row with **Bishopric** ticked) and anyone listed in **Coordinators** (emails,
      separated by commas). No other ward council member sees them unless you list them there.
+   - **Christmas giving offers** (`christmas-giving`) is a **private** form where families
+     offer gifts. It is Confidential and **not** on the public Request Help page (its **On Help
+     page** box is unticked); you share its link privately (section 6, step 7).
    - **Christmas gift coordinators.** If a couple outside the bishopric is called to match
-     Christmas requests with givers, type both their emails in the **christmas** row's
-     **Coordinators** cell, for example
+     Christmas requests with givers, type both their emails in **Coordinators** on **both** the
+     **christmas** and the **christmas-giving** rows, for example
      `brother.example.gifts@example.test, sister.example.gifts@example.test` (Riverbend's
-     invented Brother and Sister Example). They need no Leaders row. They get the Christmas
-     folder and its request emails, and nothing else: not the Service Sheet, not Moving or
-     Other.
-   - **Notify** (the last column) says who gets the short *New … request* email. Blank means
-     everyone who can open that kind's folder. Otherwise type names separated by commas:
-     `Bishop` (the Leaders row whose Calling is `Bishop`) or email addresses. The **other** row
-     starts as `Bishop`: Other requests email only the bishop, while the whole bishopric can
-     still open the Other folder. To widen it later, clear the cell (the whole bishopric is
-     emailed) or add addresses, e.g. `Bishop, brother.counselor@example.test`. Only people who
-     can open the folder are ever emailed; Sync sharing lists anyone in Notify who can't.
-     Leave **christmas** and **moving** blank.
+     invented Brother and Sister Example). They need no Leaders row. They get those two folders
+     and their emails, and nothing else: not the Service Sheet, not Moving or Other.
+   - **Notify** says who gets the short *New … request* email. Blank means everyone who can
+     open that kind's folder. Otherwise type names separated by commas: `Bishop` (the Leaders
+     row whose Calling is `Bishop`), `Coordinators` (the people in that row's Coordinators), or
+     email addresses. The rows start like this:
+     - **other**: `Bishop`. Other requests email only the bishop, while the whole bishopric can
+       still open the Other folder. To widen it later, clear the cell (the whole bishopric is
+       emailed) or add addresses, e.g. `Bishop, brother.counselor@example.test`.
+     - **christmas-giving**: `Coordinators`. Offers email the Christmas gift coordinators. Until
+       you type their emails, the bishopric gets them.
+     - **christmas** and **moving**: blank (everyone who can open the folder).
+     Only people who can open the folder are ever emailed; Sync sharing lists anyone in Notify
+     who can't.
+   - **On Help page**: ticked request kinds show on the public Request Help page. If you add a
+     new request kind later, tick it (unticked kinds are left off).
    Do not change the **Id** column.
 7. Click **Service Portal > Set up** again. It makes the **Service Portal** folder in Drive,
    moves the Service Sheet into it, makes the private **System Sheet**, and makes one request
-   form, folder and month sheet for each request kind. It ends with *Set up is done.* If it
+   form, folder and month sheet for each request kind. It ends with *Set up is done.* and the
+   link to the private **Christmas giving offers** form (keep it for section 6, step 7). If it
    also mentions the **time zone**, follow its words (Extensions > Apps Script > Project
    Settings > Time zone) and run Set up again.
 
@@ -274,6 +288,12 @@ pages. The hub belongs to the ward; its owner adds the files.
    again, and give the hub owner the new `hub-sections.html` part.
 6. QR codes: download the QR code zippa.run shows for each short link, name them
    `serve-qr.png` and `help-qr.png`, and have the hub owner upload them next to `index.html`.
+7. **The private Christmas giving form.** Find its link in Set up's message (it lists *Christmas
+   giving offers (not on the Help page; share privately): …*), or in Drive > **Service Portal**
+   > the **Christmas giving offers** form > **Send** > the **link** icon > **Copy**. On
+   **app.zippa.run** make `<prefix>Give` pointing at it (Riverbend: `zippa.run/rb1Give`).
+   Share it only in a ward email with addresses in **Bcc**, or in the bulletin. **Never** put
+   it on the public hub.
 
 **If there is no hub, or the hub test in Check health fails:** skip this step, leave
 **hub_url** blank, and point the two short links at the web app's own pages instead:

@@ -63,5 +63,18 @@ Requests are removed 30 days after they are Done or Declined.
   whole bishopric can open the Other folder. Other kinds go to the leaders of the organizations
   that own them.
 
+**Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on a
+private form; each offer is a row in your **Requests – Christmas giving offers** folder, and
+each family's request is a row in **Requests – Christmas help**.
+1. Open both folders' sheets.
+2. Pick a request and an offer that fit.
+3. Contact the giver yourself. Share only what they need to give well, and no more than the
+   family agreed to.
+4. Record the match in both sheets: **Assigned to** and **Leader note** (e.g. "matched with
+   offer o…" on the request, "request r…" on the offer, using the **Request id** column). Mark both **Done** when the gifts are
+   delivered.
+5. Closed rows are deleted 30 days after they are Done or Declined.
+Never copy request or offer details into an email or into Gemini.
+
 **The Service Sheet.** The bishopric edits it; other ward council members can view it. To change
 Settings, Leaders or Categories, ask the Executive Secretary.

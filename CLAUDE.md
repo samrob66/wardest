@@ -124,7 +124,7 @@ with `google-portal/SETUP-GUIDE.md`). Spec
 Leaders row with **Bishopric** ticked (bishop, both counselors, Executive Secretary, Ward Clerk)
 edits the Service Sheet and reads the confidential requests (Christmas, Other) with that kind's
 Coordinators; `bishopricEmails()` decides, never the Calling text. Alert emails still go to
-Calling `Bishop` / `Executive Secretary`.
+Calling `Bishop` / `Executive Secretary`. Categories also carry **Notify** (who gets a kind's notice: blank = every reader, else `Bishop` / `Coordinators` / emails, always limited to readers; decision 15) and **On Help page** (unticked = private form, e.g. the Christmas giving offers form read by the bishopric and the Christmas gift coordinators; decision 16).
 - Source: `google-portal/apps-script/NN-*.js` + `pages/`. `npm run gp:build` writes the
   paste-ready `google-portal/dist/Code.gs` + `appsscript.json`, which are **generated and
   committed** (never hand-edited); `npm run gp:build:check` (and the gp tests) fail when `dist/`

@@ -481,11 +481,16 @@ describe('Christmas giving offers (decision 16)', () => {
     const rows = gp.fakes.spreadsheets.get(f['Sheet id']).rowsOf('Requests');
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ Kind: 'Christmas giving offers', Name: 'Sister Giver', 'Phone or email': '555-0199', Offer: "'=gifts for two children", Note: 'after the 15th', Status: 'New' });
+    // Offer ids start with o, request ids with r, so a match note can name either.
+    expect(rows[0]['Request id']).toMatch(/^o[a-z2-7]{10}$/);
     expect(form.deletedResponses).toEqual(['resp-give']);
     expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual([...COUPLE].sort());
     for (const m of gp.fakes.mail.sent) {
       for (const bad of ['Sister Giver', '555-0199', 'gifts for two', '15th']) expect(m.body + m.htmlBody + m.subject).not.toContain(bad);
     }
+    submit(gp, 'christmas', { Name: 'Sister Private', 'Phone or email': 'private@example.test', For: 'My family' });
+    const req = gp.fakes.spreadsheets.get(fileFor(gp, 'christmas')['Sheet id']).rowsOf('Requests')[0];
+    expect(req['Request id']).toMatch(/^r[a-z2-7]{10}$/);
   });
 
   it('with no coordinators typed yet, an offer notice falls back to the bishopric', () => {

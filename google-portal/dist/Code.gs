@@ -3228,7 +3228,7 @@ function gpOnRequestSubmit(e) {
       var cat = serviceTab_(TAB.categories).find('Id', catId);
       if (!cat) throw new Error('category missing from the Categories tab');
       catName = cat.Name;
-      var row = { 'Request id': newId_('r'), Received: nowLocal_(), Kind: cat.Name, Status: 'New' };
+      var row = { 'Request id': newId_(cat.Id === GIVING_ID ? 'o' : 'r'), Received: nowLocal_(), Kind: cat.Name, Status: 'New' };
       REQ_MAP.forEach(function (m) {
         if (m[0] in answers) row[m[1]] = clip(answers[m[0]].trim(), m[2]);
       });

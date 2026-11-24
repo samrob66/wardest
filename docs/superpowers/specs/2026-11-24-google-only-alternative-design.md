@@ -141,6 +141,7 @@ done with Levels 1–3 tools (or only by a workaround outside the system).
 | Minimal forms (name, contact, optional 200-char note; moving in/out + date; Christmas: my family / another family) | Full | One Google Form per request kind. |
 | Requester's email verified by link | Changed (by choice) | Not done. Forms can only verify an email by making the person sign in to Google (Sam's rule: "not everyone has Gmail"). Instead the form asks for name and a phone or email, sends **nothing** to the requester, and the leader confirms in person. Fewer emails, nothing revealed if someone types another person's address. A fake request costs one conversation. |
 | Each form says who will see it | Full | Form description. |
+| Private Christmas giving offers (§12 decision 16) | Full | A request kind that is not on the Help page: families offer gifts on its form, shared privately by short link; offers land in their own folder read by the bishopric and the Christmas gift coordinators, who match offers to Christmas requests themselves. |
 | Only the responsible leaders see requests; Christmas and Other only the bishopric and those they name | Full (with one caveat) | Each request kind writes to its own spreadsheet in a Drive folder shared only with its leaders (§5.4); Christmas and Other go to the whole bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) plus that kind's Coordinators (§12 decision 14). Caveat: the shared bishopric account owns every file, so anyone who signs in to that account can open them, and so can anyone who edits the Service Sheet, through its bound script; both are the bishopric. Same as WardForward's superadmins. |
 | Inbox with status, assignee, one short private note | Full | Columns in each request sheet. |
 | Leader notice by email with no details | Full | "A new Moving request came in. Open your Requests folder." |
@@ -310,7 +311,10 @@ Rules:
 - Each request kind's **Notify** (Categories) narrows who gets its "new request" email. Blank:
   every reader. Otherwise `Bishop` (Calling Bishop) and email addresses, always limited to that
   kind's readers; anyone else is dropped and logged. Other is seeded `Bishop`: its email goes to
-  the bishop while the whole bishopric can open its folder.
+  the bishop while the whole bishopric can open its folder. `Coordinators` means that kind's
+  Coordinators; the Christmas giving offers kind is seeded with it.
+- A request kind with **On Help page** unticked has a form but no tile on the Help page; its
+  link is shared privately (the Christmas giving offers form, §12 decision 16).
 - Caveat: an editor of the Service Sheet can also edit the script bound to it, which runs as the
   shared account and can open every request sheet. Only the bishopric edits it, and the bishopric
   reads the confidential requests anyway, so this gives no one more than they have.
@@ -727,6 +731,14 @@ help soon", quota reserve and health email.
     requests from needy families (or about needy families). So nobody should see that sheet
     except the Bishopric and this couple. Whereas all of the other help requests under "Other"
     should go to the Bishop (and can be ready by the Bishopric)."
+16. **Christmas giving offers are a private form** (§4.3, §5.4; Sam, 2026-11-24, in 1.1: "Yes,
+    private form"). Families who want to give offer on a request-style Google Form that is not on
+    the Help page (Categories column On Help page) and is shared by a `<prefix>Give` short link in
+    a Bcc email or the bulletin, never on the hub. Offers go to their own folder ("Requests –
+    Christmas giving offers") read by the bishopric and the Christmas gift coordinators, with
+    notices to the coordinators (Notify `Coordinators`), the usual 30-day purge and monthly
+    rotation, and a new Offer column. The coordinators match offers to Christmas requests
+    themselves; the script never copies request data anywhere else.
 
 ## 13. Settled with Sam, and open questions
 
