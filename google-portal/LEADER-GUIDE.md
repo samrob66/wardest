@@ -5,27 +5,66 @@ have one (or it expired after 90 days), open the leader page from the ward's hub
 email and click **Email me a leader link**. Keep the link to yourself: whoever has it can act
 as you on the leader page.
 
-**Create an opportunity.** Click **New opportunity**. Fill in the organization, a title, who it
-is for (Brothers, Sisters, Youth, Children), a public note, and any **private details** (an
-address, a gate code). Then add dates: each date has one or more roles with how many people,
-times if you want them, a note, and an optional question such as *What are you bringing?*
+**Create an opportunity.** Click **New opportunity**. Pick the **category** first (Meals,
+Moving, Service project, …; its usual audiences are ticked for you), then the organization, a
+title, who it is for (Brothers, Sisters, Youth, Children), a public note, and any **private
+details** (an address, a gate code). Then add dates: each date has one or more roles with how
+many people, times if you want them, a note, and an optional question such as *What are you
+bringing?*
 - **Add date** adds one date (copying the last date's roles); **Copy this date** duplicates a
   date; **Add role** adds a role to a date.
 - **Add dates** is for meal trains: pick a first and last date and the weekdays, and every
   matching date is added with the same roles.
+- For **Youth** or **Children**, the sign-up form asks *Who is serving? Me / My child* and takes
+  a child's first name. Every email goes to the parent; you see *Ana (signed up by …)*.
 
 **Publish and share.** **Save as draft** keeps it hidden; **Publish** puts it on the Service
 Opportunities page. Under **My opportunities**, each post shows its public link with a **Copy**
 button: paste it into a ward email (addresses in **Bcc**) or a message.
 
-**Watch sign-ups.** My opportunities shows each date and role with how many have signed up, and
-who. You get an email when someone cancels, and a *You're now short* email when it is after the
-cancel cutoff.
+**Approve first-timers.** Someone signing up for the first time gets an email asking them to
+confirm their address. Once they click it, they appear under **Waiting for approval** for the
+leaders of the organization whose opportunity they first signed up for, and for the bishopric.
+Check the ward directory, then:
+- **Approve**: they are approved for the whole ward. Every sign-up they have waiting counts at
+  once, and each one gets its confirmation email with the private details. From then on their
+  sign-ups count straight away.
+- **Decline**: their waiting sign-ups end and they get a polite email asking them to contact
+  the ward. They can't sign up again unless a bishopric member undoes it.
+Your name and the time are recorded in the Volunteers tab. Approval belongs to the
+organization's leaders and the bishopric only; a category coordinator doesn't approve. If
+someone is still waiting 48 hours before they would serve, you get an *Urgent: waiting for
+approval* email. Leaders on the ward's leader list never need approval.
 
-**Approve first-timers.** Someone signing up for the first time confirms their email, then
-waits under **Waiting for approval** for a leader of the organization of their first post (or
-the bishopric). Check the ward directory, then **Approve** or **Decline**. Only approved
-volunteers (and leaders) count toward a role and get the private details.
+**Watch sign-ups.** My opportunities shows each date and role as **7 of 10 · 3 waiting**: 7
+count, 3 are still waiting (for their email click or for approval) and don't hold a place yet.
+Each person shows with what they're bringing and, when they are waiting, a tag saying for
+what. You get an email when someone cancels (*You're now short* after the cancel cutoff), and
+a *Fully filled* email once every role has its people.
+
+**Over the number.** A waiting person approved after a role filled still counts: the role can
+show **12 of 10**, and the person is told the need is already met and offered **Withdraw my
+offer** (withdrawing sends you nothing, since the role is still full). Remove anyone you don't
+need with **Remove**; they get an email.
+
+**Private details.** They go only to approved volunteers (and leaders) who are signed up: in
+their confirmation email, their reminder the day before and their **My sign-ups** page, and
+only until the date is over. Never on a public page.
+
+**Needs help soon** (ward council and bishopric). Every open role still short in the next 14
+days, soonest first, with a link to share. The same list is the Service Sheet's **Needs help
+soon** tab.
+
+**Coordinators.** The Categories tab can name coordinators for a kind of opportunity (a meal
+coordinator, a building specialist). A coordinator sees and edits every opportunity in their
+categories, whatever its organization, can make new ones there, and gets the category's
+*Fully filled* and *Still short* emails (a *Still short* email comes once per date, at the
+category's Warn hours before it, when a role is still short). They don't approve volunteers.
+
+**Bishopric: Volunteers.** The **Volunteers** tab lists everyone who has signed up, with who
+approved or declined them and when. **Undo decline** lets someone sign up again (their next
+sign-up waits for approval); **Revoke** stops an approved volunteer from signing up again
+(their current sign-ups stay; remove them if needed).
 
 **Change a post.** **Edit** changes a post. A date or start time with people signed up can't be
 moved or removed until you remove them (or cancel that date, below). **Copy this post** starts
@@ -36,7 +75,8 @@ a new draft from it.
   their place and still get their reminder. (**Save as draft** on a published post does the
   same and also hides it from the public page.)
 - **Cancel this opportunity**: it isn't happening. Everyone signed up gets an email (with your
-  short note, if you add one), no reminders go out, and it can't be reopened.
+  short note, if you add one), anyone still waiting simply drops off, no reminders go out, and
+  it can't be reopened.
 - **Cancel this date**: one date of a longer post isn't happening. The people signed up for that
   date get the email; the other dates carry on.
 

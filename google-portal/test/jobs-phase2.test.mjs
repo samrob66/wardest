@@ -67,6 +67,21 @@ describe('gpHourly: nudges, lapses, warnings', () => {
     expect(rows(gp, 'Slots').map((s) => s.Waiting)).toEqual([0, 1]);
   });
 
+  it('a warning with nobody to tell is not marked sent, so coordinators added later still hear', () => {
+    const gp = setup();
+    const ct = gp.serviceTab_('Categories');
+    ct.update(ct.find('Id', 'meals'), { Coordinators: '', 'Also warn': '' });
+    gp.gpBegin_();
+    gp.fakes.setNow('2026-11-30 19:00');
+    gp.gpHourly();
+    expect([...gp.fakes.props.keys()].filter((k) => k.startsWith('SENT_WARN_'))).toEqual([]);
+    ct.update(ct.find('Id', 'meals'), { Coordinators: 'sister.coordinator@example.test' });
+    gp.gpBegin_();
+    gp.fakes.setNow('2026-11-30 20:00');
+    gp.gpHourly();
+    expect(gp.fakes.mail.sent.filter((m) => /short/i.test(m.subject)).map((m) => m.to)).toEqual(['sister.coordinator@example.test']);
+  });
+
   it('warns the category coordinators and Also warn once per post date', () => {
     const gp = setup();
     gp.fakes.setNow('2026-11-30 16:00'); // 73 h before Dec 3 17:00

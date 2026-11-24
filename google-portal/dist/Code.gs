@@ -4989,6 +4989,8 @@ function sendWarnings_() {
         .filter(isEmail)
         .map(normEmail)
     );
+    // Nobody to warn yet: leave the key unmarked, so coordinators added later still hear.
+    if (!to.length) return;
     var t = tplWarning_(s, post, w.date, w.short, pageUrl_(s, 'post', { p: post['Public id'] }));
     to.forEach(function (e) {
       sendOrQueue_({ to: e, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
@@ -5014,7 +5016,9 @@ function writeNeedsHelpTab_() {
     var t = serviceTab_(TAB.needsHelp);
     var have = t.rows();
     if (key(have) === key(want)) return;
-    t.removeMany(have);
+    // Clear (not delete) the old rows: Sheets refuses to delete every row below a frozen header.
+    var last = t.sheet.getLastRow();
+    if (last > 1) t.sheet.getRange(2, 1, last - 1, t.headers.length).clearContent();
     t.appendMany(want);
   });
 }

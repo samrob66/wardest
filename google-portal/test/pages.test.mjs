@@ -245,3 +245,126 @@ describe('serve.html', () => {
     expect(main.textContent).not.toContain('Youth');
   });
 });
+
+const tick = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+};
+const click = (node) => node.listeners.click[0]();
+const byText = (root, tag, text) => root.all().find((n) => n.tagName === tag && n.textContent === text);
+
+describe('leader.html', () => {
+  const whoami = (access) => ({
+    ok: true,
+    leader: { name: 'Sister Example', calling: 'Relief Society President', organization: 'Relief Society' },
+    access: { isBishopric: false, isCouncil: true, canApprove: true, createOrgs: ['Relief Society'], baseCreateOrgs: ['Relief Society'], editOrgs: ['Relief Society'], catOrgs: {}, coordinates: [], ...access },
+    organizations: ['Relief Society', 'Primary'],
+    categories: [{ id: 'meals', name: 'Meals', icon: '🍲', audiences: ['Sisters'] }, { id: 'children', name: 'Primary help', icon: '🧸', audiences: ['Children'] }],
+    defaults: { cutoffHours: 24 },
+  });
+  const listPosts = {
+    ok: true,
+    posts: [
+      {
+        postId: 'p1', publicId: 'pub1', publicUrl: 'post.html#p=pub1', title: 'Meals', organization: 'Relief Society', category: 'meals', audiences: ['Sisters'], status: 'Open', canEdit: true, firstDate: '2026-12-03',
+        slots: [{ slotId: 's1', date: '2026-12-03', start: '17:00', end: '', role: 'Bring a meal', needed: 10, filled: 7, waiting: 3 }],
+        signups: [
+          { signupId: 'a', slotId: 's1', name: 'Brother New', childName: '', label: 'Brother New', status: 'Waiting-approval', email: 'brother.new@example.test' },
+          { signupId: 'b', slotId: 's1', name: 'Sister Parent', childName: 'Ana', label: 'Ana (signed up by Sister Parent)', status: 'Confirmed', email: 'parent@example.test' },
+        ],
+      },
+    ],
+  };
+
+  it('shows waiting counts and statuses, and the phase 2 tabs work', async () => {
+    let decided = null;
+    const doc = await renderPage('leader', '#k=' + 'a'.repeat(64), {
+      whoami: whoami({}),
+      listPosts,
+      waiting: { ok: true, volunteers: [{ email: 'brother.new@example.test', name: 'Brother New', firstPost: 'Meals', firstPostOrganization: 'Relief Society', signups: [{ title: 'Meals', date: '2026-12-03', start: '17:00', role: 'Bring a meal', childName: '' }] }] },
+      decide: (body) => {
+        decided = body;
+        return { ok: true, message: 'Approved. 1 sign-up now counts. We emailed Brother New.' };
+      },
+      needsHelp: { ok: true, rows: [{ title: 'Meals', organization: 'Relief Society', date: '2026-12-03', start: '17:00', end: '', role: 'Bring a meal', filled: 7, needed: 10, publicUrl: 'post.html#p=pub1' }] },
+    });
+    const main = doc.ids['gp-main'];
+    expect(main.textContent).toContain('7 of 10 · 3 waiting');
+    expect(main.textContent).toContain('Ana (signed up by Sister Parent)');
+    expect(main.textContent).toContain('Waiting for approval');
+    expect(main.textContent).not.toContain('Send details');
+    expect(byText(main, 'button', 'Volunteers')).toBeUndefined();
+    click(byText(main, 'button', 'Waiting for approval'));
+    await tick();
+    expect(main.textContent).toContain('brother.new@example.test');
+    click(byText(main, 'button', 'Approve'));
+    await tick();
+    expect(decided).toMatchObject({ action: 'decide', email: 'brother.new@example.test', decision: 'approve' });
+    expect(main.textContent).toContain('Approved. 1 sign-up now counts.');
+    click(byText(main, 'button', 'Needs help soon'));
+    await tick();
+    expect(main.textContent).toContain('7 of 10 filled');
+    click(byText(main, 'button', 'New opportunity'));
+    await tick();
+    expect(main.textContent).toContain('Category');
+    expect(main.textContent).toContain('Who is serving');
+  });
+
+  it('a coordinator only picks their categories; the bishopric gets Volunteers with Undo and Revoke', async () => {
+    const coord = await renderPage('leader', '#k=' + 'a'.repeat(64), {
+      whoami: { ...whoami({ isCouncil: false, canApprove: false, createOrgs: ['Relief Society'], baseCreateOrgs: [], editOrgs: [], catOrgs: { meals: ['Relief Society'] }, coordinates: ['meals'] }), categories: [{ id: 'meals', name: 'Meals', icon: '🍲', audiences: ['Sisters'] }] },
+      listPosts: { ok: true, posts: [] },
+    });
+    const main = coord.ids['gp-main'];
+    expect(byText(main, 'button', 'Waiting for approval')).toBeUndefined();
+    click(byText(main, 'button', 'New opportunity'));
+    await tick();
+    expect(coord.ids['gp-cat'].children.map((o) => o.value)).toEqual(['meals']);
+    expect(coord.ids['gp-org'].children.map((o) => o.value)).toEqual(['Relief Society']);
+
+    const bish = await renderPage('leader', '#k=' + 'a'.repeat(64), {
+      whoami: whoami({ isBishopric: true }),
+      listPosts: { ok: true, posts: [] },
+      volunteers: {
+        ok: true,
+        volunteers: [
+          { email: 'a@example.test', name: 'A Person', status: 'Declined', decidedBy: 'Bishop Example', decidedAt: '2026-12-01 10:00', emailConfirmed: true, firstPost: 'Meals' },
+          { email: 'b@example.test', name: 'B Person', status: 'Approved', decidedBy: 'Sister Example', decidedAt: '2026-12-01 10:00', emailConfirmed: true, firstPost: 'Meals' },
+        ],
+      },
+    });
+    const bmain = bish.ids['gp-main'];
+    click(byText(bmain, 'button', 'Volunteers'));
+    await tick();
+    expect(byText(bmain, 'button', 'Undo decline')).toBeTruthy();
+    expect(byText(bmain, 'button', 'Revoke')).toBeTruthy();
+  });
+});
+
+describe('me.html', () => {
+  it('lists upcoming sign-ups with details and cancel, other ways to serve, and past ones', async () => {
+    let cancelled = null;
+    const doc = await renderPage('me', '#t=' + 'b'.repeat(64), {
+      me: {
+        ok: true,
+        name: 'Sister Approved',
+        upcoming: [{ title: 'Meals', publicUrl: 'post.html#p=pub1', date: '2026-12-03', start: '17:00', end: '', role: 'Bring a meal', childName: '', bringing: 'Soup', status: 'Confirmed', others: ['Sister'], privateDetails: '123 Example Lane', cancelToken: 'c'.repeat(64) }],
+        past: [{ title: 'Old', publicUrl: 'post.html#p=old', date: '2026-11-03', start: '', end: '', role: 'Helper', childName: 'Ana', bringing: '', status: 'Confirmed', others: [] }],
+        otherWays: [{ title: 'Clean the building', filled: 1, needed: 4, url: 'post.html#p=o' }],
+      },
+      cancel: (body) => {
+        cancelled = body;
+        return { ok: true, message: 'Your sign-up is cancelled. Thank you for letting us know.' };
+      },
+    });
+    const main = doc.ids['gp-main'];
+    for (const s of ['Coming up', '123 Example Lane', 'Also serving: Sister', 'Other ways to serve', 'Clean the building', '1 of 4 filled', 'Past', 'for Ana']) expect(main.textContent).toContain(s);
+    click(byText(main, 'button', 'Cancel'));
+    await tick();
+    expect(cancelled).toMatchObject({ action: 'cancel', t: 'c'.repeat(64) });
+  });
+
+  it('without a link it offers "Email me my link"', async () => {
+    const doc = await renderPage('me', '', {});
+    expect(doc.ids['gp-main'].textContent).toContain('Email me my link');
+  });
+});

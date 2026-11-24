@@ -116,10 +116,18 @@ is http(s)-only, normalized on write and guarded on render (`src/lib/urls.ts`).
 A separate, Google-only build of the volunteer sign-ups and service requests for a ward that
 stays on its own Google account (Apps Script bound to a "Service Sheet", Google Forms for
 requests, hub sub-pages that call the script's web app). Phase 1 built & tested in Node
-2026-11-24; nothing has been created in Google yet (Sam does every Google step in a browser
-with `google-portal/SETUP-GUIDE.md`). Spec
-`docs/superpowers/specs/2026-11-24-google-only-alternative-design.md`; plan
-`docs/superpowers/plans/2026-11-24-google-portal-phase-1.md`.
+2026-11-24; phase 2 (confirm-your-address and first-time approval with records, waiting
+counts, over-limit with withdraw, 48 h nudges, lapses, My sign-ups `me.html`, children,
+category coordinators and fill warnings, Needs help soon, daily health email) built & tested
+in Node 2026-11-24. Nothing has been created in Google yet (Sam does every Google step in a
+browser with `google-portal/SETUP-GUIDE.md`; section 11 upgrades a phase 1 install). Spec
+`docs/superpowers/specs/2026-11-24-google-only-alternative-design.md`; plans
+`docs/superpowers/plans/2026-11-24-google-portal-phase-1.md` and `…-phase-2.md`.
+- Every public sign-up answers the same sentence (`TEXT.signupThanks`); what happened goes
+  only by email. Private details reach only Confirmed sign-ups of Approved volunteers or
+  Leaders-tab addresses (confirmation, reminder, My sign-ups). Approval is by the first post's
+  organization's leaders or the bishopric (`canApprove`); coordinators come from the
+  Categories tab's Coordinators column and don't approve.
 - Source: `google-portal/apps-script/NN-*.js` + `pages/`. `npm run gp:build` writes the
   paste-ready `google-portal/dist/Code.gs` + `appsscript.json`, which are **generated and
   committed** (never hand-edited); `npm run gp:build:check` (and the gp tests) fail when `dist/`
