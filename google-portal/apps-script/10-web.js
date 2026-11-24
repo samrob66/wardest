@@ -175,6 +175,12 @@ function dispatch_(action, data) {
     log_('upgrade failed', clip(e0 && e0.message ? e0.message : e0, 300));
   }
   try {
+    // When the phase 2 web app first answered: the end of the old web app's gap (migration).
+    if (!props_().getProperty('PHASE2_WEB_AT')) props_().setProperty('PHASE2_WEB_AT', nowLocal_());
+  } catch (e1) {
+    // not needed to answer
+  }
+  try {
     return handlers[action]();
   } catch (err) {
     if (err && err.gpBusy) return { ok: false, error: TEXT.busy };

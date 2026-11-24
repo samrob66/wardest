@@ -75,6 +75,8 @@ describe('validatePost', () => {
     expect(r.errors.slots).toBeTruthy();
     expect(gp.validatePost(goodInput({ audiences: ['Elders'] }), ctx()).ok).toBe(false);
     expect(gp.validatePost(goodInput({ category: '' }), ctx()).ok).toBe(true);
+    // A new post must have one (review round 2); an old post saved without one may stay so.
+    expect(plain(gp.validatePost(goodInput({ category: '' }), ctx({ requireCategory: true }))).errors.category).toBe('Pick a category');
     expect(gp.validatePost(goodInput({ cutoffHours: '' }), ctx()).ok).toBe(true);
   });
   it('allows at most 100 slots', () => {

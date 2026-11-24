@@ -556,8 +556,8 @@ GP.footer();
         f.dates.forEach(function (d) {
           d.roles = d.roles.map(copyRole);
         });
-        // A copy goes in a category this leader may create in (or none, with an organization of their own).
-        if (!categoryById(f.category)) f.category = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';
+        // A copy keeps its category when this leader may create in it; otherwise one must be picked.
+        if (!categoryById(f.category)) f.category = '';
         if (orgsFor(f).indexOf(f.organization) < 0) f.organization = orgsFor(f)[0] || '';
       }
       state.form = f;
@@ -589,8 +589,9 @@ GP.footer();
       return el('option', { value: o, selected: o === f.organization ? 'selected' : null }, o);
     }));
     org.value = f.organization;
-    // Leaders with an organization of their own may leave the category blank; coordinators pick one of theirs.
-    var catChoices = (me.access.baseCreateOrgs.length ? [el('option', { value: '' }, '(none)')] : []).concat(
+    // A new post (and a copy) needs a category; an old post saved without one may stay that way.
+    var blankLabel = f.postId ? '(none)' : 'Pick a category';
+    var catChoices = (f.category ? [] : [el('option', { value: '' }, blankLabel)]).concat(
       me.categories.map(function (c) {
         return el('option', { value: c.id }, (c.icon ? c.icon + ' ' : '') + c.name);
       })

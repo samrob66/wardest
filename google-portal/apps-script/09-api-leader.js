@@ -228,6 +228,7 @@ function apiSavePost_(data) {
       categoryIds: catIds,
       todayLocal: now.slice(0, 10),
       publish: action === 'publish',
+      requireCategory: !existing,
       keepDates: keepDates,
     });
     var errors = v.ok ? {} : v.errors;

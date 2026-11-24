@@ -270,32 +270,31 @@ function apiSignup_(data) {
     var now = nowLocal_();
     var today = now.slice(0, 10);
     var post = findPublicPost_(d.posts, data.publicId);
+    // A made-up post answers at once, the same for every address, and writes no counter.
+    if (!post) return { error: TEXT.postNotFound };
     var slot = null;
-    if (post) {
-      d.slots.forEach(function (sl) {
-        if (sl['Slot id'] === String(data.slotId) && sl['Post id'] === post['Post id']) slot = sl;
-      });
-    }
-    // The limits come first and count every attempt alike, before anything about the address.
+    d.slots.forEach(function (sl) {
+      if (sl['Slot id'] === String(data.slotId) && sl['Post id'] === post['Post id']) slot = sl;
+    });
+    // The limits come next and count every attempt on a real post alike, before anything about
+    // the address: per address the different roles tried today, per post this minute, and the
+    // ward's attempts today (key T).
     var dc = dayCounters_();
     var tag = addrTag_(email);
     var roleKey = 'R:' + tag + ':' + (slot ? slot['Slot id'] : '?');
-    var minuteKey = post ? postMinuteKey_(post['Post id'], now) : '';
-    var totalToday = d.signups.filter(function (su) {
-      return String(su['Signed up at']).slice(0, 10) === today;
-    }).length;
+    var minuteKey = postMinuteKey_(post['Post id'], now);
     var newRole = !dc.get(roleKey);
     var limit = rateCheck(
-      { addressToday: newRole ? dc.countPrefix('R:' + tag + ':') : 0, totalToday: totalToday, postMinute: readCount_(minuteKey) },
+      { addressToday: newRole ? dc.countPrefix('R:' + tag + ':') : 0, totalToday: dc.get('T'), postMinute: readCount_(minuteKey) },
       { perAddress: LIMITS.signupEmailsPerAddressPerDay, perDay: s.signup_limit_per_day, perPostMinute: LIMITS.signupsPerPostPerMinute, leaderLinks: Infinity }
     );
     if (limit) {
-      log_('sign-up limit', limit + ' | ' + (post ? post['Post id'] : '?'));
+      log_('sign-up limit', limit + ' | ' + post['Post id']);
       return { error: TEXT.rateLimited + contactSuffix_(s) };
     }
     dc.bump(roleKey);
+    dc.bump('T');
     bumpCount_(minuteKey);
-    if (!post) return { error: TEXT.postNotFound };
     if (childName && !allowsChildren_(post)) return { error: 'Please check the form.', fields: { childName: TEXT.noChildren } };
     var volsT = serviceTab_(TAB.volunteers);
     var byEmail = volunteersByEmail_(volsT.rows());

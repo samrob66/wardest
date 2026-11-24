@@ -189,3 +189,20 @@ describe('Needs help soon and the end of Send details', () => {
     expect(post({ action: 'sendDetails', k: linkFor(gp, 'sister.example@example.test'), signupId: 'x' })).toEqual({ ok: false, error: 'Not found.' });
   });
 });
+
+describe('review round 2: a category is required for new posts', () => {
+  it('a new post without a category is refused; an old one without a category still saves', () => {
+    const gp = setup();
+    const k = linkFor(gp, 'sister.example@example.test');
+    const input = { organization: 'Relief Society', category: '', title: 'No category', audiences: ['Sisters'], slots: [{ date: '2026-12-10', role: 'Cook', needed: 2 }] };
+    const refused = plain(gp.apiSavePost_({ k, mode: 'draft', post: input }));
+    expect(refused.ok).toBe(false);
+    expect(refused.fields.category).toBe('Pick a category');
+    const ps = gp.serviceTab_('Posts');
+    ps.update(ps.find('Post id', 'p1'), { Category: '' });
+    gp.gpBegin_();
+    const old = plain(gp.apiGetPost_({ k, postId: 'p1' })).post;
+    expect(old.category).toBe('');
+    expect(plain(gp.apiSavePost_({ k, mode: 'publish', post: { ...old, title: 'Still no category' } })).ok).toBe(true);
+  });
+});

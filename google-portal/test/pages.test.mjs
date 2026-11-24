@@ -368,3 +368,25 @@ describe('me.html', () => {
     expect(doc.ids['gp-main'].textContent).toContain('Email me my link');
   });
 });
+
+describe('review round 2: the category picker', () => {
+  it('a new opportunity has no "(none)": it starts on "Pick a category"', async () => {
+    const doc = await renderPage('leader', '#k=' + 'a'.repeat(64), {
+      whoami: {
+        ok: true,
+        leader: { name: 'Sister Example', calling: 'Relief Society President', organization: 'Relief Society' },
+        access: { isBishopric: false, isCouncil: true, canApprove: true, createOrgs: ['Relief Society'], baseCreateOrgs: ['Relief Society'], editOrgs: ['Relief Society'], catOrgs: { 'service-project': ['Relief Society'] }, coordinates: [] },
+        organizations: ['Relief Society'],
+        categories: [{ id: 'service-project', name: 'Service project', icon: '🛠️', audiences: [] }],
+        defaults: { cutoffHours: 24 },
+      },
+      listPosts: { ok: true, posts: [] },
+    });
+    const main = doc.ids['gp-main'];
+    click(byText(main, 'button', 'New opportunity'));
+    await tick();
+    const options = doc.ids['gp-cat'].children.map((o) => o.textContent);
+    expect(options).not.toContain('(none)');
+    expect(options[0]).toBe('Pick a category');
+  });
+});

@@ -23,7 +23,8 @@ function isWholeIn_(v, lo, hi) {
  * Checks a post typed on the leader page.
  * input: {postId?, organization, category, title, audiences[], publicNote, privateDetails,
  *         cutoffHours, slots: [{slotId?, date, start, end, role, needed, roleNote, bringingPrompt}]}
- * ctx:   {allowedOrgs[], categoryIds[], todayLocal, publish, keepDates?: {slotId: date}}
+ * ctx:   {allowedOrgs[], categoryIds[], todayLocal, publish, requireCategory?, keepDates?: {slotId: date}}
+ *        requireCategory: a new post must have a category (old posts without one stay editable).
  *        keepDates lists existing slots: one whose date is unchanged may be in the past when a
  *        running post (a meal train under way) is saved again.
  */
@@ -35,7 +36,8 @@ function validatePost(input, ctx) {
   var organization = str_(input.organization);
   if ((ctx.allowedOrgs || []).indexOf(organization) < 0) errors.organization = 'Pick an organization you lead.';
   var category = str_(input.category);
-  if (category && (ctx.categoryIds || []).indexOf(category) < 0) errors.category = 'Pick a category from the list.';
+  if (!category && ctx.requireCategory) errors.category = TEXT.pickCategory;
+  else if (category && (ctx.categoryIds || []).indexOf(category) < 0) errors.category = 'Pick a category from the list.';
   var rawAud = Array.isArray(input.audiences) ? input.audiences.map(str_) : splitList(input.audiences);
   var audiences = audiencesOf_(rawAud);
   if (!rawAud.length) errors.audiences = 'Pick at least one audience';

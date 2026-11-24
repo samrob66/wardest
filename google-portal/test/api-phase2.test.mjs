@@ -385,3 +385,26 @@ describe('review round 1: withdraw timing and coordinators on cancellations', ()
     expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['sister.coordinator@example.test', 'sister.example@example.test']);
   });
 });
+
+describe('review round 2: limits', () => {
+  it('a made-up post answers at once and writes no counter, however often', () => {
+    const gp = setup();
+    const before = gp.fakes.system.rowsOf('Counters').length;
+    for (let i = 0; i < 200; i++) {
+      expect(signup(gp, { publicId: 'madeup' + i, email: `p${i}@example.test` })).toEqual({ ok: false, error: 'This opportunity was not found.' });
+    }
+    expect(gp.fakes.system.rowsOf('Counters')).toHaveLength(before);
+  });
+
+  it("the ward's daily total counts every attempt on a real post: blocked, duplicate and full ones too", () => {
+    const gp = setup();
+    setSetting(gp, 'signup_limit_per_day', 3);
+    gp.serviceTab_('Volunteers').append({ Email: 'declined@example.test', Name: 'Declined Person', Status: 'Declined' });
+    gp.gpBegin_();
+    expect(signup(gp).ok).toBe(true); // stored
+    expect(signup(gp).ok).toBe(true); // duplicate: nothing stored
+    expect(signup(gp, { email: 'declined@example.test' }).ok).toBe(true); // blocked: nothing stored
+    expect(rows(gp)).toHaveLength(1);
+    expect(signup(gp, { email: 'someone.else@example.test' }).error).toMatch(/^Too many sign-ups right now/);
+  });
+});

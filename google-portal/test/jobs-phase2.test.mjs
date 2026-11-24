@@ -235,3 +235,45 @@ describe('upgrading a ward live on phase 1', () => {
     expect(res).toEqual({ ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' });
   });
 });
+
+describe('review round 2: the migration never undoes a decision', () => {
+  function phase1Ward() {
+    const gp = loadPortal({ seed: { approved: [] } });
+    seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-03', Needed: 9 }]);
+    gp.serviceTab_('Sign-ups').append({ 'Sign-up id': 's1', 'Post id': 'p1', 'Slot id': 'm1', Email: 'old.volunteer@example.test', Name: 'Old Volunteer', Status: 'Confirmed', 'Signed up at': '2026-11-20 10:00' });
+    gp.gpBegin_();
+    gp.fakes.props.delete('SYSTEM_ID');
+    gp.gpMenuSetUp();
+    return gp;
+  }
+  const vol = (gp, email) => rows(gp, 'Volunteers').find((v) => v.Email === email);
+
+  it('a phase 1 volunteer revoked and then undone stays Pending with the bishop as decider after Set up', () => {
+    const gp = phase1Ward();
+    expect(vol(gp, 'old.volunteer@example.test')).toMatchObject({ Status: 'Approved', 'Decided by': 'Phase 1 sign-up' });
+    const k = gp.issueToken_('leader', 'bishop.example@example.test', '2027-01-01 00:00');
+    expect(gp.apiBishopric_({ k, email: 'old.volunteer@example.test', decision: 'revoke' }).ok).toBe(true);
+    expect(gp.apiBishopric_({ k, email: 'old.volunteer@example.test', decision: 'undo' }).ok).toBe(true);
+    gp.gpMenuSetUp();
+    expect(vol(gp, 'old.volunteer@example.test')).toMatchObject({ Status: 'Pending', 'Decided by': 'Bishop Example' });
+  });
+
+  it('a former leader who signed up after the phase 2 web app went live is not labelled a phase 1 volunteer', () => {
+    const gp = phase1Ward();
+    gp.fakes.setNow('2026-12-01 12:00');
+    // The phase 2 web app answers for the first time.
+    gp.doGet({ parameter: { api: 'serve' } });
+    expect(gp.fakes.props.get('PHASE2_WEB_AT')).toBe('2026-12-01 12:00');
+    gp.serviceTab_('Sign-ups').appendMany([
+      // Taken by the old web app before that (no row): a phase 1 sign-up.
+      { 'Sign-up id': 's2', 'Post id': 'p1', 'Slot id': 'm1', Email: 'gap.volunteer@example.test', Name: 'Gap Volunteer', Status: 'Confirmed', 'Signed up at': '2026-12-01 11:00' },
+      // A leader's sign-up later (leaders get no row); then they left the Leaders tab.
+      { 'Sign-up id': 's3', 'Post id': 'p1', 'Slot id': 'm1', Email: 'former.leader@example.test', Name: 'Former Leader', Status: 'Confirmed', 'Signed up at': '2026-12-01 13:00' },
+    ]);
+    gp.gpBegin_();
+    gp.fakes.setNow('2026-12-02 09:00');
+    gp.gpMenuSetUp();
+    expect(vol(gp, 'gap.volunteer@example.test')).toMatchObject({ Status: 'Approved', 'Decided by': 'Phase 1 sign-up' });
+    expect(vol(gp, 'former.leader@example.test')).toBeUndefined();
+  });
+});

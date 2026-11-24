@@ -6,7 +6,8 @@ email and click **Email me a leader link**. Keep the link to yourself: whoever h
 as you on the leader page.
 
 **Create an opportunity.** Click **New opportunity**. Pick the **category** first (Meals,
-Moving, Service project, …; its usual audiences are ticked for you), then the organization, a
+Moving, Service project, …; every new opportunity needs one, and its usual audiences are ticked
+for you; **Copy this post** keeps the category when you may use it), then the organization, a
 title, who it is for (Brothers, Sisters, Youth, Children), a public note, and any **private
 details** (an address, a gate code). Then add dates: each date has one or more roles with how
 many people, times if you want them, a note, and an optional question such as *What are you

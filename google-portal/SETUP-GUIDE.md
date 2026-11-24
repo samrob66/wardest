@@ -176,7 +176,7 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | reminder_hour | Hour reminders go out the day before (0–23) | `18` |
    | default_cancel_cutoff_hours | Hours before a role when a cancel makes you "short" | `24` |
    | email_reserve | Emails kept back each day for reminders and leader notices | `30` |
-   | signup_limit_per_day | Most sign-ups accepted in one day | `40` |
+   | signup_limit_per_day | Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count too) | `40` |
    | confirm_limit_per_day | Most *Please confirm your email* messages in one day (first-timers) | `20` |
    | organizations | Organizations, separated by commas | (keep the list given) |
    | discord | Leave `off` | `off` |

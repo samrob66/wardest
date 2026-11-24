@@ -48,7 +48,7 @@ describe('doPost and gpApi', () => {
   it('savePost through doPost takes its draft/publish/close choice as mode', () => {
     const gp = setup();
     const k = gp.issueToken_('leader', 'sister.example@example.test', '2027-01-01 00:00');
-    const post = { organization: 'Relief Society', title: 'Meals', audiences: ['Sisters'], slots: [{ date: '2026-12-08', role: 'Cook', needed: 1 }] };
+    const post = { organization: 'Relief Society', category: 'service-project', title: 'Meals', audiences: ['Sisters'], slots: [{ date: '2026-12-08', role: 'Cook', needed: 1 }] };
     const r = json(gp.doPost({ postData: { contents: JSON.stringify({ action: 'savePost', mode: 'publish', k, post }) } }));
     expect(r.ok).toBe(true);
     expect(gp.fakes.spreadsheet.rowsOf('Posts').find((p) => p['Post id'] === r.postId).Status).toBe('Open');
