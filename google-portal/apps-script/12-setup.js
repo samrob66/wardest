@@ -97,6 +97,7 @@ function gpMenuSetUp() {
   var lines = ['Set up is done.'];
   lines.push(made.length ? 'New request forms: ' + made.join(', ') + '.' : 'Request forms: already made.');
   if (refreshed.length) lines.push('Updated the wording of: ' + refreshed.join(', ') + '.');
+  lines = lines.concat(privateFormLines_());
   if (problems.length) lines.push('Problems: ' + problems.join(' '));
   var tz = tzMismatchLine_(s);
   if (tz) lines.push('Time zone: ' + tz);

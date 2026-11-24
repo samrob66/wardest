@@ -106,7 +106,7 @@ function apiPost_(publicId) {
   return { ok: true, ward: wardInfo_(s), post: publicPost(post, slots, countsBySlot(d.signups), todayLocal_()) };
 }
 
-/** Request tiles: request categories with a form, not archived. */
+/** Request tiles: request categories with a form, not archived, with On Help page ticked. */
 function apiHelp_() {
   var cached = cache_().get('help');
   if (cached) return JSON.parse(cached);
@@ -116,7 +116,7 @@ function apiHelp_() {
   serviceTab_(TAB.categories)
     .rows()
     .forEach(function (c) {
-      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived)) return;
+      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !isTicked(c['On Help page'])) return;
       var f = files[c.Id];
       if (!f || !f['Form id']) return;
       var url = '';

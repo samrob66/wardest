@@ -40,8 +40,8 @@ function requestReaders(category, leaders) {
 
 /**
  * Who gets a request kind's "new request" notice: {to, dropped}. Blank Notify: every reader.
- * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop and
- * anything else must be an email address. Only readers of the category's folder can get the
+ * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop,
+ * `Coordinators` means the category's Coordinators, and anything else must be an email address. Only readers of the category's folder can get the
  * notice; everyone else, and anything that isn't an address, goes into dropped. If nobody is
  * left, every reader gets it (a notice holds no request details, and silence would lose it).
  */
@@ -56,6 +56,10 @@ function requestNotifyList(category, leaders) {
       leaders.forEach(function (l) {
         var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
         if (c === 'bishop' && isEmail(l.Email)) wanted.push(normEmail(l.Email));
+      });
+    } else if (String(entry).trim().toLowerCase() === 'coordinators') {
+      splitList(category.Coordinators).forEach(function (e) {
+        if (isEmail(e)) wanted.push(normEmail(e));
       });
     } else if (isEmail(entry)) {
       wanted.push(normEmail(entry));

@@ -84,7 +84,7 @@ var SERVICE_HEADERS = {
   'Read me': [],
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
-  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify'],
+  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page'],
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
@@ -101,7 +101,7 @@ var SYSTEM_HEADERS = {
 
 /** Each request sheet's one tab. */
 var REQUEST_TAB = 'Requests';
-var REQUEST_HEADERS = ['Request id', 'Received', 'Kind', 'Name', 'Phone or email', 'Moving', 'Moving date', 'For', 'Note', 'Status', 'Assigned to', 'Leader note', 'Closed on'];
+var REQUEST_HEADERS = ['Request id', 'Received', 'Kind', 'Name', 'Phone or email', 'Moving', 'Moving date', 'For', 'Note', 'Offer', 'Status', 'Assigned to', 'Leader note', 'Closed on'];
 var REQUEST_STATUS = ['New', 'In progress', 'Done', 'Declined'];
 
 /** Tabs only the script writes; Sync sharing protects them (owner only). */
@@ -123,8 +123,8 @@ var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify'];
-var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived'];
+var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer'];
+var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page'];
 
 /** Settings rows: [key, default, help]. */
 var SETTINGS_ROWS = [
@@ -146,11 +146,30 @@ var SETTINGS_ROWS = [
 ];
 var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day'];
 
+/**
+ * The private Christmas giving offer form (decision 16): a request kind that is not on the Help
+ * page, read by the bishopric and its Coordinators (the Christmas gift coordinators), whose
+ * notices go to the Coordinators. Added once to sheets seeded before it existed.
+ */
+var GIVING_ID = 'christmas-giving';
+var GIVING_CATEGORY = {
+  Id: GIVING_ID,
+  Name: 'Christmas giving offers',
+  Icon: '🎁',
+  Kind: 'Request',
+  'Owning organizations': 'Bishopric',
+  Coordinators: '',
+  Confidential: true,
+  Notify: 'Coordinators',
+  'On Help page': false,
+};
+
 /** Categories seeded once, when the tab is empty. */
 var DEFAULT_CATEGORIES = [
-  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society' },
-  { Id: 'christmas', Name: 'Christmas help', Icon: '🎄', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true },
-  { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, Notify: 'Bishop' },
+  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society', 'On Help page': true },
+  { Id: 'christmas', Name: 'Christmas help', Icon: '🎄', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, 'On Help page': true },
+  { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, Notify: 'Bishop', 'On Help page': true },
+  GIVING_CATEGORY,
   { Id: 'meals', Name: 'Meals', Icon: '🍲', Kind: 'Opportunity', 'Owning organizations': 'Relief Society' },
   { Id: 'moving-help', Name: 'Moving', Icon: '📦', Kind: 'Opportunity', 'Owning organizations': 'Elders Quorum' },
   { Id: 'service-project', Name: 'Service project', Icon: '🛠️', Kind: 'Opportunity' },

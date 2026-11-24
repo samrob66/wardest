@@ -104,10 +104,10 @@ const filesOf = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'
 describe('buildRequestForms_', () => {
   it('makes one form, folder and month sheet per request category, once', () => {
     const { gp } = setupForms();
-    expect(filesOf(gp).map((f) => f['Category id'])).toEqual(['moving', 'christmas', 'other']);
+    expect(filesOf(gp).map((f) => f['Category id'])).toEqual(['moving', 'christmas', 'other', 'christmas-giving']);
     gp.buildRequestForms_(gp.settings_(), gp.serviceTab_('Categories').rows());
-    expect(filesOf(gp)).toHaveLength(3);
-    expect(gp.fakes.forms.size).toBe(3);
+    expect(filesOf(gp)).toHaveLength(4);
+    expect(gp.fakes.forms.size).toBe(4);
     const f = filesOf(gp)[0];
     expect(f.Month).toBe('2026-12');
     expect(gp.fakes.drive.folders.get(f['Folder id']).name).toBe('Requests – Moving help');
@@ -152,8 +152,8 @@ describe('Set up refreshes request forms', () => {
     forms()[0].setTitle('Moving help — Old Ward Name');
     gp.gpMenuSetUp();
     gp.gpMenuSetUp();
-    expect(gp.fakes.forms.size).toBe(3);
-    expect(filesOf(gp)).toHaveLength(3);
+    expect(gp.fakes.forms.size).toBe(4);
+    expect(filesOf(gp)).toHaveLength(4);
     const [moving, christmas, other] = forms();
     expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
     expect(other.description).toContain('Only the bishopric and the people they name see this request.');
@@ -258,7 +258,7 @@ describe('dailyRequests_', () => {
     expect(now.Month).toBe('2027-01');
     expect(now['Sheet id']).not.toBe(f['Sheet id']);
     // Every request file rotates; the old Moving file is among those permanently deleted.
-    expect(gp.fakes.drive.removed).toHaveLength(3);
+    expect(gp.fakes.drive.removed).toHaveLength(4);
     expect(gp.fakes.drive.removed).toContain(f['Sheet id']);
     const ss = gp.fakes.spreadsheets.get(now['Sheet id']);
     expect(ss.getName()).toBe('Requests – Moving help – 2027-01');
@@ -428,5 +428,169 @@ describe('Notify (decision 15)', () => {
     gp2.fakes.props.delete('NOTIFY_SEEDED');
     gp2.gpEnsureTabs_(gp2.fakes.spreadsheet);
     expect(gp2.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'other').Notify).toBe('brother.counselor@example.test');
+  });
+});
+
+// ---------- 1.1 addition (decision 16): the private Christmas giving offer form ----------
+
+describe('Christmas giving offers (decision 16)', () => {
+  const GIVE = 'What would you like to give?';
+
+  it('the giving form gets its four questions, its own wording, and its title', () => {
+    const gp = wardWithCouple();
+    const form = gp.fakes.forms.get(fileFor(gp, 'christmas-giving')['Form id']);
+    expect(form.title).toBe('Christmas giving offers — Riverbend 1st Ward (example)');
+    expect(form.items.map((i) => [i.title, i.type, i.required])).toEqual([
+      ['Name', 'TEXT', true],
+      ['Phone or email', 'TEXT', true],
+      [GIVE, 'PARAGRAPH_TEXT', true],
+      ['Note', 'PARAGRAPH_TEXT', false],
+    ]);
+    expect(form.items[2].help).toMatch(/families or children/);
+    expect(JSON.stringify(form.items[2].validation)).toContain('300');
+    expect(form.description).toContain(
+      'Thank you for offering to help with Christmas gifts. Only the bishopric and the Christmas gift coordinators see this. A coordinator will contact you. Nothing is emailed back to you.'
+    );
+    expect(form.description).toContain('This form is an independent tool made by Church members.');
+    expect(form.description).toContain('Contact: help@riverbend.example');
+    expect(form.confirmation).toBe('Thank you. A coordinator will contact you.');
+    expect(form.collectEmail).toBe(false);
+  });
+
+  it('readers are the bishopric and the coordinators only', () => {
+    const gp = wardWithCouple();
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'christmas-giving'), { Coordinators: COUPLE.join(', ') });
+    gp.gpBegin_();
+    gp.gpMenuSyncSharing();
+    const folder = gp.fakes.drive.folders.get(fileFor(gp, 'christmas-giving')['Folder id']);
+    expect(folder.name).toBe('Requests – Christmas giving offers');
+    expect(Object.keys(permsOf(gp, folder.id)).sort()).toEqual(['ward.account@example.test', ...BISHOPRIC5, ...COUPLE].sort());
+  });
+
+  it('an offer lands in its sheet with Offer filled (formula text neutralized), the response is deleted, and only the coordinators are told', () => {
+    const gp = wardWithCouple();
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'christmas-giving'), { Coordinators: COUPLE.join(', ') });
+    gp.gpBegin_();
+    gp.gpMenuSyncSharing();
+    gp.fakes.mail.sent.length = 0;
+    const f = fileFor(gp, 'christmas-giving');
+    const form = gp.fakes.forms.get(f['Form id']);
+    gp.gpOnRequestSubmit(formSubmitEvent(form, { Name: 'Sister Giver', 'Phone or email': '555-0199', [GIVE]: '=gifts for two children', Note: 'after the 15th' }, 'resp-give'));
+    const rows = gp.fakes.spreadsheets.get(f['Sheet id']).rowsOf('Requests');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ Kind: 'Christmas giving offers', Name: 'Sister Giver', 'Phone or email': '555-0199', Offer: "'=gifts for two children", Note: 'after the 15th', Status: 'New' });
+    expect(form.deletedResponses).toEqual(['resp-give']);
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual([...COUPLE].sort());
+    for (const m of gp.fakes.mail.sent) {
+      for (const bad of ['Sister Giver', '555-0199', 'gifts for two', '15th']) expect(m.body + m.htmlBody + m.subject).not.toContain(bad);
+    }
+  });
+
+  it('with no coordinators typed yet, an offer notice falls back to the bishopric', () => {
+    const gp = wardWithCouple();
+    const form = gp.fakes.forms.get(fileFor(gp, 'christmas-giving')['Form id']);
+    gp.gpOnRequestSubmit(formSubmitEvent(form, { Name: 'Sister Giver', 'Phone or email': '555-0199', [GIVE]: 'A bike' }));
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual([...BISHOPRIC5].sort());
+  });
+
+  it('a request sheet made before the Offer column gets it added when an offer is filed', () => {
+    const gp = wardWithCouple();
+    const f = fileFor(gp, 'christmas-giving');
+    const sh = gp.fakes.spreadsheets.get(f['Sheet id']).getSheetByName('Requests');
+    // As an older sheet: drop the Offer header.
+    const col = sh.raw()[0].indexOf('Offer') + 1;
+    const head = sh.raw()[0].filter((h) => h !== 'Offer');
+    sh.getRange(1, 1, 1, head.length + 1).setValues([[...head, '']]);
+    expect(gp.table_(sh).headers).not.toContain('Offer');
+    expect(col).toBeGreaterThan(0);
+    const form = gp.fakes.forms.get(f['Form id']);
+    gp.gpOnRequestSubmit(formSubmitEvent(form, { Name: 'Brother Giver', 'Phone or email': 'g@example.test', [GIVE]: 'Coats' }));
+    const rows = gp.fakes.spreadsheets.get(f['Sheet id']).rowsOf('Requests');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ Name: 'Brother Giver', Offer: 'Coats' });
+    expect(form.deletedResponses).toHaveLength(1);
+  });
+
+  it('is not on the Help page; the other request kinds are', () => {
+    const gp = wardWithCouple();
+    const ids = plain(gp.apiHelp_()).tiles.map((t) => t.id);
+    expect(ids).toEqual(['moving', 'christmas', 'other']);
+  });
+
+  it('Set up names the giving form link, since it is not on the Help page', () => {
+    const gp = wardWithCouple();
+    const form = gp.fakes.forms.get(fileFor(gp, 'christmas-giving')['Form id']);
+    gp.gpMenuSetUp();
+    expect(gp.fakes.alerts.at(-1)).toContain('Christmas giving offers');
+    expect(gp.fakes.alerts.at(-1)).toContain(form.getPublishedUrl());
+  });
+
+  it('Notify Coordinators means that kind\'s Coordinators, still limited to readers', () => {
+    const giving = { Id: 'christmas-giving', Confidential: true, Coordinators: COUPLE.join(', '), Notify: 'Coordinators' };
+    expect(plain(gp0.requestNotifyList(giving, LEADERS)).to.sort()).toEqual([...COUPLE].sort());
+    const mixed = plain(gp0.requestNotifyList({ ...giving, Notify: 'coordinators, Bishop' }, LEADERS));
+    expect(mixed.to.sort()).toEqual([...COUPLE, 'bishop.example@example.test'].sort());
+    // A non-confidential kind: Coordinators are readers too.
+    const moving = { Id: 'moving', 'Owning organizations': 'Elders Quorum', Coordinators: 'helper.coord@example.test', Notify: 'Coordinators' };
+    expect(plain(gp0.requestNotifyList(moving, LEADERS)).to).toEqual(['helper.coord@example.test']);
+  });
+
+  it('is added once to an already-seeded Categories tab, unticked for the Help page, and never over a typed row', () => {
+    // A Categories tab from before the giving row: remove it and the new columns' seeding marks.
+    const gp = loadPortal({ seed: true });
+    const t = gp.serviceTab_('Categories');
+    t.remove(t.find('Id', 'christmas-giving'));
+    gp.fakes.props.delete('GIVING_SEEDED');
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    const rows = () => gp.fakes.spreadsheet.rowsOf('Categories');
+    const giving = rows().filter((c) => c.Id === 'christmas-giving');
+    expect(giving).toHaveLength(1);
+    expect(giving[0]).toMatchObject({ Name: 'Christmas giving offers', Icon: '🎁', Kind: 'Request', Confidential: true, 'Owning organizations': 'Bishopric', Coordinators: '', Notify: 'Coordinators', 'On Help page': false });
+    // Run again: still one. Delete it: Set up doesn't bring it back.
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    expect(rows().filter((c) => c.Id === 'christmas-giving')).toHaveLength(1);
+    const t2 = gp.serviceTab_('Categories');
+    t2.remove(t2.find('Id', 'christmas-giving'));
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    expect(rows().filter((c) => c.Id === 'christmas-giving')).toHaveLength(0);
+
+    // A row Sam already typed with that Id is kept as he typed it.
+    const gp2 = loadPortal({ seed: true });
+    const t3 = gp2.serviceTab_('Categories');
+    t3.update(t3.find('Id', 'christmas-giving'), { Name: 'Gifts we can give', Coordinators: COUPLE[0] });
+    gp2.fakes.props.delete('GIVING_SEEDED');
+    gp2.gpEnsureTabs_(gp2.fakes.spreadsheet);
+    const mine = gp2.fakes.spreadsheet.rowsOf('Categories').filter((c) => c.Id === 'christmas-giving');
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ Name: 'Gifts we can give', Coordinators: COUPLE[0] });
+  });
+
+  it('adding the On Help page column to an older tab ticks every existing row, so they keep showing', () => {
+    const gp = loadPortal({ seed: true });
+    const sh = gp.fakes.spreadsheet.getSheetByName('Categories');
+    const t = gp.serviceTab_('Categories');
+    t.remove(t.find('Id', 'christmas-giving'));
+    // Drop the On Help page and Notify columns (they are the last two).
+    const head = sh.raw()[0];
+    for (const name of ['On Help page', 'Notify']) {
+      const c = head.indexOf(name) + 1;
+      for (let r = 1; r <= sh.getMaxRows(); r++) {
+        sh.validations.delete(`${r},${c}`);
+        if (sh.cell(r, c) !== '') sh.write(r, c, '');
+      }
+    }
+    for (const k of ['GIVING_SEEDED', 'HELP_PAGE_SEEDED', 'NOTIFY_SEEDED']) gp.fakes.props.delete(k);
+    gp.gpBegin_();
+    expect(gp.table_(sh).headers).not.toContain('On Help page');
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    const rows = gp.fakes.spreadsheet.rowsOf('Categories');
+    for (const r of rows) expect([r.Id, r['On Help page']]).toEqual([r.Id, r.Id !== 'christmas-giving']);
+    // Unticking stays unticked on the next Set up.
+    const t2 = gp.serviceTab_('Categories');
+    t2.update(t2.find('Id', 'moving'), { 'On Help page': false });
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'moving')['On Help page']).toBe(false);
   });
 });

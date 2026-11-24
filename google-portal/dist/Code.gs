@@ -92,7 +92,7 @@ var SERVICE_HEADERS = {
   'Read me': [],
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
-  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify'],
+  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page'],
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
@@ -109,7 +109,7 @@ var SYSTEM_HEADERS = {
 
 /** Each request sheet's one tab. */
 var REQUEST_TAB = 'Requests';
-var REQUEST_HEADERS = ['Request id', 'Received', 'Kind', 'Name', 'Phone or email', 'Moving', 'Moving date', 'For', 'Note', 'Status', 'Assigned to', 'Leader note', 'Closed on'];
+var REQUEST_HEADERS = ['Request id', 'Received', 'Kind', 'Name', 'Phone or email', 'Moving', 'Moving date', 'For', 'Note', 'Offer', 'Status', 'Assigned to', 'Leader note', 'Closed on'];
 var REQUEST_STATUS = ['New', 'In progress', 'Done', 'Declined'];
 
 /** Tabs only the script writes; Sync sharing protects them (owner only). */
@@ -131,8 +131,8 @@ var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify'];
-var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived'];
+var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer'];
+var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page'];
 
 /** Settings rows: [key, default, help]. */
 var SETTINGS_ROWS = [
@@ -154,11 +154,30 @@ var SETTINGS_ROWS = [
 ];
 var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day'];
 
+/**
+ * The private Christmas giving offer form (decision 16): a request kind that is not on the Help
+ * page, read by the bishopric and its Coordinators (the Christmas gift coordinators), whose
+ * notices go to the Coordinators. Added once to sheets seeded before it existed.
+ */
+var GIVING_ID = 'christmas-giving';
+var GIVING_CATEGORY = {
+  Id: GIVING_ID,
+  Name: 'Christmas giving offers',
+  Icon: '🎁',
+  Kind: 'Request',
+  'Owning organizations': 'Bishopric',
+  Coordinators: '',
+  Confidential: true,
+  Notify: 'Coordinators',
+  'On Help page': false,
+};
+
 /** Categories seeded once, when the tab is empty. */
 var DEFAULT_CATEGORIES = [
-  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society' },
-  { Id: 'christmas', Name: 'Christmas help', Icon: '🎄', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true },
-  { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, Notify: 'Bishop' },
+  { Id: 'moving', Name: 'Moving help', Icon: '🚚', Kind: 'Request', 'Owning organizations': 'Elders Quorum, Relief Society', 'On Help page': true },
+  { Id: 'christmas', Name: 'Christmas help', Icon: '🎄', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, 'On Help page': true },
+  { Id: 'other', Name: 'Other help', Icon: '💬', Kind: 'Request', 'Owning organizations': 'Bishopric', Confidential: true, Notify: 'Bishop', 'On Help page': true },
+  GIVING_CATEGORY,
   { Id: 'meals', Name: 'Meals', Icon: '🍲', Kind: 'Opportunity', 'Owning organizations': 'Relief Society' },
   { Id: 'moving-help', Name: 'Moving', Icon: '📦', Kind: 'Opportunity', 'Owning organizations': 'Elders Quorum' },
   { Id: 'service-project', Name: 'Service project', Icon: '🛠️', Kind: 'Opportunity' },
@@ -808,7 +827,9 @@ function gpEnsureTabs_(ss) {
   ensureSettingsRows_(ss);
   GP_MEMO_.settings = null;
   seedCategories_(ss);
+  seedGiving_(ss);
   seedNotify_(ss);
+  seedHelpPage_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
 }
@@ -856,6 +877,33 @@ function seedNotify_(ss) {
   p.setProperty('NOTIFY_SEEDED', 'yes');
 }
 
+/**
+ * Once per project (decision 16): a Categories tab seeded before the giving form existed gets
+ * the christmas-giving row, unless a row with that Id is already there. Never re-added after
+ * someone deletes it.
+ */
+function seedGiving_(ss) {
+  var p = props_();
+  if (p.getProperty('GIVING_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  if (!t.find('Id', GIVING_ID)) t.append(GIVING_CATEGORY);
+  p.setProperty('GIVING_SEEDED', 'yes');
+}
+
+/**
+ * Once per project: when the On Help page column first appears, every row but the giving form's
+ * is ticked, so the request kinds already on the Help page stay there. Later unticks are kept.
+ */
+function seedHelpPage_(ss) {
+  var p = props_();
+  if (p.getProperty('HELP_PAGE_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  t.rows().forEach(function (c) {
+    if (c.Id !== GIVING_ID && !isTicked(c['On Help page'])) t.update(c, { 'On Help page': true });
+  });
+  p.setProperty('HELP_PAGE_SEEDED', 'yes');
+}
+
 function addDropdowns_(ss) {
   var leaders = ss.getSheetByName(TAB.leaders);
   var orgs = settingsFrom_(ss).organizations;
@@ -887,7 +935,8 @@ function readMeLines_(s) {
     'Settings: ward name, time zone, contact email, web addresses and limits.',
     'Leaders: who gets a leader link and which files. Tick the role boxes (Bishopric: the bishop, both counselors, the Executive Secretary and the Ward Clerk); tick "Send leader link" to email a link. Then run Service Portal > Sync sharing.',
     'Categories: kinds of opportunities and requests, their owners and coordinators. Confidential kinds: Christmas and Other requests go only to the bishopric and that kind\'s Coordinators (people listed there need no Leaders row).',
-    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop) or email addresses. Only people who can open the folder are emailed.',
+    'Notify (Categories): who gets the "new request" email. Blank: everyone who can open that kind\'s folder. Otherwise names separated by commas: Bishop (the Leaders row whose Calling is Bishop) or email addresses. Only people who can open the folder are emailed. Coordinators means the people in that row\'s Coordinators.',
+    'On Help page (Categories): ticked request kinds show on the public Request Help page. The Christmas giving offers form is left off; share its link privately (Set up shows it).',
     'Posts, Slots, Sign-ups: written only by the script from the leader page and the public pages. Do not type in them.',
     'Volunteers, Needs help soon: for phase 2; the script fills them.',
     '',
@@ -1347,8 +1396,8 @@ function requestReaders(category, leaders) {
 
 /**
  * Who gets a request kind's "new request" notice: {to, dropped}. Blank Notify: every reader.
- * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop and
- * anything else must be an email address. Only readers of the category's folder can get the
+ * Otherwise Notify is a comma list where `Bishop` means the Leaders whose Calling is Bishop,
+ * `Coordinators` means the category's Coordinators, and anything else must be an email address. Only readers of the category's folder can get the
  * notice; everyone else, and anything that isn't an address, goes into dropped. If nobody is
  * left, every reader gets it (a notice holds no request details, and silence would lose it).
  */
@@ -1363,6 +1412,10 @@ function requestNotifyList(category, leaders) {
       leaders.forEach(function (l) {
         var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
         if (c === 'bishop' && isEmail(l.Email)) wanted.push(normEmail(l.Email));
+      });
+    } else if (String(entry).trim().toLowerCase() === 'coordinators') {
+      splitList(category.Coordinators).forEach(function (e) {
+        if (isEmail(e)) wanted.push(normEmail(e));
       });
     } else if (isEmail(entry)) {
       wanted.push(normEmail(entry));
@@ -2033,7 +2086,7 @@ function apiPost_(publicId) {
   return { ok: true, ward: wardInfo_(s), post: publicPost(post, slots, countsBySlot(d.signups), todayLocal_()) };
 }
 
-/** Request tiles: request categories with a form, not archived. */
+/** Request tiles: request categories with a form, not archived, with On Help page ticked. */
 function apiHelp_() {
   var cached = cache_().get('help');
   if (cached) return JSON.parse(cached);
@@ -2043,7 +2096,7 @@ function apiHelp_() {
   serviceTab_(TAB.categories)
     .rows()
     .forEach(function (c) {
-      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived)) return;
+      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !isTicked(c['On Help page'])) return;
       var f = files[c.Id];
       if (!f || !f['Form id']) return;
       var url = '';
@@ -2897,6 +2950,7 @@ var REQ_Q = {
   moving: 'Moving in or out',
   date: 'Date',
   forWhom: 'For',
+  offer: 'What would you like to give?',
   note: 'Note',
 };
 
@@ -2907,8 +2961,17 @@ var REQ_MAP = [
   ['Moving in or out', 'Moving', 20],
   ['Date', 'Moving date', 10],
   ['For', 'For', 20],
+  ['What would you like to give?', 'Offer', 300],
   ['Note', 'Note', 200],
 ];
+
+/** The giving offer form's own words (decision 16). */
+var GIVING_TEXT = {
+  intro:
+    'Thank you for offering to help with Christmas gifts. Only the bishopric and the Christmas gift coordinators see this. A coordinator will contact you. Nothing is emailed back to you.',
+  confirmation: 'Thank you. A coordinator will contact you.',
+  offerHelp: 'Up to 300 characters. For example: how many families or children you can help, and the kinds of gifts.',
+};
 
 function portalFolder_() {
   var id = props_().getProperty('PORTAL_FOLDER_ID');
@@ -2922,6 +2985,9 @@ function joinNames_(list) {
 }
 
 function requestFormDescription_(s, c) {
+  if (c.Id === GIVING_ID) {
+    return [GIVING_TEXT.intro, '', FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : '')].join('\n');
+  }
   var who = isTicked(c.Confidential)
     ? 'Only ' + (CONFIDENTIAL_WHO[c.Id] || CONFIDENTIAL_WHO_DEFAULT) + ' see this request.'
     : 'Only the ' + (joinNames_(splitList(c['Owning organizations'])) || 'bishopric') + ' leaders see this request.';
@@ -2946,12 +3012,64 @@ function addRequestQuestions_(form, c) {
   if (c.Id === 'christmas') {
     form.addMultipleChoiceItem().setTitle(REQ_Q.forWhom).setChoiceValues(['My family', 'Another family']).setRequired(true);
   }
+  if (c.Id === GIVING_ID) {
+    form
+      .addParagraphTextItem()
+      .setTitle(REQ_Q.offer)
+      .setRequired(true)
+      .setHelpText(GIVING_TEXT.offerHelp)
+      .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(300).build());
+  }
   form
     .addParagraphTextItem()
     .setTitle(REQ_Q.note)
     .setRequired(false)
-    .setHelpText('Optional, up to 200 characters. Please leave out health or money details; a leader will ask what they need.')
+    .setHelpText(
+      c.Id === GIVING_ID
+        ? 'Optional, up to 200 characters, e.g. when you can deliver.'
+        : 'Optional, up to 200 characters. Please leave out health or money details; a leader will ask what they need.'
+    )
     .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(200).build());
+}
+
+function requestFormConfirmation_(c) {
+  return c.Id === GIVING_ID ? GIVING_TEXT.confirmation : 'Thank you. A leader will contact you.';
+}
+
+/**
+ * The request tab of a request sheet, with any header this version needs added at the end (a
+ * sheet made before a header existed, e.g. Offer, keeps working).
+ */
+function requestTable_(ss, row) {
+  var t = tabOf_(ss, REQUEST_TAB);
+  var missing = Object.keys(row || {}).filter(function (k) {
+    return t.headers.indexOf(k) < 0;
+  });
+  if (!missing.length) return t;
+  ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  return tabOf_(ss, REQUEST_TAB);
+}
+
+/**
+ * Lines naming each request form that is not on the Help page, with its link, so it can be
+ * shared privately (decision 16).
+ */
+function privateFormLines_() {
+  var files = indexBy_(systemTab_(SYS_TAB.requestFiles).rows(), 'Category id');
+  var out = [];
+  serviceTab_(TAB.categories)
+    .rows()
+    .forEach(function (c) {
+      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || isTicked(c['On Help page'])) return;
+      var f = files[c.Id];
+      if (!f || !f['Form id']) return;
+      try {
+        out.push(c.Name + ' (not on the Help page; share privately): ' + FormApp.openById(f['Form id']).getPublishedUrl());
+      } catch (e) {
+        out.push(c.Name + ': could not open its form (' + clip(e && e.message ? e.message : e, 120) + ').');
+      }
+    });
+  return out;
 }
 
 /** A new month sheet for a category in its folder. Returns the Spreadsheet. */
@@ -3027,7 +3145,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
       .setAllowResponseEdits(false)
       .setShowLinkToRespondAgain(false)
       .setPublishingSummary(false)
-      .setConfirmationMessage('Thank you. A leader will contact you.');
+      .setConfirmationMessage(requestFormConfirmation_(c));
     addRequestQuestions_(form, c);
     if (typeof form.setPublished === 'function') form.setPublished(true);
     form.setAcceptingResponses(true);
@@ -3114,7 +3232,7 @@ function gpOnRequestSubmit(e) {
       REQ_MAP.forEach(function (m) {
         if (m[0] in answers) row[m[1]] = clip(answers[m[0]].trim(), m[2]);
       });
-      tabOf_(SpreadsheetApp.openById(file['Sheet id']), REQUEST_TAB).append(row);
+      requestTable_(SpreadsheetApp.openById(file['Sheet id']), row).append(row);
       return { file: file, cat: cat };
     });
     step = 'unform';
@@ -3292,6 +3410,7 @@ function gpMenuSetUp() {
   var lines = ['Set up is done.'];
   lines.push(made.length ? 'New request forms: ' + made.join(', ') + '.' : 'Request forms: already made.');
   if (refreshed.length) lines.push('Updated the wording of: ' + refreshed.join(', ') + '.');
+  lines = lines.concat(privateFormLines_());
   if (problems.length) lines.push('Problems: ' + problems.join(' '));
   var tz = tzMismatchLine_(s);
   if (tz) lines.push('Time zone: ' + tz);
