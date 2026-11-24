@@ -72,6 +72,48 @@ export function addLeader(ctx, leader) {
   ctx.gpBegin_();
 }
 
+/**
+ * Writes a post and its slots straight into the tabs. post: Posts columns (defaults filled in);
+ * slots: Slots columns. Returns {post, slots}.
+ */
+export function seedPost(ctx, post = {}, slots = []) {
+  const p = {
+    'Post id': 'p1',
+    'Public id': 'pubmeals01',
+    Organization: 'Relief Society',
+    Category: 'meals',
+    Title: 'Meals for the Sample family',
+    Audiences: 'Sisters, Brothers',
+    'Public note': 'Dinner drop-off for a family with a new baby.',
+    'Private details': '123 Example Lane',
+    'Cancel cutoff hours': 24,
+    Status: 'Open',
+    'Created by': 'sister.example@example.test',
+    'Created at': '2026-11-30 09:00',
+    'Last changed by': 'Sister Example',
+    'Last changed at': '2026-11-30 09:00',
+    ...post,
+  };
+  ctx.serviceTab_('Posts').append(p);
+  const ss = slots.map((s, i) => ({
+    'Slot id': `${p['Post id']}-s${i + 1}`,
+    'Post id': p['Post id'],
+    Date: '2026-12-03',
+    Start: '17:00',
+    End: '18:00',
+    Role: 'Bring a meal',
+    Needed: 1,
+    'Role note': '',
+    'Bringing prompt': 'What are you bringing?',
+    Filled: 0,
+    Waiting: 0,
+    ...s,
+  }));
+  ctx.serviceTab_('Slots').appendMany(ss);
+  ctx.gpBegin_();
+  return { post: p, slots: ss };
+}
+
 function seed(ctx, { settings = {}, leaders = LEADERS } = {}) {
   ctx.gpEnsureTabs_(ctx.fakes.spreadsheet);
   ctx.gpEnsureSystemTabs_(ctx.fakes.system);
