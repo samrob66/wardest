@@ -59,6 +59,15 @@ You need two files from this repository folder, `google-portal/dist/`:
 click **Raw**, press **Ctrl+A** (Mac: **Cmd+A**) to select everything, then **Ctrl+C**
 (**Cmd+C**) to copy. Or open it from the folder in Notepad and do the same.
 
+**Use a browser window signed in only to the shared account.** If your browser is signed in to
+several Google accounts, Google can quietly run things as a different one. Open a private window
+(Chrome: **Ctrl+Shift+N**), sign in there to the shared account only, and do this whole guide
+in that window. The Service Sheet will belong to the shared account, and the **Service Portal**
+menu then works only for the account that owns the Service Sheet. If it ever says *The Service
+Portal menu works only for the account that owns this Service Sheet*, you are in a window that
+is using another account: close it, open a private window, sign in to just the shared account,
+and open the Service Sheet again.
+
 1. In the browser, go to **sheets.new**. A blank spreadsheet opens.
 2. Click **Untitled spreadsheet** at the top left, type `Service Sheet`, press **Enter**.
 3. Click **File > Settings**. Under **Time zone** pick your ward's time zone (for example
@@ -254,6 +263,8 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 | Web app does not answer | Step 4: Execute as **Me**, access **Anyone**; web_app_url must end in `/exec`. |
 | Hub serve.html not reachable | The hub owner hasn't uploaded the pages yet, or hub_url is wrong (it must be the folder that holds `index.html`). Or use the no-hub way in step 6. |
 | Triggers | Run **Install triggers** (signed in as the shared account). |
+| gpTenMinute / gpHourly / gpDaily last ran … more than … minutes ago, or has not run | That job has stopped (every 10 minutes, every hour, once a night). Open **Extensions > Apps Script > Executions** and look at its recent runs and errors. Then run **Install triggers** again in a window signed in only to the shared account. Right after installing, *has not run yet* is normal. |
+| Any menu item: *works only for the account that owns this Service Sheet* | See the box at the start of section 2: use a private window signed in only to the shared account. |
 | System Sheet missing / Request forms | Run **Set up**. |
 | Email left today | Today's 100 emails are nearly used. Wait a day; queued mail goes out by itself. |
 | Outbox failed | Open the System Sheet's Outbox tab and read the Error column (often a mistyped address). |

@@ -256,6 +256,7 @@ function gpMenuInstallTriggers() {
       ScriptApp.newTrigger('gpOnRequestSubmit').forForm(f['Form id']).onFormSubmit().create();
       forms++;
     });
+  props_().setProperty('INSTALLED_AT', nowLocal_());
   ui_().alert('Triggers installed: every 10 minutes, hourly, daily at 2 am, and ' + forms + ' request form trigger(s).');
 }
 
@@ -363,6 +364,22 @@ function gpMenuCheckHealth() {
     'Triggers: gpTenMinute ' + (have.gpTenMinute || 0) + ', gpHourly ' + (have.gpHourly || 0) + ', gpDaily ' + (have.gpDaily || 0) +
       ', gpOnRequestSubmit ' + (have.gpOnRequestSubmit || 0) + ' of ' + formCount + (trigOk ? '.' : '. Run Install triggers.')
   );
+  // Each job stamps LAST_RAN_<job> when it finishes; a job that stops (or whose runs are
+  // refused) shows up here even though its trigger is still listed.
+  var now = nowLocal_();
+  var installed = props_().getProperty('INSTALLED_AT') || '';
+  Object.keys(JOB_MAX_MINUTES).forEach(function (job) {
+    var max = JOB_MAX_MINUTES[job];
+    var last = props_().getProperty('LAST_RAN_' + job) || '';
+    if (last) {
+      var age = minutesBetween_(last, now);
+      add(age <= max, job + ' last ran ' + last + (age <= max ? '.' : ', more than ' + max + ' minutes ago. Open Extensions > Apps Script > Executions to see why.'));
+    } else if (installed && minutesBetween_(installed, now) <= max) {
+      add(true, job + ' has not run yet (triggers installed ' + installed + ').');
+    } else {
+      add(false, job + ' has not run' + (installed ? ' since the triggers were installed at ' + installed : '') + '. Run Install triggers signed in as this account, then open Extensions > Apps Script > Executions.');
+    }
+  });
   add(systemOk, systemOk ? 'System Sheet present.' : 'System Sheet missing. Run Set up.');
 
   var reqCats = serviceTab_(TAB.categories)

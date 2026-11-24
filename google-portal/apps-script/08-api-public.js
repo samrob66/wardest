@@ -137,7 +137,7 @@ function apiHelp_() {
   return answer;
 }
 
-// ---------- refused-attempt counters (Script Properties, one key per address or post-minute per day) ----------
+// ---------- refused-attempt counters (script cache: no daily quota, expire by themselves) ----------
 
 /** Keys for today's refused-attempt counters: per address (hashed) and per post per minute. */
 function attemptKeys_(email, postId, nowLocal) {
@@ -149,21 +149,12 @@ function attemptKeys_(email, postId, nowLocal) {
 }
 
 function readCount_(key) {
-  return key ? Number(props_().getProperty(key)) || 0 : 0;
+  return key ? Number(cache_().get(key)) || 0 : 0;
 }
 
+/** Per-address counters live 6 hours (the cache's longest), per-minute ones 2 minutes. */
 function bumpCount_(key) {
-  if (key) props_().setProperty(key, String(readCount_(key) + 1));
-}
-
-/** Deletes counters from before today (the daily job). */
-function pruneAttemptCounters_(todayLocal) {
-  var today = todayLocal.replace(/-/g, '');
-  var p = props_();
-  Object.keys(p.getProperties()).forEach(function (k) {
-    var m = /^R[AP]_([0-9]{8})_/.exec(k);
-    if (m && m[1] < today) p.deleteProperty(k);
-  });
+  if (key) cache_().put(key, String(readCount_(key) + 1), key.indexOf('RP_') === 0 ? 120 : 21600);
 }
 
 /** data: {publicId, slotId, name, email, bringing}. */

@@ -2,7 +2,7 @@
 // the web app serves, through google.script.run, running as the shared account. These tests
 // call them that way and check nothing happens and nothing comes back.
 import { describe, it, expect } from 'vitest';
-import { buildCode } from '../build.mjs';
+import { createFakes } from './fakes.mjs';
 import { loadPortal, seedPost } from './harness.mjs';
 
 /** Pure helpers: they only compute from their arguments and touch no data. */
@@ -23,7 +23,11 @@ const GUARDED = [
 
 describe('functions a web visitor can call', () => {
   it('are exactly the reviewed list (a new one must be added here on purpose)', () => {
-    const names = [...buildCode().matchAll(/^function ([A-Za-z0-9_$]+)\s*\(/gm)].map((m) => m[1]).filter((n) => !n.endsWith('_'));
+    // Every global function of the loaded script (however it was defined), minus the fake Google
+    // services and the harness's own globals.
+    const gp = loadPortal();
+    const notOurs = new Set([...Object.keys(createFakes().globals), 'console', '__gpNowMs', 'Date', 'fakes']);
+    const names = Object.getOwnPropertyNames(gp).filter((n) => typeof gp[n] === 'function' && !notOurs.has(n) && !n.endsWith('_'));
     expect(names.sort()).toEqual([...PURE, ...ENTRY, ...GUARDED].sort());
   });
 

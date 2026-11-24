@@ -397,8 +397,12 @@ function cancelPostOrDate_(data) {
     var hit = d.signups.filter(function (su) {
       return su['Post id'] === post['Post id'] && su.Status === SIGNUP_STATUS.confirmed && slotIds.indexOf(su['Slot id']) >= 0;
     });
+    // The slot rows may be deleted, so Removed by keeps who, and which date and role was called off.
+    var allSlots = indexBy_(postSlots, 'Slot id');
     hit.forEach(function (su) {
-      signupsT.update(su, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
+      var sl = allSlots[su['Slot id']];
+      var what = (date ? 'date' : 'opportunity') + ' cancelled: ' + (sl ? fmtDateShort_(sl.Date) + ', ' + sl.Role : 'unknown date');
+      signupsT.update(su, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name + ' (' + what + ')' });
     });
     var stamp = { 'Last changed by': lc.leader.Name, 'Last changed at': nowLocal_() };
     if (date) {
@@ -423,7 +427,8 @@ function cancelPostOrDate_(data) {
   });
   Object.keys(byEmail).forEach(function (to) {
     var t = tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date);
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+    // High: it must not wait behind the reserve and arrive after the event.
+    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
   });
   var n = Object.keys(byEmail).length;
   return { ok: true, message: (date ? 'Date cancelled.' : 'Opportunity cancelled.') + (n ? ' We emailed ' + n + ' ' + (n === 1 ? 'person' : 'people') + '.' : '') };

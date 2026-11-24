@@ -284,22 +284,22 @@ function calledByOwner_(e) {
 
 /**
  * Start of every Service Portal menu item. getUi() throws outside the Sheet (a web visitor),
- * so nothing happens before it. The first run records the account that set the portal up;
- * later runs from any other account are refused, so files and triggers never end up owned by a
- * person's own account. Returns the Ui, or null when refused.
+ * so nothing happens before it. Then only the Service Sheet's owner (the shared account) may go
+ * on, so files and triggers never end up owned by a person's own account. Returns the Ui, or
+ * null when refused.
  */
 function menuStart_() {
   var ui = SpreadsheetApp.getUi();
   gpBegin_();
   var me = normEmail(Session.getEffectiveUser().getEmail());
-  var p = props_();
-  var owner = p.getProperty('OWNER_EMAIL');
-  if (!owner) {
-    p.setProperty('OWNER_EMAIL', me);
-    return ui;
-  }
-  if (owner !== me) {
-    ui.alert('Use the Service Portal menu signed in as the account that set the portal up (' + owner + ').');
+  var ownerUser = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getOwner();
+  var owner = ownerUser ? normEmail(ownerUser.getEmail()) : '';
+  if (owner && owner !== me) {
+    ui.alert(
+      'The Service Portal menu works only for the account that owns this Service Sheet (' + owner + '). ' +
+        'You are using it as ' + me + '. Open the Service Sheet in a browser window signed in only to that ' +
+        'account (for example a private window where you sign in to just that account), then try again.'
+    );
     return null;
   }
   return ui;
@@ -450,6 +450,14 @@ function localMinusHours(localDT, h) {
     dt.getUTCFullYear() + '-' + pad2_(dt.getUTCMonth() + 1) + '-' + pad2_(dt.getUTCDate()) + ' ' +
     pad2_(dt.getUTCHours()) + ':' + pad2_(dt.getUTCMinutes())
   );
+}
+
+/** Minutes from local date-time a to b (wall clock). */
+function minutesBetween_(a, b) {
+  var ms = function (s) {
+    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13) || 0, +s.slice(14, 16) || 0);
+  };
+  return Math.round((ms(b) - ms(a)) / 60000);
 }
 
 function cmpLocal(a, b) {
@@ -1528,6 +1536,12 @@ function drainOutbox_() {
 var GP_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 var GP_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+/** 'Thu, Dec 3' */
+function fmtDateShort_(dateStr) {
+  if (!isDateStr(dateStr)) return String(dateStr || '');
+  return GP_DAYS[weekday(dateStr)].slice(0, 3) + ', ' + GP_MONTHS[+dateStr.slice(5, 7) - 1].slice(0, 3) + ' ' + +dateStr.slice(8, 10);
+}
+
 /** 'Thursday, December 3' */
 function fmtDateLong_(dateStr) {
   if (!isDateStr(dateStr)) return String(dateStr || '');
@@ -1979,7 +1993,7 @@ function apiHelp_() {
   return answer;
 }
 
-// ---------- refused-attempt counters (Script Properties, one key per address or post-minute per day) ----------
+// ---------- refused-attempt counters (script cache: no daily quota, expire by themselves) ----------
 
 /** Keys for today's refused-attempt counters: per address (hashed) and per post per minute. */
 function attemptKeys_(email, postId, nowLocal) {
@@ -1991,21 +2005,12 @@ function attemptKeys_(email, postId, nowLocal) {
 }
 
 function readCount_(key) {
-  return key ? Number(props_().getProperty(key)) || 0 : 0;
+  return key ? Number(cache_().get(key)) || 0 : 0;
 }
 
+/** Per-address counters live 6 hours (the cache's longest), per-minute ones 2 minutes. */
 function bumpCount_(key) {
-  if (key) props_().setProperty(key, String(readCount_(key) + 1));
-}
-
-/** Deletes counters from before today (the daily job). */
-function pruneAttemptCounters_(todayLocal) {
-  var today = todayLocal.replace(/-/g, '');
-  var p = props_();
-  Object.keys(p.getProperties()).forEach(function (k) {
-    var m = /^R[AP]_([0-9]{8})_/.exec(k);
-    if (m && m[1] < today) p.deleteProperty(k);
-  });
+  if (key) cache_().put(key, String(readCount_(key) + 1), key.indexOf('RP_') === 0 ? 120 : 21600);
 }
 
 /** data: {publicId, slotId, name, email, bringing}. */
@@ -2547,8 +2552,12 @@ function cancelPostOrDate_(data) {
     var hit = d.signups.filter(function (su) {
       return su['Post id'] === post['Post id'] && su.Status === SIGNUP_STATUS.confirmed && slotIds.indexOf(su['Slot id']) >= 0;
     });
+    // The slot rows may be deleted, so Removed by keeps who, and which date and role was called off.
+    var allSlots = indexBy_(postSlots, 'Slot id');
     hit.forEach(function (su) {
-      signupsT.update(su, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
+      var sl = allSlots[su['Slot id']];
+      var what = (date ? 'date' : 'opportunity') + ' cancelled: ' + (sl ? fmtDateShort_(sl.Date) + ', ' + sl.Role : 'unknown date');
+      signupsT.update(su, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name + ' (' + what + ')' });
     });
     var stamp = { 'Last changed by': lc.leader.Name, 'Last changed at': nowLocal_() };
     if (date) {
@@ -2573,7 +2582,8 @@ function cancelPostOrDate_(data) {
   });
   Object.keys(byEmail).forEach(function (to) {
     var t = tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date);
-    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+    // High: it must not wait behind the reserve and arrive after the event.
+    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
   });
   var n = Object.keys(byEmail).length;
   return { ok: true, message: (date ? 'Date cancelled.' : 'Opportunity cancelled.') + (n ? ' We emailed ' + n + ' ' + (n === 1 ? 'person' : 'people') + '.' : '') };
@@ -3333,6 +3343,7 @@ function gpMenuInstallTriggers() {
       ScriptApp.newTrigger('gpOnRequestSubmit').forForm(f['Form id']).onFormSubmit().create();
       forms++;
     });
+  props_().setProperty('INSTALLED_AT', nowLocal_());
   ui_().alert('Triggers installed: every 10 minutes, hourly, daily at 2 am, and ' + forms + ' request form trigger(s).');
 }
 
@@ -3440,6 +3451,22 @@ function gpMenuCheckHealth() {
     'Triggers: gpTenMinute ' + (have.gpTenMinute || 0) + ', gpHourly ' + (have.gpHourly || 0) + ', gpDaily ' + (have.gpDaily || 0) +
       ', gpOnRequestSubmit ' + (have.gpOnRequestSubmit || 0) + ' of ' + formCount + (trigOk ? '.' : '. Run Install triggers.')
   );
+  // Each job stamps LAST_RAN_<job> when it finishes; a job that stops (or whose runs are
+  // refused) shows up here even though its trigger is still listed.
+  var now = nowLocal_();
+  var installed = props_().getProperty('INSTALLED_AT') || '';
+  Object.keys(JOB_MAX_MINUTES).forEach(function (job) {
+    var max = JOB_MAX_MINUTES[job];
+    var last = props_().getProperty('LAST_RAN_' + job) || '';
+    if (last) {
+      var age = minutesBetween_(last, now);
+      add(age <= max, job + ' last ran ' + last + (age <= max ? '.' : ', more than ' + max + ' minutes ago. Open Extensions > Apps Script > Executions to see why.'));
+    } else if (installed && minutesBetween_(installed, now) <= max) {
+      add(true, job + ' has not run yet (triggers installed ' + installed + ').');
+    } else {
+      add(false, job + ' has not run' + (installed ? ' since the triggers were installed at ' + installed : '') + '. Run Install triggers signed in as this account, then open Extensions > Apps Script > Executions.');
+    }
+  });
   add(systemOk, systemOk ? 'System Sheet present.' : 'System Sheet missing. Run Set up.');
 
   var reqCats = serviceTab_(TAB.categories)
@@ -3495,15 +3522,32 @@ function alertOncePerDay_(key, lines) {
   alertCapped_(key, lines, 1);
 }
 
+/** How long each job may go without a successful run before Check health says PROBLEM. */
+var JOB_MAX_MINUTES = { gpTenMinute: 30, gpHourly: 120, gpDaily: 26 * 60 };
+
 /**
  * Runs a timed job. Only this project's own triggers or the owner in the editor may run it
- * (calledByOwner_); a web visitor gets nothing done and nothing back. Returns nothing.
+ * (calledByOwner_); a web visitor gets nothing done and nothing back. A refused run leaves one
+ * Log line per job per hour (so a flood can't fill the Log). A successful run stamps the Script
+ * Property LAST_RAN_<job>, which Check health reads. Returns nothing.
  */
 function runJob_(name, e, fn) {
   gpBegin_();
-  if (!calledByOwner_(e)) return;
+  if (!calledByOwner_(e)) {
+    try {
+      var key = 'refused_' + name;
+      if (!cache_().get(key)) {
+        cache_().put(key, '1', 3600);
+        log_('job refused', name + ' | not from its trigger or the owner');
+      }
+    } catch (e3) {
+      // nothing more to do
+    }
+    return;
+  }
   try {
     fn();
+    props_().setProperty('LAST_RAN_' + name, nowLocal_());
   } catch (err) {
     var msg = clip(err && err.message ? err.message : err, 300);
     log_('job error', name + ' | ' + msg);
@@ -3622,7 +3666,6 @@ function gpDaily(e) {
         outT.removeMany(oldFailed);
       }
     });
-    pruneAttemptCounters_(today);
     if (problems.length) alertOncePerDay_('gpDaily-report', problems);
   });
 }

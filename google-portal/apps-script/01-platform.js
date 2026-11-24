@@ -103,22 +103,22 @@ function calledByOwner_(e) {
 
 /**
  * Start of every Service Portal menu item. getUi() throws outside the Sheet (a web visitor),
- * so nothing happens before it. The first run records the account that set the portal up;
- * later runs from any other account are refused, so files and triggers never end up owned by a
- * person's own account. Returns the Ui, or null when refused.
+ * so nothing happens before it. Then only the Service Sheet's owner (the shared account) may go
+ * on, so files and triggers never end up owned by a person's own account. Returns the Ui, or
+ * null when refused.
  */
 function menuStart_() {
   var ui = SpreadsheetApp.getUi();
   gpBegin_();
   var me = normEmail(Session.getEffectiveUser().getEmail());
-  var p = props_();
-  var owner = p.getProperty('OWNER_EMAIL');
-  if (!owner) {
-    p.setProperty('OWNER_EMAIL', me);
-    return ui;
-  }
-  if (owner !== me) {
-    ui.alert('Use the Service Portal menu signed in as the account that set the portal up (' + owner + ').');
+  var ownerUser = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getOwner();
+  var owner = ownerUser ? normEmail(ownerUser.getEmail()) : '';
+  if (owner && owner !== me) {
+    ui.alert(
+      'The Service Portal menu works only for the account that owns this Service Sheet (' + owner + '). ' +
+        'You are using it as ' + me + '. Open the Service Sheet in a browser window signed in only to that ' +
+        'account (for example a private window where you sign in to just that account), then try again.'
+    );
     return null;
   }
   return ui;

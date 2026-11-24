@@ -111,16 +111,15 @@ describe('D3: refused attempts count toward the limits', () => {
     expect(signup(gp, { slotId: 'm3', email: 'fresh@example.test' }).ok).toBe(true);
   });
 
-  it('stores no address and gpDaily prunes old counters', () => {
+  it('keeps the counters in the script cache (never Script Properties) and stores no address', () => {
     const gp = setup();
+    const propsBefore = [...gp.fakes.props.keys()].sort();
     signup(gp);
     signup(gp);
-    const keys = [...gp.fakes.props.keys()].filter((k) => /^R[AP]_/.test(k));
+    expect([...gp.fakes.props.keys()].sort()).toEqual(propsBefore);
+    const keys = [...gp.fakes.cache.keys()].filter((k) => /^R[AP]_/.test(k));
     expect(keys.length).toBeGreaterThan(0);
     expect(keys.join(' ')).not.toContain('brother');
-    gp.fakes.setNow('2026-12-02 02:00');
-    gp.gpDaily();
-    expect([...gp.fakes.props.keys()].filter((k) => /^R[AP]_/.test(k))).toEqual([]);
   });
 });
 
@@ -153,7 +152,12 @@ describe('D4: cancel an opportunity or a date', () => {
     expect(two.htmlBody).not.toContain('<b>moved</b>');
     expect(gp.fakes.spreadsheet.rowsOf('Posts')[0].Status).toBe('Cancelled');
     const rows = gp.fakes.spreadsheet.rowsOf('Sign-ups');
-    expect(rows.filter((x) => x.Status === 'Removed').every((x) => x['Removed by'] === 'Sister Example')).toBe(true);
+    // Removed by records who, and which date and role was called off (the slot rows stay for a whole cancel).
+    expect(rows.filter((x) => x.Status === 'Removed').map((x) => x['Removed by']).sort()).toEqual([
+      'Sister Example (opportunity cancelled: Wed, Dec 2, Bring a meal)',
+      'Sister Example (opportunity cancelled: Wed, Dec 2, Drive)',
+      'Sister Example (opportunity cancelled: Sat, Dec 5, Bring a meal)',
+    ].sort());
     expect(rows.filter((x) => x.Status === 'Confirmed')).toEqual([]);
     expect(plain(gp.apiServe_()).posts).toEqual([]);
     expect(plain(gp.apiPost_('pubmeals01')).post.status).toBe('Cancelled');
@@ -198,6 +202,11 @@ describe('D4: cancel an opportunity or a date', () => {
     expect(gp.fakes.spreadsheet.rowsOf('Posts')[0].Status).toBe('Open');
     const still = gp.fakes.spreadsheet.rowsOf('Sign-ups').filter((x) => x.Status === 'Confirmed');
     expect(still.map((x) => x.Email)).toEqual(['two@example.test']);
+    // The slot rows are gone, so Removed by keeps which date and role was called off.
+    expect(gp.fakes.spreadsheet.rowsOf('Sign-ups').filter((x) => x.Status === 'Removed').map((x) => x['Removed by']).sort()).toEqual([
+      'Sister Example (date cancelled: Wed, Dec 2, Bring a meal)',
+      'Sister Example (date cancelled: Wed, Dec 2, Drive)',
+    ]);
     expect(plain(gp.apiServe_()).posts.map((p) => p.publicId)).toEqual(['pubmeals01']);
     // The last date can't be cancelled this way.
     expect(plain(gp.apiCancelDate_({ k, postId: 'p1', date: '2026-12-05' })).error).toBe('This is the only date. Cancel the whole opportunity instead.');
@@ -258,5 +267,73 @@ describe('D2: the Read me says who edits', () => {
     const text = gp.fakes.spreadsheet.getSheetByName('Read me').raw().flat().join('\n');
     expect(text).toContain('only the bishop and the Executive Secretary edit this sheet');
     expect(text).toContain('script');
+  });
+});
+
+describe('round 2', () => {
+  it('cancellation emails are high priority: they go out at the reserve instead of waiting', () => {
+    const gp = setup();
+    signup(gp);
+    gp.fakes.mail.sent.length = 0;
+    gp.fakes.setQuota(30); // exactly the reserve
+    expect(plain(gp.apiCancelPost_({ k: linkFor(gp, 'sister.example@example.test'), postId: 'p1' })).ok).toBe(true);
+    expect(gp.fakes.mail.sent.map((m) => m.subject)).toEqual(['Cancelled: Meals for the Sample family']);
+    expect(gp.fakes.system.rowsOf('Outbox')).toEqual([]);
+  });
+
+  it('the menu works only for the Service Sheet owner and says how to fix it', () => {
+    const gp = loadPortal({ seed: true });
+    gp.fakes.state.effectiveUser = 'someone.else@example.test';
+    gp.fakes.props.delete('SYSTEM_ID');
+    gp.gpMenuSetUp();
+    expect(gp.fakes.alerts.at(-1)).toContain('ward.account@example.test');
+    expect(gp.fakes.alerts.at(-1)).toContain('signed in only to that account');
+    expect(gp.fakes.forms.size).toBe(0);
+    expect(gp.fakes.props.has('SYSTEM_ID')).toBe(false);
+    // The owner is not locked out by that attempt.
+    gp.fakes.state.effectiveUser = 'ward.account@example.test';
+    gp.gpMenuSetUp();
+    expect(gp.fakes.forms.size).toBe(3);
+  });
+
+  it('jobs stamp when they last ran, and Check health flags a job that has stopped', () => {
+    const gp = loadPortal({ seed: true });
+    gp.fakes.props.delete('SYSTEM_ID');
+    gp.gpMenuSetUp();
+    gp.gpMenuInstallTriggers();
+    gp.fakes.state.fetch = () => ({ code: 200, text: '{"ok":true,"at":"x"}' });
+    const fresh = (name) => gp.gpMenuCheckHealth().find((l) => l.includes(name + ' last ran') || l.includes(name + ' has not run'));
+    // Just installed: not run yet is fine.
+    expect(fresh('gpDaily')).toMatch(/^OK /);
+    gp.gpTenMinute();
+    gp.gpHourly();
+    gp.gpDaily();
+    expect(gp.fakes.props.get('LAST_RAN_gpTenMinute')).toBe('2026-12-01 10:00');
+    for (const n of ['gpTenMinute', 'gpHourly', 'gpDaily']) expect(fresh(n)).toMatch(/^OK /);
+    gp.fakes.setNow('2026-12-01 10:31');
+    expect(fresh('gpTenMinute')).toMatch(/^PROBLEM /);
+    expect(fresh('gpHourly')).toMatch(/^OK /);
+    gp.fakes.setNow('2026-12-01 12:01');
+    expect(fresh('gpHourly')).toMatch(/^PROBLEM /);
+    expect(fresh('gpDaily')).toMatch(/^OK /);
+    gp.fakes.setNow('2026-12-02 12:01');
+    expect(fresh('gpDaily')).toMatch(/^PROBLEM /);
+  });
+
+  it('a job that never runs after install is flagged once its window has passed', () => {
+    const gp = loadPortal({ seed: true });
+    gp.fakes.props.delete('SYSTEM_ID');
+    gp.gpMenuSetUp();
+    gp.gpMenuInstallTriggers();
+    gp.fakes.state.fetch = () => ({ code: 200, text: '{"ok":true,"at":"x"}' });
+    gp.fakes.setNow('2026-12-01 10:45');
+    expect(gp.gpMenuCheckHealth().find((l) => l.includes('gpTenMinute has not run'))).toMatch(/^PROBLEM /);
+  });
+
+  it('a refused job run leaves a Log line', () => {
+    const gp = loadPortal({ seed: true });
+    gp.fakes.state.activeUser = '';
+    gp.gpHourly({});
+    expect(gp.fakes.system.rowsOf('Log').some((l) => l.What === 'job refused' && String(l.Detail).includes('gpHourly'))).toBe(true);
   });
 });

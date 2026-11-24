@@ -19,15 +19,32 @@ function alertOncePerDay_(key, lines) {
   alertCapped_(key, lines, 1);
 }
 
+/** How long each job may go without a successful run before Check health says PROBLEM. */
+var JOB_MAX_MINUTES = { gpTenMinute: 30, gpHourly: 120, gpDaily: 26 * 60 };
+
 /**
  * Runs a timed job. Only this project's own triggers or the owner in the editor may run it
- * (calledByOwner_); a web visitor gets nothing done and nothing back. Returns nothing.
+ * (calledByOwner_); a web visitor gets nothing done and nothing back. A refused run leaves one
+ * Log line per job per hour (so a flood can't fill the Log). A successful run stamps the Script
+ * Property LAST_RAN_<job>, which Check health reads. Returns nothing.
  */
 function runJob_(name, e, fn) {
   gpBegin_();
-  if (!calledByOwner_(e)) return;
+  if (!calledByOwner_(e)) {
+    try {
+      var key = 'refused_' + name;
+      if (!cache_().get(key)) {
+        cache_().put(key, '1', 3600);
+        log_('job refused', name + ' | not from its trigger or the owner');
+      }
+    } catch (e3) {
+      // nothing more to do
+    }
+    return;
+  }
   try {
     fn();
+    props_().setProperty('LAST_RAN_' + name, nowLocal_());
   } catch (err) {
     var msg = clip(err && err.message ? err.message : err, 300);
     log_('job error', name + ' | ' + msg);
@@ -146,7 +163,6 @@ function gpDaily(e) {
         outT.removeMany(oldFailed);
       }
     });
-    pruneAttemptCounters_(today);
     if (problems.length) alertOncePerDay_('gpDaily-report', problems);
   });
 }

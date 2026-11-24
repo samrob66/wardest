@@ -572,7 +572,10 @@ export function formSubmitEvent(form, answers, responseId = 'resp-1') {
 
 class FakeFile {
   constructor(drive, id, name, mime, content = '') {
-    Object.assign(this, { drive, id, name, mime, content, parents: [], trashed: false });
+    Object.assign(this, { drive, id, name, mime, content, parents: [], trashed: false, owner: OWNER_EMAIL });
+  }
+  getOwner() {
+    return this.owner ? { getEmail: () => this.owner } : null;
   }
   getId() {
     return this.id;
@@ -659,6 +662,8 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
     // A visitor calling through google.script.run: getUi() throws and nobody is signed in.
     webContext: false,
     activeUser: OWNER_EMAIL,
+    // The account a menu item or job runs as (a person signed in to several accounts may differ).
+    effectiveUser: OWNER_EMAIL,
   };
 
   const spreadsheets = new Map();
@@ -966,7 +971,7 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
 
   const Session = {
     getScriptTimeZone: () => state.scriptTz || tz,
-    getEffectiveUser: () => ({ getEmail: () => OWNER_EMAIL }),
+    getEffectiveUser: () => ({ getEmail: () => state.effectiveUser }),
     getActiveUser: () => ({ getEmail: () => state.activeUser }),
   };
 

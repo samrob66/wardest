@@ -118,6 +118,14 @@ function localMinusHours(localDT, h) {
   );
 }
 
+/** Minutes from local date-time a to b (wall clock). */
+function minutesBetween_(a, b) {
+  var ms = function (s) {
+    return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13) || 0, +s.slice(14, 16) || 0);
+  };
+  return Math.round((ms(b) - ms(a)) / 60000);
+}
+
 function cmpLocal(a, b) {
   a = String(a);
   b = String(b);

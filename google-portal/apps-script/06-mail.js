@@ -147,6 +147,12 @@ function drainOutbox_() {
 var GP_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 var GP_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+/** 'Thu, Dec 3' */
+function fmtDateShort_(dateStr) {
+  if (!isDateStr(dateStr)) return String(dateStr || '');
+  return GP_DAYS[weekday(dateStr)].slice(0, 3) + ', ' + GP_MONTHS[+dateStr.slice(5, 7) - 1].slice(0, 3) + ' ' + +dateStr.slice(8, 10);
+}
+
 /** 'Thursday, December 3' */
 function fmtDateLong_(dateStr) {
   if (!isDateStr(dateStr)) return String(dateStr || '');
