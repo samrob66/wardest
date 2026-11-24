@@ -7,6 +7,7 @@
 // gp.css and gp.js inlined, as `var GP_PAGES = {...}` (JSON strings), then the hub sections
 // snippet as `var GP_HUB_SECTIONS = "..."`. Everything is normalized to LF line endings.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,6 +51,10 @@ export function buildCode() {
   parts.push('\n// ===== pages (generated from google-portal/pages/) =====\n\n');
   parts.push(`var GP_PAGES = ${JSON.stringify(pages, null, 1)};\n`);
   parts.push(`\nvar GP_HUB_SECTIONS = ${JSON.stringify(read(join(PAGES_DIR, 'hub-sections.html')))};\n`);
+  // A short fingerprint of everything above: the web app's ping returns it, so Check health can
+  // tell when the deployed version is older than the script last saved.
+  const build = createHash('sha256').update(parts.join('')).digest('hex').slice(0, 12);
+  parts.push(`\n/** Fingerprint of this build (google-portal/build.mjs). */\nvar GP_BUILD = ${JSON.stringify(build)};\n`);
   return parts.join('');
 }
 

@@ -381,12 +381,21 @@ function healthLines_(opts) {
   if (s.web_app_url) {
     var ping = fetchOk_(s.web_app_url + '?api=ping');
     var pingOk = false;
+    var pingBuild = '';
     try {
-      pingOk = ping.code === 200 && JSON.parse(ping.text).ok === true;
+      var pong = JSON.parse(ping.text);
+      pingOk = ping.code === 200 && pong.ok === true;
+      pingBuild = String(pong.build || '');
     } catch (e) {
       pingOk = false;
     }
     add(pingOk, pingOk ? 'Web app answers.' : 'Web app does not answer (' + ping.code + '). Check the deployment: Execute as Me, Who has access Anyone.');
+    // The web app runs its deployed version; this check runs the code last saved. They differ
+    // until someone makes a New version of the deployment.
+    if (pingOk) {
+      var current = pingBuild === GP_BUILD;
+      add(current, current ? 'Web app runs the saved script (build ' + GP_BUILD + ').' : 'The web app is an older version: Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy.');
+    }
   } else {
     add(false, 'Web app: no web_app_url in Settings.');
   }
@@ -512,17 +521,19 @@ function healthLines_(opts) {
  *     web app first answered (PHASE2_WEB_AT, set by dispatch_; unset = the old web app is still
  *     the live one). That covers the old web app serving between pasting the script and making
  *     its new version, and leaves alone a former leader who signed up later (leaders get no row);
- *   - or its only row is Pending with no Decided by, and the Confirmed sign-up was made before
- *     phase 2 began (PHASE2_AT): a phase 2 sign-up made in that gap by someone phase 1 had
- *     already accepted. A Pending row with a Decided by is a bishopric undo, never touched.
+ *   - or its only row is Pending with no Decided by, and the Confirmed sign-up was taken by phase
+ *     1 code (the same cutoff, PHASE2_WEB_AT): someone phase 1 (or the old web app in the gap)
+ *     had accepted who then signed up again through phase 2. A Pending row with a Decided by is a
+ *     bishopric undo, never touched.
  * Phase 2 never confirms a Pending address, so nothing else matches. Runs at every Set up
  * (force) and once, lazily, from ensureUpgraded_. Returns how many rows it added or changed.
  */
 function migratePhase1Volunteers_(force) {
   var p = props_();
   if (!force && p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
-  var cut = p.getProperty('PHASE2_AT') || nowLocal_();
   var webCut = p.getProperty('PHASE2_WEB_AT') || '';
+  // Phase 1 code took every sign-up up to this moment (now, while the old web app is still live).
+  var cut = webCut || nowLocal_();
   var n = withLock_(function () {
     var volsT = serviceTab_(TAB.volunteers);
     var have = volunteersByEmail_(volsT.rows());
@@ -542,7 +553,7 @@ function migratePhase1Volunteers_(force) {
         var v = have[e];
         var record = { Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now };
         if (!v) {
-          if (webCut && cmpLocal(su['Signed up at'], webCut) > 0) return;
+          if (cmpLocal(su['Signed up at'], cut) > 0) return;
           done[e] = true;
           add.push(merge_({ Email: e, Name: su.Name, 'First post': su['Post id'] }, record));
         } else if (v.Status === VOLUNTEER_STATUS.pending && !String(v['Decided by'] || '').trim() && cmpLocal(su['Signed up at'], cut) <= 0) {

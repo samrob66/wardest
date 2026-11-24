@@ -59,6 +59,8 @@ export function loadPortal(opts = {}) {
   );
   compiled().runInContext(ctx);
   ctx.fakes = fakes;
+  // By default the deployed web app is this very build: its ping answers with GP_BUILD.
+  fakes.state.fetch = (url) => ({ code: 200, text: JSON.stringify(String(url).includes('?api=ping') ? { ok: true, build: ctx.GP_BUILD } : { ok: true }) });
   if (opts.seed) seed(ctx, opts.seed === true ? {} : opts.seed);
   return ctx;
 }

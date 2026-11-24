@@ -301,7 +301,7 @@ describe('round 2', () => {
     gp.fakes.props.delete('SYSTEM_ID');
     gp.gpMenuSetUp();
     gp.gpMenuInstallTriggers();
-    gp.fakes.state.fetch = () => ({ code: 200, text: '{"ok":true,"at":"x"}' });
+    gp.fakes.state.fetch = () => ({ code: 200, text: JSON.stringify({ ok: true, at: 'x', build: gp.GP_BUILD }) });
     const fresh = (name) => gp.gpMenuCheckHealth().find((l) => l.includes(name + ' last ran') || l.includes(name + ' has not run'));
     // Just installed: not run yet is fine.
     expect(fresh('gpDaily')).toMatch(/^OK /);
@@ -325,7 +325,7 @@ describe('round 2', () => {
     gp.fakes.props.delete('SYSTEM_ID');
     gp.gpMenuSetUp();
     gp.gpMenuInstallTriggers();
-    gp.fakes.state.fetch = () => ({ code: 200, text: '{"ok":true,"at":"x"}' });
+    gp.fakes.state.fetch = () => ({ code: 200, text: JSON.stringify({ ok: true, at: 'x', build: gp.GP_BUILD }) });
     gp.fakes.setNow('2026-12-01 10:45');
     expect(gp.gpMenuCheckHealth().find((l) => l.includes('gpTenMinute has not run'))).toMatch(/^PROBLEM /);
   });

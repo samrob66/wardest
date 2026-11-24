@@ -167,7 +167,7 @@ describe('gpDaily: the health email', () => {
 describe('Check health: trigger owners', () => {
   it('names the account that owns the listed triggers and their kinds', () => {
     const gp = afterSetUp();
-    gp.fakes.state.fetch = () => ({ code: 200, text: '{"ok":true}' });
+    gp.fakes.state.fetch = () => ({ code: 200, text: JSON.stringify({ ok: true, build: gp.GP_BUILD }) });
     const lines = gp.gpMenuCheckHealth();
     const owner = lines.find((l) => l.includes('Triggers belong to'));
     expect(owner).toMatch(new RegExp('^OK Triggers belong to ' + OWNER_EMAIL.replace(/\./g, '\\.')));
@@ -198,17 +198,17 @@ describe('upgrading a ward live on phase 1', () => {
     ]);
     expect(gp.fakes.props.get('SCHEMA_VERSION')).toBe(gp.GP_VERSION);
     // A Confirmed sign-up the old web app took after that (no row) is covered by the next Set up;
-    // a Pending address whose Confirmed sign-up came after phase 2 began (an undone revoke) is not.
+    // a Pending address a bishopric member decided (an undone revoke, Decided by set) is not.
     gp.fakes.setNow('2026-12-01 11:00');
     gp.serviceTab_('Sign-ups').appendMany([
       { 'Sign-up id': 's5', 'Post id': 'p1', 'Slot id': 'm1', Email: 'later@example.test', Name: 'Later', Status: 'Confirmed', 'Signed up at': '2026-12-01 10:30' },
       { 'Sign-up id': 's6', 'Post id': 'p1', 'Slot id': 'm1', Email: 'undone@example.test', Name: 'Undone', Status: 'Confirmed', 'Signed up at': '2026-12-01 10:45' },
     ]);
-    gp.serviceTab_('Volunteers').append({ Email: 'undone@example.test', Name: 'Undone', Status: 'Pending', 'Email confirmed at': '2026-11-25 10:00' });
+    gp.serviceTab_('Volunteers').append({ Email: 'undone@example.test', Name: 'Undone', Status: 'Pending', 'Decided by': 'Bishop Example', 'Decided at': '2026-11-30 10:00', 'Email confirmed at': '2026-11-25 10:00' });
     gp.gpBegin_();
     gp.gpMenuSetUp();
     expect(vols()).toContainEqual(['later@example.test', 'Approved', 'Phase 1 sign-up']);
-    expect(vols()).toContainEqual(['undone@example.test', 'Pending', '']);
+    expect(vols()).toContainEqual(['undone@example.test', 'Pending', 'Bishop Example']);
   });
 
   it('jobs and web calls on a sheet not yet set up for phase 2 upgrade it first: reminders keep their details', () => {
@@ -275,5 +275,48 @@ describe('review round 2: the migration never undoes a decision', () => {
     gp.gpMenuSetUp();
     expect(vol(gp, 'gap.volunteer@example.test')).toMatchObject({ Status: 'Approved', 'Decided by': 'Phase 1 sign-up' });
     expect(vol(gp, 'former.leader@example.test')).toBeUndefined();
+  });
+});
+
+describe('review round 3', () => {
+  it('item 1: someone the old web app accepted in the gap who signs up again through phase 2 is approved', () => {
+    const gp = loadPortal({ seed: { approved: [] } });
+    seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-03', Needed: 9 }, { 'Slot id': 'm2', Date: '2026-12-04', Needed: 9 }]);
+    gp.fakes.props.delete('SYSTEM_ID');
+    gp.gpMenuSetUp(); // step 3: PHASE2_AT 10:00
+    gp.fakes.setNow('2026-12-01 10:02');
+    // The old web app (no Volunteers row) takes a sign-up.
+    gp.serviceTab_('Sign-ups').append({ 'Sign-up id': 's1', 'Post id': 'p1', 'Slot id': 'm1', Email: 'gap@example.test', Name: 'Gap Person', Status: 'Confirmed', 'Signed up at': '2026-12-01 10:02' });
+    gp.gpBegin_();
+    gp.fakes.setNow('2026-12-01 10:05'); // step 4: the phase 2 web app answers
+    gp.doGet({ parameter: { api: 'serve' } });
+    gp.fakes.setNow('2026-12-01 10:07'); // they sign up again: a Pending row
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Gap Person', email: 'gap@example.test' });
+    expect(rows(gp, 'Volunteers').find((v) => v.Email === 'gap@example.test').Status).toBe('Pending');
+    gp.fakes.setNow('2026-12-01 10:10'); // step 5: Set up again
+    gp.gpMenuSetUp();
+    expect(rows(gp, 'Volunteers').find((v) => v.Email === 'gap@example.test')).toMatchObject({ Status: 'Approved', 'Decided by': 'Phase 1 sign-up' });
+  });
+
+  it('item 2: the ping carries the build, and Check health says when the web app is an older version', () => {
+    const gp = afterSetUp();
+    const pong = JSON.parse(gp.doGet({ parameter: { api: 'ping' } }).getContent());
+    expect(pong.build).toBe(gp.GP_BUILD);
+    expect(gp.GP_BUILD).toMatch(/^[0-9a-f]{12}$/);
+    expect(gp.healthLines_({}).find((l) => l.includes('build'))).toMatch(/^OK Web app runs the saved script/);
+    gp.fakes.state.fetch = () => ({ code: 200, text: JSON.stringify({ ok: true, at: 'x' }) }); // a phase 1 web app
+    expect(gp.healthLines_({ job: true })).toContain('PROBLEM The web app is an older version: Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy.');
+    gp.fakes.mail.sent.length = 0;
+    gp.gpDaily();
+    expect(gp.fakes.mail.sent.filter((m) => /needs attention/.test(m.subject) && m.body.includes('older version'))).toHaveLength(2);
+  });
+
+  it('item 4: a new Settings tab defaults to 80 sign-up attempts a day; a value a ward typed stays', () => {
+    const gp = loadPortal({ seed: true });
+    expect(gp.settings_().signup_limit_per_day).toBe(80);
+    setSetting(gp, 'signup_limit_per_day', 40);
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    gp.gpBegin_();
+    expect(gp.settings_().signup_limit_per_day).toBe(40);
   });
 });

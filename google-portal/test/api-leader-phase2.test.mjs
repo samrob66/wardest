@@ -206,3 +206,16 @@ describe('review round 2: a category is required for new posts', () => {
     expect(plain(gp.apiSavePost_({ k, mode: 'publish', post: { ...old, title: 'Still no category' } })).ok).toBe(true);
   });
 });
+
+describe('review round 3: a categorized post keeps a category', () => {
+  it('a crafted save can not blank the category of a post that has one', () => {
+    const gp = setup();
+    const k = linkFor(gp, 'sister.example@example.test');
+    const post = plain(gp.apiGetPost_({ k, postId: 'p1' })).post;
+    expect(post.category).toBe('meals');
+    const r = plain(gp.apiSavePost_({ k, mode: 'publish', post: { ...post, category: '' } }));
+    expect(r.ok).toBe(false);
+    expect(r.fields.category).toBe('Pick a category');
+    expect(gp.fakes.spreadsheet.rowsOf('Posts').find((p) => p['Post id'] === 'p1').Category).toBe('meals');
+  });
+});

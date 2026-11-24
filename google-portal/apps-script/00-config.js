@@ -172,7 +172,7 @@ var SETTINGS_ROWS = [
   ['reminder_hour', 18, 'Hour of the day (0-23) reminders go out for the next day.'],
   ['default_cancel_cutoff_hours', 24, 'Hours before a role starts after which a cancellation tells leaders they are short.'],
   ['email_reserve', 30, 'Emails kept back each day for reminders and leader notices.'],
-  ['signup_limit_per_day', 40, 'Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count too).'],
+  ['signup_limit_per_day', 80, 'Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count too).'],
   ['confirm_limit_per_day', 20, 'Most confirm-your-address emails sent in one day, all addresses together.'],
   ['organizations', 'Bishopric, Elders Quorum, Relief Society, Young Men, Young Women, Primary, Sunday School, Ward Mission, Temple and Family History, Activities', 'Organizations, separated by commas.'],
   ['discord', 'off', 'Discord announcements (phase 2). Leave off.'],

@@ -165,7 +165,7 @@ describe('settings_', () => {
     expect(s.reminder_hour).toBe(18);
     expect(s.default_cancel_cutoff_hours).toBe(24);
     expect(s.email_reserve).toBe(30);
-    expect(s.signup_limit_per_day).toBe(40);
+    expect(s.signup_limit_per_day).toBe(80);
     expect(Array.isArray(s.organizations)).toBe(true);
     expect(s.organizations).toContain('Relief Society');
     expect(s.organizations).toHaveLength(10);

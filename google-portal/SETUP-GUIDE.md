@@ -176,7 +176,7 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | reminder_hour | Hour reminders go out the day before (0–23) | `18` |
    | default_cancel_cutoff_hours | Hours before a role when a cancel makes you "short" | `24` |
    | email_reserve | Emails kept back each day for reminders and leader notices | `30` |
-   | signup_limit_per_day | Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count too) | `40` |
+   | signup_limit_per_day | Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count too) | `80` |
    | confirm_limit_per_day | Most *Please confirm your email* messages in one day (first-timers) | `20` |
    | organizations | Organizations, separated by commas | (keep the list given) |
    | discord | Leave `off` | `off` |
@@ -359,6 +359,7 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 |---|---|
 | Settings | Fill in the keys it names. |
 | Web app does not answer | Step 4: Execute as **Me**, access **Anyone**; web_app_url must end in `/exec`. |
+| The web app is an older version | The script was saved but the web app still runs an earlier version: **Deploy > Manage deployments**, select it, click the **pencil**, **Version: New version**, **Deploy**. (The nightly health email says this too.) |
 | Hub serve.html not reachable | The hub owner hasn't uploaded the pages yet, or hub_url is wrong (it must be the folder that holds `index.html`). Or use the no-hub way in step 6. |
 | Triggers | Run **Install triggers** (signed in as the shared account). |
 | Triggers belong to … (this account) | Always OK: it names the account whose triggers are listed and each one's kind (CLOCK for the timed jobs, FORMS for the request forms). Google only lists the triggers of the account running Check health, so a trigger someone made while signed in as themselves never shows here and looks missing: run **Install triggers** in a window signed in only to the shared account. |

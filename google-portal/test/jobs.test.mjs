@@ -324,7 +324,7 @@ describe('Install triggers, hub files, leader links, health', () => {
   it('Check health lists one line per piece', () => {
     const gp = afterSetUp();
     gp.gpMenuInstallTriggers();
-    gp.fakes.state.fetch = (url) => (url.endsWith('?api=ping') ? { code: 200, text: '{"ok":true,"at":"x"}' } : { code: 404, text: '' });
+    gp.fakes.state.fetch = (url) => (url.endsWith('?api=ping') ? { code: 200, text: JSON.stringify({ ok: true, at: 'x', build: gp.GP_BUILD }) } : { code: 404, text: '' });
     const lines = gp.gpMenuCheckHealth();
     expect(lines.length).toBeGreaterThanOrEqual(8);
     for (const l of lines) expect(l).toMatch(/^(OK|PROBLEM) /);

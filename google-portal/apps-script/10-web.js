@@ -52,7 +52,7 @@ function doGet(e) {
   if (p.api === 'serve' || p.api === 'post' || p.api === 'help') {
     return jsonOut_(dispatch_(p.api, { p: p.p }));
   }
-  if (p.api === 'ping') return jsonOut_({ ok: true, at: nowLocal_() });
+  if (p.api === 'ping') return jsonOut_({ ok: true, at: nowLocal_(), build: GP_BUILD });
   if (p.page && PAGE_TITLES.hasOwnProperty(p.page) && GP_PAGES.hasOwnProperty(p.page)) {
     var s = settings_();
     return HtmlService.createHtmlOutput(renderPage_(p.page, s, true))

@@ -18,7 +18,7 @@ describe('doGet', () => {
     expect(r.ok).toBe(true);
     expect(r.posts).toHaveLength(1);
     expect(json(gp.doGet({ parameter: { api: 'post', p: 'pubmeals01' } })).post.title).toBe('Meals for the Sample family');
-    expect(json(gp.doGet({ parameter: { api: 'ping' } }))).toEqual({ ok: true, at: '2026-12-01 10:00' });
+    expect(json(gp.doGet({ parameter: { api: 'ping' } }))).toEqual({ ok: true, at: '2026-12-01 10:00', build: gp.GP_BUILD });
   });
 
   it('serves the fallback pages with title and viewport', () => {

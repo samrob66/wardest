@@ -180,7 +180,7 @@ var SETTINGS_ROWS = [
   ['reminder_hour', 18, 'Hour of the day (0-23) reminders go out for the next day.'],
   ['default_cancel_cutoff_hours', 24, 'Hours before a role starts after which a cancellation tells leaders they are short.'],
   ['email_reserve', 30, 'Emails kept back each day for reminders and leader notices.'],
-  ['signup_limit_per_day', 40, 'Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count too).'],
+  ['signup_limit_per_day', 80, 'Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count too).'],
   ['confirm_limit_per_day', 20, 'Most confirm-your-address emails sent in one day, all addresses together.'],
   ['organizations', 'Bishopric, Elders Quorum, Relief Society, Young Men, Young Women, Primary, Sunday School, Ward Mission, Temple and Family History, Activities', 'Organizations, separated by commas.'],
   ['discord', 'off', 'Discord announcements (phase 2). Leave off.'],
@@ -3601,7 +3601,9 @@ function apiSavePost_(data) {
       categoryIds: catIds,
       todayLocal: now.slice(0, 10),
       publish: action === 'publish',
-      requireCategory: !existing,
+      // A new post needs a category, and so does a post that has one (it can't be blanked);
+      // only an old post saved without one may stay that way.
+      requireCategory: !existing || !!String(existing.Category || '').trim(),
       keepDates: keepDates,
     });
     var errors = v.ok ? {} : v.errors;
@@ -4117,7 +4119,7 @@ function doGet(e) {
   if (p.api === 'serve' || p.api === 'post' || p.api === 'help') {
     return jsonOut_(dispatch_(p.api, { p: p.p }));
   }
-  if (p.api === 'ping') return jsonOut_({ ok: true, at: nowLocal_() });
+  if (p.api === 'ping') return jsonOut_({ ok: true, at: nowLocal_(), build: GP_BUILD });
   if (p.page && PAGE_TITLES.hasOwnProperty(p.page) && GP_PAGES.hasOwnProperty(p.page)) {
     var s = settings_();
     return HtmlService.createHtmlOutput(renderPage_(p.page, s, true))
@@ -5070,12 +5072,21 @@ function healthLines_(opts) {
   if (s.web_app_url) {
     var ping = fetchOk_(s.web_app_url + '?api=ping');
     var pingOk = false;
+    var pingBuild = '';
     try {
-      pingOk = ping.code === 200 && JSON.parse(ping.text).ok === true;
+      var pong = JSON.parse(ping.text);
+      pingOk = ping.code === 200 && pong.ok === true;
+      pingBuild = String(pong.build || '');
     } catch (e) {
       pingOk = false;
     }
     add(pingOk, pingOk ? 'Web app answers.' : 'Web app does not answer (' + ping.code + '). Check the deployment: Execute as Me, Who has access Anyone.');
+    // The web app runs its deployed version; this check runs the code last saved. They differ
+    // until someone makes a New version of the deployment.
+    if (pingOk) {
+      var current = pingBuild === GP_BUILD;
+      add(current, current ? 'Web app runs the saved script (build ' + GP_BUILD + ').' : 'The web app is an older version: Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy.');
+    }
   } else {
     add(false, 'Web app: no web_app_url in Settings.');
   }
@@ -5201,17 +5212,19 @@ function healthLines_(opts) {
  *     web app first answered (PHASE2_WEB_AT, set by dispatch_; unset = the old web app is still
  *     the live one). That covers the old web app serving between pasting the script and making
  *     its new version, and leaves alone a former leader who signed up later (leaders get no row);
- *   - or its only row is Pending with no Decided by, and the Confirmed sign-up was made before
- *     phase 2 began (PHASE2_AT): a phase 2 sign-up made in that gap by someone phase 1 had
- *     already accepted. A Pending row with a Decided by is a bishopric undo, never touched.
+ *   - or its only row is Pending with no Decided by, and the Confirmed sign-up was taken by phase
+ *     1 code (the same cutoff, PHASE2_WEB_AT): someone phase 1 (or the old web app in the gap)
+ *     had accepted who then signed up again through phase 2. A Pending row with a Decided by is a
+ *     bishopric undo, never touched.
  * Phase 2 never confirms a Pending address, so nothing else matches. Runs at every Set up
  * (force) and once, lazily, from ensureUpgraded_. Returns how many rows it added or changed.
  */
 function migratePhase1Volunteers_(force) {
   var p = props_();
   if (!force && p.getProperty('VOLUNTEERS_MIGRATED')) return 0;
-  var cut = p.getProperty('PHASE2_AT') || nowLocal_();
   var webCut = p.getProperty('PHASE2_WEB_AT') || '';
+  // Phase 1 code took every sign-up up to this moment (now, while the old web app is still live).
+  var cut = webCut || nowLocal_();
   var n = withLock_(function () {
     var volsT = serviceTab_(TAB.volunteers);
     var have = volunteersByEmail_(volsT.rows());
@@ -5231,7 +5244,7 @@ function migratePhase1Volunteers_(force) {
         var v = have[e];
         var record = { Status: VOLUNTEER_STATUS.approved, 'Decided by': 'Phase 1 sign-up', 'Decided at': now };
         if (!v) {
-          if (webCut && cmpLocal(su['Signed up at'], webCut) > 0) return;
+          if (cmpLocal(su['Signed up at'], cut) > 0) return;
           done[e] = true;
           add.push(merge_({ Email: e, Name: su.Name, 'First post': su['Post id'] }, record));
         } else if (v.Status === VOLUNTEER_STATUS.pending && !String(v['Decided by'] || '').trim() && cmpLocal(su['Signed up at'], cut) <= 0) {
@@ -5638,3 +5651,6 @@ var GP_PAGES = {
 };
 
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
+
+/** Fingerprint of this build (google-portal/build.mjs). */
+var GP_BUILD = "d3ea70b6595d";

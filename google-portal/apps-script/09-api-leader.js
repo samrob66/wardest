@@ -228,7 +228,9 @@ function apiSavePost_(data) {
       categoryIds: catIds,
       todayLocal: now.slice(0, 10),
       publish: action === 'publish',
-      requireCategory: !existing,
+      // A new post needs a category, and so does a post that has one (it can't be blanked);
+      // only an old post saved without one may stay that way.
+      requireCategory: !existing || !!String(existing.Category || '').trim(),
       keepDates: keepDates,
     });
     var errors = v.ok ? {} : v.errors;
