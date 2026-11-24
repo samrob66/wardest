@@ -86,6 +86,9 @@ function apiServe_() {
   return answer;
 }
 
+/** Script cache key for the giving form's published link (cleared by buildRequestForms_). */
+var GIVING_URL_CACHE_KEY = 'giving_url';
+
 /**
  * The Christmas giving card for the Service Opportunities page (decision 17): the
  * christmas-giving row, not archived, with On Serve page ticked and a form. On Serve page means
@@ -97,7 +100,18 @@ function serveOffers_() {
     if (!c || c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || !isTicked(c['On Serve page'])) return [];
     var f = systemTab_(SYS_TAB.requestFiles).find('Category id', GIVING_ID);
     if (!f || !f['Form id']) return [];
-    return [{ id: GIVING_ID, label: GIVING_TEXT.offerLabel, icon: c.Icon, url: FormApp.openById(f['Form id']).getPublishedUrl() }];
+    // The form's published link, cached like the Help page (Set up clears it), so a Serve
+    // rebuild every minute doesn't open the form each time.
+    var url = cache_().get(GIVING_URL_CACHE_KEY);
+    if (!url) {
+      url = FormApp.openById(f['Form id']).getPublishedUrl();
+      try {
+        cache_().put(GIVING_URL_CACHE_KEY, url, HELP_CACHE_SECONDS);
+      } catch (e2) {
+        // answer anyway
+      }
+    }
+    return [{ id: GIVING_ID, label: GIVING_TEXT.offerLabel, icon: c.Icon, url: url }];
   } catch (e) {
     try {
       // At most one Log line an hour (Serve is rebuilt every minute).

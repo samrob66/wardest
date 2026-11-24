@@ -635,6 +635,32 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
     expect(plain(gp.apiServe_()).offers).toEqual([]);
   });
 
+  it("caches the giving form's link: two uncached Serve calls open the form once; Set up clears it", () => {
+    const gp = wardWithCouple();
+    setGiving(gp, { 'On Serve page': true });
+    let opens = 0;
+    const real = gp.FormApp.openById;
+    gp.FormApp.openById = (id) => {
+      opens++;
+      return real(id);
+    };
+    const serveUncached = () => {
+      gp.fakes.cache.delete('serve');
+      gp.gpBegin_();
+      return plain(gp.apiServe_()).offers;
+    };
+    const first = serveUncached();
+    const second = serveUncached();
+    expect(first).toEqual([{ id: 'christmas-giving', label: 'Offer to give at Christmas', icon: '🎁', url: giveUrl(gp) }]);
+    expect(second).toEqual(first);
+    expect(opens).toBe(1);
+    // Set up (which may make a new giving form) clears the cached link.
+    gp.gpMenuSetUp();
+    opens = 0;
+    serveUncached();
+    expect(opens).toBe(1);
+  });
+
   it('ticked: Serve carries the offer within a minute, with no Set up', () => {
     const gp = wardWithCouple();
     expect(plain(gp.apiServe_()).offers).toEqual([]); // now cached

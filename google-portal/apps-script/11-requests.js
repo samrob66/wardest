@@ -227,6 +227,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
   });
   try {
     cache_().remove('help');
+    cache_().remove(GIVING_URL_CACHE_KEY);
   } catch (e) {
     // the help cache expires on its own
   }

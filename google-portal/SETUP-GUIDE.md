@@ -27,20 +27,22 @@ What you are building:
 >    both counselors, the Executive Secretary and the Ward Clerk (add a row for anyone missing),
 >    and for nobody else.
 > 4. Run **Service Portal > Set up**. It keeps everything you typed and makes whatever is still
->    missing (this is also section 3, step 7). It adds two Categories columns, **Notify** (the
->    **other** row gets `Bishop`) and **On Help page** (ticked for every row you had), and a new
->    row, **Christmas giving offers**, then makes its private form, folder and sheet. It also
->    updates the wording of request forms it made before (*Updated the wording of: …*), and
->    ends by listing the giving form's link.
+>    missing (this is also section 3, step 7). It adds three Categories columns: **Notify** (the
+>    **other** row gets `Bishop`), **On Help page** (ticked for every row you had) and **On
+>    Serve page** (unticked). It adds a new row, **Christmas giving offers**, and makes its
+>    form, folder and sheet. It also updates the wording of request forms it made before
+>    (*Updated the wording of: …*), and ends by listing the giving form's link.
 > 5. In the **Categories** tab, type the Christmas gift coordinators' emails in
->    **Coordinators** on both the **christmas** and **christmas-giving** rows (section 3, step
->    6).
+>    **Coordinators** on both the **christmas** and **christmas-giving** rows, and decide whether
+>    to tick **On Serve page** on the christmas-giving row (section 3, step 6).
 > 6. Only if you had already run Install triggers: run **Service Portal > Install triggers**
 >    again (section 5, step 1), so the new giving form gets its trigger. Otherwise skip this.
 > 7. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
 >    5, step 2), and make the giving short link (section 6, step 7). If you hadn't reached those
 >    sections yet, skip this; they come up in order.
-> 8. Carry on from where you stopped.
+> 8. Only if you already gave the hub owner the hub files: run **Make hub files** and give them
+>    the new `serve.html` (section 6, steps 1–3). The giving card needs it.
+> 9. Carry on from where you stopped.
 
 ---
 
@@ -192,8 +194,8 @@ private window, use a separate Chrome profile signed in only to the shared accou
      the Request Help page. You choose how people find it with its **On Serve page** box (the
      last column; if it isn't there, run Set up, which adds it):
      - **Ticked**: the Service Opportunities page shows a small *🎁 Offer to give at Christmas*
-       card at the top, linking to the form. It appears (or goes) within a minute; no Set up
-       needed.
+       card at the top, linking to the form. Once the hub has the current `serve.html` (from
+       **Make hub files**, section 6), it appears (or goes) within a minute; no Set up needed.
      - **Unticked** (the default): it is on no public page; share its link privately (section
        6, step 7).
      On Serve page means nothing on any other row.
