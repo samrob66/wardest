@@ -145,7 +145,7 @@ done with Levels 1–3 tools (or only by a workaround outside the system).
 | Only the responsible leaders see requests; Christmas and Other only the bishopric and those they name | Full (with one caveat) | Each request kind writes to its own spreadsheet in a Drive folder shared only with its leaders (§5.4). The whole bishopric opens every request folder (§12 decision 18); Moving and other non-confidential kinds also go to their owning organizations' leaders and Coordinators. Christmas and Other go to the whole bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) plus that kind's Coordinators (§12 decision 14). Caveat: the shared bishopric account owns every file, so anyone who signs in to that account can open them, and so can anyone who edits the Service Sheet, through its bound script; both are the bishopric. Same as WardForward's superadmins. |
 | Inbox with status, assignee, one short private note | Full | Columns in each request sheet. |
 | Leader notice by email with no details | Full | "A new Moving request came in. Open your Requests folder." |
-| "Turn into a service opportunity" | Partial | A checkbox in the request sheet makes a draft opportunity with the dates on the leader page; the leader writes the public note and publishes. |
+| "Turn into a service opportunity" | Full (§12 decision 19) | A reader of the request ticks **Make opportunity** on its row in the request sheet (and **Copy contact to private details** only if wanted). Within ten minutes the script makes a **Draft** in the request kind's **Opportunity category** (Categories): the category's name as title, its owner and audiences, an empty public note, one "Help" role on the Moving date or a week out, private details empty unless Copy contact is ticked (name and contact only, never the note). It writes **Posted as** and unticks the box, and emails the kind's Notify people who can edit the draft, with nothing from the request. The leader finishes and publishes it on the leader page, where it is marked *From a request*. Request text never reaches the leader page or a public page; kinds with a blank Opportunity category (Christmas, Other, giving) can't be turned. |
 | Message to the requester when done/declined | Partial | The leader contacts them directly (no stored, verified email). |
 | Deleted 30 days after it closes | Full, with care | §8.2: rows leave the sheet at 30 days; the monthly rotation of **request files only** removes them from version history too. |
 
@@ -770,6 +770,15 @@ help soon", quota reserve and health email.
     bishopric members, a Notify token `Owners` (the owning organizations' Org editor or Ward
     council leaders) was added and Moving is seeded `Owners, Coordinators` (once, only when
     blank). A blank Notify still means every reader.
+19. **A request can be turned into a draft opportunity from its request sheet** (§4.3; Sam,
+    2026-11-24, in 2.2). Sam's words: "To be clear, each "Lend a hand" request should go to the
+    Relief Society president (and assigns) for approval before appearing on the Opportunity
+    board." … "Yes, add the Turn into an opportunity button". The "button" is a checkbox in the
+    request sheet, picked up by the ten-minute job, because request sheets are guarded by
+    Google's own sign-in while the leader page uses forwardable leader links: listing requests on
+    the leader page would put request details behind a weaker link. The script makes only a
+    Draft (never Open), with no request text in any public field; the president (or whoever may
+    edit it) finishes and publishes it.
 
 ## 13. Settled with Sam, and open questions
 

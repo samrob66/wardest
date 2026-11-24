@@ -10,6 +10,8 @@ edits the Service Sheet and reads the Christmas and Other requests; spec §12 de
 Phase 2 plan (confirm your address, first-time approval, waiting counts, over-limit and
 withdraw, nudges and lapses, My sign-ups, children, coordinators and fill warnings, Needs help
 soon, the daily health email): `docs/superpowers/plans/2026-11-24-google-portal-phase-2.md`.
+2.2 plan (turn a request into a draft opportunity from its request sheet; spec §12 decision 19):
+`docs/superpowers/plans/2026-11-24-google-portal-2.2-turn-into-opportunity.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).

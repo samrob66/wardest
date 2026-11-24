@@ -32,6 +32,22 @@ How a volunteer is known (no Google account needed):
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
 
+> **If you already set up before 2.2** (before a request could be turned into an opportunity),
+> do this once, signed in to the shared account in a private window:
+> 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
+> 2. **Deploy > Manage deployments**, select the deployment, click the **pencil**, set
+>    **Version** to **New version**, click **Deploy** (skip if you haven't deployed yet).
+> 3. Run **Service Portal > Set up**. It adds the **Opportunity category** column to the
+>    Categories tab (the **moving** row gets `moving-help` if it was blank) and the **Make
+>    opportunity**, **Copy contact to private details** and **Posted as** columns to every
+>    request sheet.
+> 4. In **Categories**, fill in **Opportunity category** for each request kind that may be
+>    turned into an opportunity (section 3, step 6), e.g. a **lend-a-hand** request row →
+>    `lend-a-hand-service`. Leave Christmas, Other and Christmas giving offers blank.
+> 5. Send the leaders the new LEADER-GUIDE (*Turning a request into an opportunity*).
+>
+> If your ward is also before 2.1, do that box too (below).
+
 > **If you already set up before 2.1** (before the bishopric could open every request folder,
 > Moving included), do this once, signed in to the shared account in a private window:
 > 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
@@ -265,6 +281,14 @@ private window, use a separate Chrome profile signed in only to the shared accou
    - **On Help page**: ticked request kinds show on the public Request Help page. If you add a
      new request kind later, tick it (unticked kinds are left off). After changing On Help
      page, run Set up (the Help page can otherwise take up to 6 hours to change).
+   - **Opportunity category** (request rows): the **Id** of the opportunity category a request
+     of this kind can be turned into, as a **Draft** a leader finishes and publishes (see the
+     LEADER-GUIDE, *Turning a request into an opportunity*). The **moving** row starts as
+     `moving-help`. A ward with a **Lend a hand** request kind (Id `lend-a-hand`, owned by the
+     Relief Society) adds an opportunity row for it, e.g. Id `lend-a-hand-service`, Name
+     `Lend a hand`, Kind `Opportunity`, Owning organizations `Relief Society`, Default audiences
+     `Sisters`, and types `lend-a-hand-service` here. Leave it blank where a request must never
+     become an opportunity: **christmas**, **other** and **christmas-giving** start blank.
    The **Opportunity** rows (Meals, Moving, Service project, …) are the categories leaders pick
    when they make an opportunity, and each shows its **Icon** on the Service Opportunities page.
    For each one you may fill in:

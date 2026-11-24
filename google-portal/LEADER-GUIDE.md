@@ -107,6 +107,22 @@ Requests are removed 30 days after they are Done or Declined.
   and to their coordinators. The email for a new Moving request goes to those leaders and
   coordinators, not to the whole bishopric.
 
+**Turning a request into an opportunity** (for example, the Relief Society president with a
+*Lend a hand* request). The request itself never leaves its sheet; only a blank draft is made.
+1. Read the request in its sheet (your **Requests** folder in Drive).
+2. Tick **Make opportunity** on that row. Tick **Copy contact to private details** too only if
+   the volunteers will need the requester's name and phone or email on the day (they go into
+   the private details, which only approved, signed-up volunteers get; the note is never
+   copied).
+3. Within about 10 minutes **Posted as** says *Draft made …*, the box unticks itself, and a
+   **Draft** marked *From a request* appears under **My opportunities** on your leader page.
+   (If it says *Not made: set Opportunity category …*, ask the Executive Secretary to fill in
+   that request kind's **Opportunity category**, then tick the box again.)
+4. On the leader page, **Edit** the draft: check the date (a Moving date is copied; otherwise
+   it is a week out), write the public note, set the roles and how many people, then
+   **Publish**. Never put the family's name, address or situation in the public note.
+5. In the request sheet, set **Status** to **In progress** or **Done** as usual.
+
 **Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on the
 Christmas giving form, from a link the ward shares or, if the ward turned it on, from the
 *Offer to give at Christmas* card on the Service Opportunities page. Only you and the bishopric
