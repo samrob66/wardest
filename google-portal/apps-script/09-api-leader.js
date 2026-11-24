@@ -145,14 +145,16 @@ function apiGetPost_(data) {
 }
 
 /**
- * data: {k, action: 'draft'|'publish'|'close', post}. Writes Posts and Slots. Slots are matched
+ * data: {k, mode: 'draft'|'publish'|'close', post}. Writes Posts and Slots. (Through doPost the
+ * envelope's own 'action' is 'savePost', so the choice travels as 'mode'; a direct call may pass
+ * it as 'action'.) Slots are matched
  * by slotId; a removed slot with people signed up is refused, as is "needed" below the number
  * already signed up.
  */
 function apiSavePost_(data) {
   var lc = leaderCtx_(data);
   if (!lc) return relink_();
-  var action = data.action;
+  var action = data.mode || data.action;
   if (action !== 'draft' && action !== 'publish' && action !== 'close') return { ok: false, error: TEXT.badRequest };
   var input = data.post || {};
   var result = withLock_(function () {

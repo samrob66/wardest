@@ -108,7 +108,18 @@ GP.footer();
           GP.call('signup', { publicId: post.publicId, slotId: chosen.slotId, name: name.value, email: email.value, bringing: chosen.bringingPrompt ? bring.value : '' }).then(
             function (res) {
               button.disabled = false;
-              if (res && res.ok) return GP.show(formWrap, GP.message('ok', res.message));
+              if (res && res.ok) {
+                // Reload so the counts include this sign-up; the message replaces the form.
+                return GP.call('post', { p: post.publicId }).then(
+                  function (again) {
+                    if (again && again.ok) render(again.post, res.message);
+                    else GP.show(formWrap, GP.message('ok', res.message));
+                  },
+                  function () {
+                    GP.show(formWrap, GP.message('ok', res.message));
+                  }
+                );
+              }
               Object.keys((res && res.fields) || {}).forEach(function (k) {
                 if (errs[k]) errs[k].textContent = res.fields[k];
               });
@@ -141,7 +152,7 @@ GP.footer();
     return formWrap;
   }
 
-  function render(post) {
+  function render(post, doneMessage) {
     GP.$('gp-title').textContent = post.title;
     document.title = post.title + ' · ' + GP.config().wardName;
     var parts = [
@@ -154,7 +165,8 @@ GP.footer();
       parts.push(el('h2', {}, GP.fmtDate(d.date)));
       parts.push(el('div', { class: 'gp-card' }, d.slots.map(slotLine)));
     });
-    if (post.status === 'Open') parts.push(signupForm(post));
+    if (doneMessage) parts.push(GP.message('ok', doneMessage));
+    else if (post.status === 'Open') parts.push(signupForm(post));
     else if (post.status === 'Past') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is over. Thank you to everyone who served.'));
     else parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is closed to new sign-ups.'));
     GP.show(main, parts);

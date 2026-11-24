@@ -290,7 +290,7 @@ GP.footer();
             class: 'gp-danger',
             onclick: function () {
               if (!window.confirm('Close "' + p.title + '"? No one new can sign up; people already signed up stay.')) return;
-              call('savePost', { action: 'close', post: { postId: p.postId } }).then(function (res) {
+              call('savePost', { mode: 'close', post: { postId: p.postId } }).then(function (res) {
                 flash(res.ok ? 'ok' : 'alert', res.ok ? 'Closed.' : GP.errorText(res));
                 render();
               }, function (e) { failed(e, out); });
@@ -556,7 +556,7 @@ GP.footer();
       cutoffHours: f.cutoffHours,
       slots: flatten(f).slots,
     };
-    call('savePost', { action: action, post: post }).then(function (res) {
+    call('savePost', { mode: action, post: post }).then(function (res) {
       if (!res.ok) {
         state.errors = res.fields || {};
         state.formError = GP.errorText(res);

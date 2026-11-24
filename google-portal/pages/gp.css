@@ -48,7 +48,7 @@ h2 {
 }
 h3 { font-size: 1rem; color: var(--gp-heading); margin: 0 0 0.3rem; }
 
-a { color: var(--gp-link); }
+a { color: var(--gp-link); overflow-wrap: anywhere; }
 
 .gp-card {
   background: var(--gp-card);
