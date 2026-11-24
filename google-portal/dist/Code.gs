@@ -1015,7 +1015,7 @@ function readMeLines_(s) {
     GEMINI_RULE,
     '',
     'Requests are not in this sheet. Each kind of request has its own folder and sheet, shared only with its leaders.',
-    'Opportunity category (Categories, request rows): the Id of the opportunity category a request of this kind can be turned into (e.g. moving -> moving-help). Blank: it can\'t be turned. In a request sheet, tick Make opportunity on a row (and Copy contact to private details if the volunteers need the name and phone); within about 10 minutes a Draft appears on the leader page and Posted as says so. Nothing from the request goes on a public page.',
+    'Opportunity category (Categories, request rows): the Id of the opportunity category a request of this kind can be turned into (e.g. moving -> moving-help). Blank: it can\'t be turned. In a request sheet, tick Make opportunity on a row (and Copy contact to private details if the volunteers need the name and phone); within the hour a Draft appears on the leader page and Posted as says so. Nothing from the request goes on a public page.',
     'Contact: ' + (s.contact_email || '(fill in contact_email in Settings)'),
   ];
 }
@@ -4604,12 +4604,15 @@ function draftFromRequest_(s, kind, oc, r, todayLocal, nowLocal) {
 }
 
 /**
- * Ten-minute job part: every request row with Make opportunity ticked and Posted as blank
- * becomes a Draft opportunity (never Open). Each request file is handled under the script lock;
- * Posted as is written and the box unticked, so a row is made once (a draft already made for that
- * request is found by its Created by instead of made again). Notices go out after the lock, only
- * to people who can edit the draft, and say nothing about the request. A file that fails is
- * reported at the end; the others still run.
+ * Hourly job part: every request row with Make opportunity ticked and Posted as blank (or "Not
+ * made: ...") becomes a Draft opportunity (never Open). Each request sheet is read without the
+ * lock; only a sheet with a ticked row takes the script lock and is read again before anything is
+ * written. Posted as is written and the box unticked, so a row is made once: a draft already made
+ * for that request id (this run's included) is found by its Created by instead of made again, and
+ * a row typed by hand without a Request id first gets one. A sheet without the 2.2 columns has
+ * nothing ticked (Set up adds them). Notices go out after the lock, only to people who can edit
+ * the draft, and say nothing about the request. A file that fails is reported at the end; the
+ * others still run.
  */
 function makeDraftsFromRequests_() {
   var s = settings_();
@@ -4618,25 +4621,27 @@ function makeDraftsFromRequests_() {
   var catsById = indexBy_(categories, 'Id');
   var made = [];
   var errors = [];
+  var isMarked = function (r) {
+    return isTicked(r['Make opportunity']);
+  };
   systemTab_(SYS_TAB.requestFiles)
     .rows()
     .forEach(function (f) {
       var kind = catsById[f['Category id']];
       if (!f['Sheet id'] || !kind) return;
       try {
+        var ss = SpreadsheetApp.openById(f['Sheet id']);
+        var peek = tabOf_(ss, REQUEST_TAB);
+        if (peek.headers.indexOf('Make opportunity') < 0 || !peek.rows().some(isMarked)) return;
         withLock_(function () {
-          var ss = SpreadsheetApp.openById(f['Sheet id']);
-          ensureRequestColumns_(ss);
           var t = tabOf_(ss, REQUEST_TAB);
-          var ticked = t.rows().filter(function (r) {
-            return isTicked(r['Make opportunity']);
-          });
+          var ticked = t.rows().filter(isMarked);
           if (!ticked.length) return;
           var now = nowLocal_();
           var postsT = serviceTab_(TAB.posts);
           var byCreator = indexBy_(postsT.rows(), 'Created by');
           ticked.forEach(function (r) {
-            // Already made: just untick. A "Not made: …" row may be ticked again once fixed.
+            // Already made: just untick. A "Not made: ..." row may be ticked again once fixed.
             var postedAs = String(r['Posted as'] == null ? '' : r['Posted as']).trim();
             if (postedAs && postedAs.indexOf('Not made') !== 0) {
               t.update(r, { 'Make opportunity': false });
@@ -4644,15 +4649,24 @@ function makeDraftsFromRequests_() {
             }
             var oc = draftCategoryFor_(kind, catsById);
             if (!oc) {
-              t.update(r, { 'Posted as': 'Not made: set Opportunity category for ' + kind.Name + ' in Categories', 'Make opportunity': false });
+              var set = String(kind['Opportunity category'] == null ? '' : kind['Opportunity category']).trim();
+              t.update(r, {
+                'Posted as':
+                  'Not made: set Opportunity category for ' + kind.Name + ' to the Id of an Opportunity row in Categories (now: ' + (set || 'blank') + ')',
+                'Make opportunity': false,
+              });
               return;
             }
-            var post = byCreator['request ' + r['Request id']];
+            // A row typed by hand may have no Request id: give it one, so it never matches another.
+            if (!String(r['Request id'] == null ? '' : r['Request id']).trim()) t.update(r, { 'Request id': newId_('r') });
+            var key = 'request ' + String(r['Request id']).trim();
+            var post = byCreator[key];
             if (!post) {
               var d = draftFromRequest_(s, kind, oc, r, today, now);
               postsT.append(d.post);
               serviceTab_(TAB.slots).append(d.slot);
               post = d.post;
+              byCreator[key] = post;
               made.push({ kind: kind, post: post });
             }
             t.update(r, {
@@ -5854,7 +5868,6 @@ function gpTenMinute(e) {
       ['leader links', processLeaderLinkTicks_],
       ['counts', refreshAllFilled_],
       ['needs help soon', writeNeedsHelpTab_],
-      ['drafts from requests', makeDraftsFromRequests_],
     ]);
   });
 }
@@ -5867,6 +5880,7 @@ function gpHourly(e) {
       ['nudges', sendNudges_],
       ['warnings', sendWarnings_],
       ['past posts', markPastPosts_],
+      ['drafts from requests', makeDraftsFromRequests_],
       ['serve cache', clearServeCache_],
     ]);
   });
@@ -5932,4 +5946,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "d9032800b994";
+var GP_BUILD = "2609a73f980b";

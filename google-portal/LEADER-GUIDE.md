@@ -112,9 +112,9 @@ Requests are removed 30 days after they are Done or Declined.
 1. Read the request in its sheet (your **Requests** folder in Drive).
 2. Tick **Make opportunity** on that row. Tick **Copy contact to private details** too only if
    the volunteers will need the requester's name and phone or email on the day (they go into
-   the private details, which only approved, signed-up volunteers get; the note is never
-   copied).
-3. Within about 10 minutes **Posted as** says *Draft made …*, the box unticks itself, and a
+   the private details, which only leaders who can edit the post and approved, signed-up
+   volunteers see; the note is never copied).
+3. Within the hour **Posted as** says *Draft made …*, the box unticks itself, and a
    **Draft** marked *From a request* appears under **My opportunities** on your leader page.
    (If it says *Not made: set Opportunity category …*, ask the Executive Secretary to fill in
    that request kind's **Opportunity category**, then tick the box again.)
@@ -122,6 +122,11 @@ Requests are removed 30 days after they are Done or Declined.
    it is a week out), write the public note, set the roles and how many people, then
    **Publish**. Never put the family's name, address or situation in the public note.
 5. In the request sheet, set **Status** to **In progress** or **Done** as usual.
+
+A **Moving** request turned into an opportunity becomes an **Elders Quorum** draft (in the
+*Moving* category, which the Elders Quorum owns). A Relief Society president who wants it should
+ask the Elders Quorum president, or the bishopric can set Moving's **Opportunity category** to a
+Relief Society category.
 
 **Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on the
 Christmas giving form, from a link the ward shares or, if the ward turned it on, from the

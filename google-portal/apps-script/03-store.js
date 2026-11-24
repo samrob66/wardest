@@ -417,7 +417,7 @@ function readMeLines_(s) {
     GEMINI_RULE,
     '',
     'Requests are not in this sheet. Each kind of request has its own folder and sheet, shared only with its leaders.',
-    'Opportunity category (Categories, request rows): the Id of the opportunity category a request of this kind can be turned into (e.g. moving -> moving-help). Blank: it can\'t be turned. In a request sheet, tick Make opportunity on a row (and Copy contact to private details if the volunteers need the name and phone); within about 10 minutes a Draft appears on the leader page and Posted as says so. Nothing from the request goes on a public page.',
+    'Opportunity category (Categories, request rows): the Id of the opportunity category a request of this kind can be turned into (e.g. moving -> moving-help). Blank: it can\'t be turned. In a request sheet, tick Make opportunity on a row (and Copy contact to private details if the volunteers need the name and phone); within the hour a Draft appears on the leader page and Posted as says so. Nothing from the request goes on a public page.',
     'Contact: ' + (s.contact_email || '(fill in contact_email in Settings)'),
   ];
 }

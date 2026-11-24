@@ -1,9 +1,9 @@
 // 2.2: a leader who reads a request ticks "Make opportunity" in the request sheet; the
-// 10-minute job makes a DRAFT opportunity without request details on any public field.
+// hourly job makes a DRAFT opportunity without request details on any public field.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadPortal } from './harness.mjs';
+import { loadPortal, seedPost } from './harness.mjs';
 import { formSubmitEvent } from './fakes.mjs';
 import { GP_DIR } from '../build.mjs';
 
@@ -47,7 +47,7 @@ function tick(gp, catId, { copy = false, row = 0 } = {}) {
 
 function runJob(gp) {
   gp.fakes.mail.sent.length = 0;
-  gp.gpTenMinute();
+  gp.gpHourly();
   gp.gpBegin_();
 }
 
@@ -135,7 +135,7 @@ describe('Turn a request into a draft opportunity (decision 19)', () => {
     runJob(gp);
     expect(posts(gp)).toHaveLength(before);
     const req = requestSheet(gp, 'christmas').rowsOf('Requests')[0];
-    expect(req['Posted as']).toBe('Not made: set Opportunity category for Christmas help in Categories');
+    expect(req['Posted as']).toBe('Not made: set Opportunity category for Christmas help to the Id of an Opportunity row in Categories (now: blank)');
     expect(req['Make opportunity']).toBe(false);
     expect(gp.fakes.mail.sent).toEqual([]);
   });
@@ -169,7 +169,9 @@ describe('Turn a request into a draft opportunity (decision 19)', () => {
       tick(gp, 'lend-a-hand');
       runJob(gp);
       expect(draftsFrom(gp)).toEqual([]);
-      expect(requestSheet(gp, 'lend-a-hand').rowsOf('Requests')[0]['Posted as']).toMatch(/^Not made: set Opportunity category for Lend a hand in Categories$/);
+      expect(requestSheet(gp, 'lend-a-hand').rowsOf('Requests')[0]['Posted as']).toBe(
+        'Not made: set Opportunity category for Lend a hand to the Id of an Opportunity row in Categories (now: ' + value + ')'
+      );
     }
   });
 
@@ -249,8 +251,12 @@ describe('Turn a request into a draft opportunity (decision 19)', () => {
     gp.gpBegin_();
     expect(gp.table_(sh).headers).not.toContain('Make opportunity');
     submit(gp, 'lend-a-hand', REQUESTER);
-    // The next 10-minute run adds them (Set up does too).
+    // Without the columns nothing can be ticked, and the job leaves the sheet alone.
     runJob(gp);
+    expect(gp.table_(sh).headers).not.toContain('Make opportunity');
+    // Set up adds them.
+    gp.gpMenuSetUp();
+    gp.gpBegin_();
     const t = gp.table_(sh);
     for (const h of ['Make opportunity', 'Copy contact to private details', 'Posted as']) expect(t.headers).toContain(h);
     tick(gp, 'lend-a-hand');
@@ -267,18 +273,90 @@ describe('Turn a request into a draft opportunity (decision 19)', () => {
     expect(fresh.rowsOf('Requests')[0]['Posted as']).toContain('Draft made');
   });
 
-  it('a failure in this part does not stop the other ten-minute parts', () => {
+  it('runs hourly, not every ten minutes', () => {
     const gp = ward();
+    submit(gp, 'lend-a-hand', REQUESTER);
+    tick(gp, 'lend-a-hand');
+    gp.gpTenMinute();
+    gp.gpBegin_();
+    expect(draftsFrom(gp)).toEqual([]);
+    runJob(gp);
+    expect(draftsFrom(gp)).toHaveLength(1);
+  });
+
+  it('takes the script lock only for a request sheet with a ticked row', () => {
+    const gp = ward();
+    submit(gp, 'lend-a-hand', REQUESTER);
+    let locks = 0;
+    const real = gp.LockService.getScriptLock;
+    gp.LockService.getScriptLock = () => {
+      const l = real();
+      const tryLock = l.tryLock;
+      l.tryLock = (ms) => {
+        locks++;
+        return tryLock(ms);
+      };
+      return l;
+    };
+    gp.gpBegin_();
+    gp.makeDraftsFromRequests_();
+    expect(locks).toBe(0);
+    tick(gp, 'lend-a-hand');
+    gp.makeDraftsFromRequests_();
+    // The file's lock, then the notices' own (outbox and log writes).
+    expect(locks).toBeGreaterThan(0);
+    expect(draftsFrom(gp)).toHaveLength(1);
+  });
+
+  it('two rows typed by hand without a Request id each get their own id and their own draft', () => {
+    const gp = ward();
+    const t = gp.table_(requestSheet(gp, 'lend-a-hand').getSheetByName('Requests'));
+    t.appendMany([
+      { Kind: 'Lend a hand', Name: 'Hand One', 'Phone or email': 'one@example.test', Status: 'New' },
+      { Kind: 'Lend a hand', Name: 'Hand Two', 'Phone or email': 'two@example.test', Status: 'New' },
+    ]);
+    gp.gpBegin_();
+    tick(gp, 'lend-a-hand', { row: 0 });
+    tick(gp, 'lend-a-hand', { row: 1 });
+    runJob(gp);
+    const made = draftsFrom(gp);
+    expect(made).toHaveLength(2);
+    const rows = requestSheet(gp, 'lend-a-hand').rowsOf('Requests');
+    const ids = rows.map((r) => r['Request id']);
+    for (const id of ids) expect(id).toMatch(/^r[a-z2-7]{10}$/);
+    expect(ids[0]).not.toBe(ids[1]);
+    expect(made.map((p) => p['Created by']).sort()).toEqual(ids.map((id) => 'request ' + id).sort());
+    expect(rows[0]['Posted as']).toContain(made.find((p) => p['Created by'] === 'request ' + ids[0])['Post id']);
+    expect(rows[1]['Posted as']).toContain(made.find((p) => p['Created by'] === 'request ' + ids[1])['Post id']);
+  });
+
+  it('two ticked rows with the same Request id in one pass make one draft', () => {
+    const gp = ward();
+    const t = gp.table_(requestSheet(gp, 'lend-a-hand').getSheetByName('Requests'));
+    t.appendMany([
+      { 'Request id': 'rsame000001', Kind: 'Lend a hand', Name: 'Copy One', Status: 'New' },
+      { 'Request id': 'rsame000001', Kind: 'Lend a hand', Name: 'Copy One', Status: 'New' },
+    ]);
+    gp.gpBegin_();
+    tick(gp, 'lend-a-hand', { row: 0 });
+    tick(gp, 'lend-a-hand', { row: 1 });
+    runJob(gp);
+    expect(draftsFrom(gp)).toHaveLength(1);
+    const rows = requestSheet(gp, 'lend-a-hand').rowsOf('Requests');
+    expect(rows[0]['Posted as']).toBe(rows[1]['Posted as']);
+  });
+
+  it('a failure in this part does not stop the other hourly parts', () => {
+    const gp = ward();
+    seedPost(gp, { 'Post id': 'pold', 'Public id': 'pubold', Status: 'Open' }, [{ 'Slot id': 'old1', Date: '2026-11-20' }]);
     submit(gp, 'lend-a-hand', REQUESTER);
     tick(gp, 'lend-a-hand');
     gp.fakes.props.set('SCHEMA_VERSION', gp.GP_VERSION);
     // Break the request file: its sheet is gone.
     gp.fakes.spreadsheets.delete(fileFor(gp, 'lend-a-hand')['Sheet id']);
-    const t = gp.serviceTab_('Leaders');
-    t.update(t.find('Email', 'sister.helper@example.test'), { 'Send leader link': true });
     gp.gpBegin_();
     runJob(gp);
-    expect(gp.fakes.mail.sent.map((m) => m.to)).toContain('sister.helper@example.test');
+    expect(posts(gp).find((p) => p['Post id'] === 'pold').Status).toBe('Past');
     expect(sys(gp).rowsOf('Log').some((l) => l.What === 'job error' && String(l.Detail).includes('drafts from requests'))).toBe(true);
   });
 

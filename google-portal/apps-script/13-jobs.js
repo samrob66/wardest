@@ -290,7 +290,6 @@ function gpTenMinute(e) {
       ['leader links', processLeaderLinkTicks_],
       ['counts', refreshAllFilled_],
       ['needs help soon', writeNeedsHelpTab_],
-      ['drafts from requests', makeDraftsFromRequests_],
     ]);
   });
 }
@@ -303,6 +302,7 @@ function gpHourly(e) {
       ['nudges', sendNudges_],
       ['warnings', sendWarnings_],
       ['past posts', markPastPosts_],
+      ['drafts from requests', makeDraftsFromRequests_],
       ['serve cache', clearServeCache_],
     ]);
   });

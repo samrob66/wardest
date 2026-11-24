@@ -170,12 +170,15 @@ function draftFromRequest_(s, kind, oc, r, todayLocal, nowLocal) {
 }
 
 /**
- * Ten-minute job part: every request row with Make opportunity ticked and Posted as blank
- * becomes a Draft opportunity (never Open). Each request file is handled under the script lock;
- * Posted as is written and the box unticked, so a row is made once (a draft already made for that
- * request is found by its Created by instead of made again). Notices go out after the lock, only
- * to people who can edit the draft, and say nothing about the request. A file that fails is
- * reported at the end; the others still run.
+ * Hourly job part: every request row with Make opportunity ticked and Posted as blank (or "Not
+ * made: ...") becomes a Draft opportunity (never Open). Each request sheet is read without the
+ * lock; only a sheet with a ticked row takes the script lock and is read again before anything is
+ * written. Posted as is written and the box unticked, so a row is made once: a draft already made
+ * for that request id (this run's included) is found by its Created by instead of made again, and
+ * a row typed by hand without a Request id first gets one. A sheet without the 2.2 columns has
+ * nothing ticked (Set up adds them). Notices go out after the lock, only to people who can edit
+ * the draft, and say nothing about the request. A file that fails is reported at the end; the
+ * others still run.
  */
 function makeDraftsFromRequests_() {
   var s = settings_();
@@ -184,25 +187,27 @@ function makeDraftsFromRequests_() {
   var catsById = indexBy_(categories, 'Id');
   var made = [];
   var errors = [];
+  var isMarked = function (r) {
+    return isTicked(r['Make opportunity']);
+  };
   systemTab_(SYS_TAB.requestFiles)
     .rows()
     .forEach(function (f) {
       var kind = catsById[f['Category id']];
       if (!f['Sheet id'] || !kind) return;
       try {
+        var ss = SpreadsheetApp.openById(f['Sheet id']);
+        var peek = tabOf_(ss, REQUEST_TAB);
+        if (peek.headers.indexOf('Make opportunity') < 0 || !peek.rows().some(isMarked)) return;
         withLock_(function () {
-          var ss = SpreadsheetApp.openById(f['Sheet id']);
-          ensureRequestColumns_(ss);
           var t = tabOf_(ss, REQUEST_TAB);
-          var ticked = t.rows().filter(function (r) {
-            return isTicked(r['Make opportunity']);
-          });
+          var ticked = t.rows().filter(isMarked);
           if (!ticked.length) return;
           var now = nowLocal_();
           var postsT = serviceTab_(TAB.posts);
           var byCreator = indexBy_(postsT.rows(), 'Created by');
           ticked.forEach(function (r) {
-            // Already made: just untick. A "Not made: …" row may be ticked again once fixed.
+            // Already made: just untick. A "Not made: ..." row may be ticked again once fixed.
             var postedAs = String(r['Posted as'] == null ? '' : r['Posted as']).trim();
             if (postedAs && postedAs.indexOf('Not made') !== 0) {
               t.update(r, { 'Make opportunity': false });
@@ -210,15 +215,24 @@ function makeDraftsFromRequests_() {
             }
             var oc = draftCategoryFor_(kind, catsById);
             if (!oc) {
-              t.update(r, { 'Posted as': 'Not made: set Opportunity category for ' + kind.Name + ' in Categories', 'Make opportunity': false });
+              var set = String(kind['Opportunity category'] == null ? '' : kind['Opportunity category']).trim();
+              t.update(r, {
+                'Posted as':
+                  'Not made: set Opportunity category for ' + kind.Name + ' to the Id of an Opportunity row in Categories (now: ' + (set || 'blank') + ')',
+                'Make opportunity': false,
+              });
               return;
             }
-            var post = byCreator['request ' + r['Request id']];
+            // A row typed by hand may have no Request id: give it one, so it never matches another.
+            if (!String(r['Request id'] == null ? '' : r['Request id']).trim()) t.update(r, { 'Request id': newId_('r') });
+            var key = 'request ' + String(r['Request id']).trim();
+            var post = byCreator[key];
             if (!post) {
               var d = draftFromRequest_(s, kind, oc, r, today, now);
               postsT.append(d.post);
               serviceTab_(TAB.slots).append(d.slot);
               post = d.post;
+              byCreator[key] = post;
               made.push({ kind: kind, post: post });
             }
             t.update(r, {

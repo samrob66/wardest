@@ -43,8 +43,13 @@ How a volunteer is known (no Google account needed):
 >    request sheet.
 > 4. In **Categories**, fill in **Opportunity category** for each request kind that may be
 >    turned into an opportunity (section 3, step 6), e.g. a **lend-a-hand** request row →
->    `lend-a-hand-service`. Leave Christmas, Other and Christmas giving offers blank.
-> 5. Send the leaders the new LEADER-GUIDE (*Turning a request into an opportunity*).
+>    `lend-a-hand-service`. If that Opportunity row isn't there yet, add it first: Id
+>    `lend-a-hand-service`, Name `Lend a hand`, Kind `Opportunity`, Owning organizations
+>    `Relief Society`, Default audiences `Sisters`. Leave Christmas, Other and Christmas giving
+>    offers blank.
+> 5. Only if you already gave the hub owner the hub files: run **Make hub files** and give them
+>    the new `leader.html` (section 6, steps 1–3). It shows the *From a request* label.
+> 6. Send the leaders the new LEADER-GUIDE (*Turning a request into an opportunity*).
 >
 > If your ward is also before 2.1, do that box too (below).
 
