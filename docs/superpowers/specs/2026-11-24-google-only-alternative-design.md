@@ -141,7 +141,7 @@ done with Levels 1–3 tools (or only by a workaround outside the system).
 | Minimal forms (name, contact, optional 200-char note; moving in/out + date; Christmas: my family / another family) | Full | One Google Form per request kind. |
 | Requester's email verified by link | Changed (by choice) | Not done. Forms can only verify an email by making the person sign in to Google (Sam's rule: "not everyone has Gmail"). Instead the form asks for name and a phone or email, sends **nothing** to the requester, and the leader confirms in person. Fewer emails, nothing revealed if someone types another person's address. A fake request costs one conversation. |
 | Each form says who will see it | Full | Form description. |
-| Only the responsible leaders see requests; Christmas and Other only the bishop and those he names | Full (with one caveat) | Each request kind writes to its own spreadsheet in a Drive folder shared only with its leaders (§5.4). Caveat: the shared bishopric account owns every file, so anyone who signs in to that account can open them. Same as WardForward's superadmins. |
+| Only the responsible leaders see requests; Christmas and Other only the bishopric and those they name | Full (with one caveat) | Each request kind writes to its own spreadsheet in a Drive folder shared only with its leaders (§5.4); Christmas and Other go to the whole bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) plus that kind's Coordinators (§12 decision 14). Caveat: the shared bishopric account owns every file, so anyone who signs in to that account can open them, and so can anyone who edits the Service Sheet, through its bound script; both are the bishopric. Same as WardForward's superadmins. |
 | Inbox with status, assignee, one short private note | Full | Columns in each request sheet. |
 | Leader notice by email with no details | Full | "A new Moving request came in. Open your Requests folder." |
 | "Turn into a service opportunity" | Partial | A checkbox in the request sheet makes a draft opportunity with the dates on the leader page; the leader writes the public note and publishes. |
@@ -193,11 +193,11 @@ Of the 56 features in §4.1–4.5 (not counting the two rows marked "not counted
 
 | Piece | Where | Shared with |
 |---|---|---|
-| **Service Sheet** | Google Sheet with the Apps Script project bound to it, in the "Service Portal" Drive folder | Bishopric (edit Settings, Leaders, Categories) and ward council (read) |
+| **Service Sheet** | Google Sheet with the Apps Script project bound to it, in the "Service Portal" Drive folder | Bishopric, i.e. every Leaders row with Bishopric ticked (edit Settings, Leaders, Categories), and ward council (read) |
 | **Service script** | The same script, deployed as a web app: Execute as **me** (the shared account), access **Anyone**. It is a data service for the hub pages, and also serves the same pages itself as a fallback | Public, through the pages |
 | **Hub sub-pages** | Static HTML + JavaScript files in the ward's hub (GitHub Pages for M44): `serve.html`, `post.html`, `help.html`, `confirm.html`, `me.html`, `leader.html` | Public. The files hold no data; data comes from the script |
 | **Request forms** (Moving, Christmas, Other; more later) | Google Forms, not linked to a response sheet | Anyone with the link can answer; only the shared account edits |
-| **Request folders and sheets** (one folder per responsible group, e.g. "Requests – Elders Quorum", "Requests – Bishop"), each holding that month's request sheet | Drive | The folder is shared with that group's leaders only (Christmas/Other: the bishop and the coordinators he names) |
+| **Request folders and sheets** (one folder per responsible group, e.g. "Requests – Elders Quorum", "Requests – Bishopric"), each holding that month's request sheet | Drive | The folder is shared with that group's leaders only (Christmas/Other: the whole bishopric and the coordinators they name) |
 | **System Sheet** | Google Sheet: hashed tokens, leader links, rate counters, email outbox, log, Discord webhook URL | Nobody but the shared account |
 
 Why one script: one place to update, one owner, one set of triggers. Why the System Sheet is
@@ -290,7 +290,7 @@ promise by Google; it is the first item in the §11 test.
 
 | Person | Service Sheet | Leader page | Request folders | Public pages |
 |---|---|---|---|---|
-| Bishopric | Edit Settings, Leaders, Categories; read the rest | All organizations; approve, undo, revoke anywhere | Bishop's folder: **bishop only** (+ his coordinators); others only if added | Yes |
+| Bishopric (Bishopric ticked: bishop, both counselors, Executive Secretary, Ward Clerk) | Edit Settings, Leaders, Categories; read the rest | All organizations; approve, undo, revoke anywhere | Christmas and Other: **the whole bishopric** (+ that kind's coordinators); others only if added | Yes |
 | Ward council | Read all | All organizations (read); edit and approve for their own organization | Their group's folder if they're its leaders | Yes |
 | Org volunteer editors, category coordinators (not on ward council) | **No** | Only their organization's or categories' posts and names | Their group's folder if named | Yes |
 | Volunteer | No | No | No | Public pages + their own My sign-ups |
@@ -298,6 +298,16 @@ promise by Google; it is the first item in the §11 test.
 | Anyone signed in to the shared account | Everything | – | Everything | – |
 
 Rules:
+- "The bishopric" is every Leaders row with **Bishopric** ticked, which the guide says to tick
+  for the bishop, both counselors, the Executive Secretary and the Ward Clerk. The Calling text
+  decides no access (it only names the two administrators who get alert emails: `Bishop` and
+  `Executive Secretary`). §12 decision 14.
+- Confidential request kinds (Confidential ticked: Christmas, Other) are read by the bishopric
+  plus that kind's Coordinators, and their notices go to the same people. No other ward council
+  or organization leader gets them unless named a Coordinator.
+- Caveat: an editor of the Service Sheet can also edit the script bound to it, which runs as the
+  shared account and can open every request sheet. Only the bishopric edits it, and the bishopric
+  reads the confidential requests anyway, so this gives no one more than they have.
 - The leader page is what makes per-organization privacy possible: the script decides what each
   leader link may see, so the Service Sheet (which shows everything) only goes to people who may
   see everything anyway.
@@ -689,6 +699,18 @@ help soon", quota reserve and health email.
 12. **Everything runs as the shared account; leaders never authorize the script** (§5.4): avoids
     Google's unverified-app warning and keeps triggers from dying with a release.
 13. **Discord announcements are optional** and off by default.
+14. **The whole bishopric edits the Service Sheet and reads the confidential requests** (§4.3,
+    §5.4; Sam, 2026-11-24, in 1.1). Every Leaders row with Bishopric ticked (the bishop, both
+    counselors, the Executive Secretary and the Ward Clerk) gets edit access to the Service Sheet
+    and the Christmas and Other request folders and notices, with each kind's Coordinators. This
+    replaces the phase 1 review decision (D2) that only the bishop and Executive Secretary edit
+    the Sheet, and the earlier rule that only the bishop (and the coordinators he names) reads
+    Christmas and Other. Sam's words:
+    - "Service Sheet editing should be possible by the entire bishopric, including the Exec Sec
+      and Ward Clerk."
+    - "No, the thing is, sometimes the Bishop is out. That's why he has counselors (if he is sick
+      and in the hospital, they can act as him). Don't try to hide things from the counselors,
+      and the Ward Clerk either--he is even more trusted than I am."
 
 ## 13. Settled with Sam, and open questions
 

@@ -55,3 +55,9 @@ email saying a request came in; open your **Requests** folder in Google Drive, w
 request is a row. Fill in **Status** (New, In progress, Done, Declined), **Assigned to** and a
 short **Leader note**. Contact the person directly. Never copy request details into an email.
 Requests are removed 30 days after they are Done or Declined.
+- **Christmas and Other requests** go only to the bishopric (the bishop, both counselors, the
+  Executive Secretary and the Ward Clerk) and anyone they name as that kind's coordinator. Other
+  kinds go to the leaders of the organizations that own them.
+
+**The Service Sheet.** The bishopric edits it; other ward council members can view it. To change
+Settings, Leaders or Categories, ask the Executive Secretary.

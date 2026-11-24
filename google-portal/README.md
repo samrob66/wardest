@@ -4,7 +4,9 @@ A ward's Service Opportunities sign-ups and Request Help forms built only from t
 Google account (Sheets, Forms, Drive, Apps Script, Gmail) plus its hub page, with no WardForward
 app and no outside service. Spec:
 `docs/superpowers/specs/2026-11-24-google-only-alternative-design.md`. Phase 1 plan:
-`docs/superpowers/plans/2026-11-24-google-portal-phase-1.md`.
+`docs/superpowers/plans/2026-11-24-google-portal-phase-1.md`. 1.1 plan (the whole bishopric
+edits the Service Sheet and reads the Christmas and Other requests; spec §12 decision 14):
+`docs/superpowers/plans/2026-11-24-google-portal-1.1-bishopric.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).

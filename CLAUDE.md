@@ -119,7 +119,12 @@ requests, hub sub-pages that call the script's web app). Phase 1 built & tested 
 2026-11-24; nothing has been created in Google yet (Sam does every Google step in a browser
 with `google-portal/SETUP-GUIDE.md`). Spec
 `docs/superpowers/specs/2026-11-24-google-only-alternative-design.md`; plan
-`docs/superpowers/plans/2026-11-24-google-portal-phase-1.md`.
+`docs/superpowers/plans/2026-11-24-google-portal-phase-1.md`, then 1.1
+(`docs/superpowers/plans/2026-11-24-google-portal-1.1-bishopric.md`, spec §12 decision 14): every
+Leaders row with **Bishopric** ticked (bishop, both counselors, Executive Secretary, Ward Clerk)
+edits the Service Sheet and reads the confidential requests (Christmas, Other) with that kind's
+Coordinators; `bishopricEmails()` decides, never the Calling text. Alert emails still go to
+Calling `Bishop` / `Executive Secretary`.
 - Source: `google-portal/apps-script/NN-*.js` + `pages/`. `npm run gp:build` writes the
   paste-ready `google-portal/dist/Code.gs` + `appsscript.json`, which are **generated and
   committed** (never hand-edited); `npm run gp:build:check` (and the gp tests) fail when `dist/`

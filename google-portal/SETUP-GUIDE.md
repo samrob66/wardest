@@ -15,6 +15,24 @@ What you are building:
   opportunities and see who signed up;
 - private **request folders**, one per kind of request, that only the right leaders can open.
 
+> **If you set up before 1.1** (before the whole bishopric could edit the Service Sheet and
+> read the Christmas and Other requests), do this once, signed in to the shared account in a
+> private window:
+> 1. Copy the new `Code.gs` and paste it over the old one: section 2, steps 12–14 (open it
+>    from the Service Sheet with **Extensions > Apps Script**). Save.
+> 2. Only if you already deployed the web app: **Deploy > Manage deployments**, select the
+>    deployment, click the **pencil**, set **Version** to **New version**, click **Deploy**.
+>    (If you haven't deployed yet, skip this; section 4 does it.)
+> 3. Reload the Service Sheet, then in the **Leaders** tab tick **Bishopric** for the bishop,
+>    both counselors, the Executive Secretary and the Ward Clerk (add a row for anyone missing),
+>    and for nobody else.
+> 4. Run **Service Portal > Set up**. It keeps everything you typed, makes whatever is still
+>    missing (this is also section 3, step 7), and updates the wording of any request forms it
+>    made before (*Updated the wording of: …*).
+> 5. Only if you had already run Sync sharing: run **Service Portal > Sync sharing** (section
+>    5, step 2). If you hadn't reached section 5 yet, skip this; section 5 runs it.
+> 6. Carry on from where you stopped.
+
 ---
 
 ## 1. Before you start
@@ -40,12 +58,16 @@ What you are building:
 4. **Name two administrators**: the bishop and the Executive Secretary. Both should know how to
    sign in to the shared account (password and 2-step verification recovery), and both will get
    the portal's alert emails. In the Leaders tab (step 3.5) their Calling must say exactly
-   `Bishop` and `Executive Secretary`. They are also the **only two who can edit the Service
-   Sheet**: anyone who can edit it can also change the script inside it, and that script can
-   open every request sheet, including the bishop-only ones. Other bishopric members and the
-   ward council can view it, and ask the Executive Secretary to change Settings, Leaders or
-   Categories.
-5. **Agree on the Gemini rule** with every leader who will see portal data. It is also written
+   `Bishop` and `Executive Secretary`.
+5. **The bishopric edits the Service Sheet and reads the confidential requests.** The whole
+   bishopric (the bishop, both counselors, the Executive Secretary and the Ward Clerk) can edit
+   the Service Sheet and open the Christmas and Other request folders, so the counselors can act
+   when the bishop is away. You give them this by ticking **Bishopric** on their Leaders rows
+   (step 3.5); the Calling text doesn't matter for it. Anyone who can edit the Service Sheet can
+   also change the script inside it, which can open every request sheet, so tick Bishopric only
+   for those five callings. The other ward council members can view the Service Sheet, and ask
+   the Executive Secretary to change Settings, Leaders or Categories.
+6. **Agree on the Gemini rule** with every leader who will see portal data. It is also written
    in the Service Sheet's Read me tab:
    > Do not ask Gemini to read, summarize or draft from the Service Sheet, the request sheets or request notices.
 
@@ -137,24 +159,25 @@ private window, use a separate Chrome profile signed in only to the shared accou
    |---|---|
    | Name | e.g. `Sister Example` |
    | Email | The address their leader link goes to |
-   | Calling | e.g. `Relief Society President`. The bishop must be exactly `Bishop`; the Executive Secretary exactly `Executive Secretary` |
+   | Calling | e.g. `Relief Society President`. The bishop must be exactly `Bishop`; the Executive Secretary exactly `Executive Secretary` (they get the alert emails) |
    | Organization | Pick from the list |
-   | Bishopric | Tick for bishopric members: on the leader page they see and edit every opportunity. (Only the bishop and Executive Secretary edit the Service Sheet itself; see section 1.) |
+   | Bishopric | Tick for the bishop, both counselors, the Executive Secretary and the Ward Clerk, and nobody else. They edit the Service Sheet, read the Christmas and Other requests, and on the leader page see and edit every opportunity (see section 1, step 5) |
    | Ward council | Tick for ward council members: they see every opportunity and its names, and edit their own organization's |
    | Org editor | Tick for leaders who make opportunities for their organization (they see only their own organization's names) |
    | Coordinator | Phase 2; ticking it alone gives nothing yet |
    | Send leader link | Leave for now (step 7) |
    | Link sent | The script fills this |
 
-   **Your own row:** add yourself, with Calling `Executive Secretary`, Organization `Bishopric`
-   and **Ward council** ticked. Without a role box ticked, the leader page answers *Your leader
+   **Your own row:** add yourself, with Calling `Executive Secretary`, Organization `Bishopric`,
+   and **Bishopric** and **Ward council** ticked. Without a role box ticked, the leader page answers *Your leader
    role can't create opportunities yet* and you can't do the test in section 9.
 
 6. Open the **Categories** tab and check the owners. Request kinds (`moving`, `christmas`,
    `other`) decide who reads each request folder:
    - **Moving help**: the Elders Quorum and Relief Society leaders (Owning organizations).
-   - **Christmas help** and **Other help** are **Confidential**: only the bishop (Calling
-     `Bishop`) and anyone listed in **Coordinators** (emails, separated by commas).
+   - **Christmas help** and **Other help** are **Confidential**: only the bishopric (every
+     Leaders row with **Bishopric** ticked) and anyone listed in **Coordinators** (emails,
+     separated by commas). No other ward council member sees them unless you list them there.
    Do not change the **Id** column.
 7. Click **Service Portal > Set up** again. It makes the **Service Portal** folder in Drive,
    moves the Service Sheet into it, makes the private **System Sheet**, and makes one request
@@ -192,11 +215,12 @@ and the old links stop working.
 1. Click **Service Portal > Install triggers**. It says *Triggers installed: every 10 minutes,
    hourly, daily at 2 am, and 3 request form trigger(s).*
 2. Click **Service Portal > Sync sharing**. It shares, with Google's share emails turned off:
-   - the **Service Sheet**: the bishop and the Executive Secretary can edit; every other
-     bishopric and ward council member can view (editors can also change the script inside it,
-     which can open every request sheet, so edit access stays with those two);
+   - the **Service Sheet**: the bishopric (Bishopric ticked) can edit; every other ward
+     council member can view (editors can also change the script inside it, which can open
+     every request sheet, so Bishopric stays ticked for the five bishopric callings only);
    - each **request folder**: the leaders who read that kind of request (they can edit the
-     request sheet: Status, Assigned to, Leader note);
+     request sheet: Status, Assigned to, Leader note). Christmas and Other: the bishopric and
+     that kind's Coordinators;
    - the **System Sheet** and the **Service Portal** folder: nobody but the shared account
      (any link sharing is turned off);
    - and it **protects** Posts, Slots, Sign-ups, Volunteers and Needs help soon so only the
