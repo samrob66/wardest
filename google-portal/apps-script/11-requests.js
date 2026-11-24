@@ -32,6 +32,7 @@ var GIVING_TEXT = {
   intro:
     'Thank you for offering to help with Christmas gifts. Only the bishopric and the Christmas gift coordinators see this. A coordinator will contact you. Nothing is emailed back to you.',
   confirmation: 'Thank you. A coordinator will contact you.',
+  offerLabel: 'Offer to give at Christmas',
   offerHelp: 'Up to 300 characters. For example: how many families or children you can help, and the kinds of gifts.',
 };
 
@@ -113,8 +114,8 @@ function requestTable_(ss, row) {
 }
 
 /**
- * Lines naming each request form that is not on the Help page, with its link, so it can be
- * shared privately (decision 16).
+ * Lines naming each request form that is not on the Help page, and always the Christmas giving
+ * form, with its link and where it shows (decisions 16 and 17).
  */
 function privateFormLines_() {
   var files = indexBy_(systemTab_(SYS_TAB.requestFiles).rows(), 'Category id');
@@ -122,11 +123,18 @@ function privateFormLines_() {
   serviceTab_(TAB.categories)
     .rows()
     .forEach(function (c) {
-      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived) || isTicked(c['On Help page'])) return;
+      if (c.Kind !== CATEGORY_KIND.request || isTicked(c.Archived)) return;
+      var giving = c.Id === GIVING_ID;
+      if (!giving && isTicked(c['On Help page'])) return;
       var f = files[c.Id];
       if (!f || !f['Form id']) return;
+      var where = !giving
+        ? '(not on the Help page; share privately)'
+        : isTicked(c['On Serve page'])
+        ? '(on the Service Opportunities page; you can also share the link)'
+        : '(not on any public page; share privately)';
       try {
-        out.push(c.Name + ' (not on the Help page; share privately): ' + FormApp.openById(f['Form id']).getPublishedUrl());
+        out.push(c.Name + ' ' + where + ': ' + FormApp.openById(f['Form id']).getPublishedUrl());
       } catch (e) {
         out.push(c.Name + ': could not open its form (' + clip(e && e.message ? e.message : e, 120) + ').');
       }

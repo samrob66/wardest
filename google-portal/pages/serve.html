@@ -46,14 +46,24 @@ GP.footer();
       if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
       var groups = GP.groupByAudience(res.posts);
       var parts = [];
+      // The Christmas giving card (only when the ward ticked On Serve page for it).
+      (res.offers || []).forEach(function (o) {
+        parts.push(
+          el('a', { class: 'gp-card gp-offer', href: o.url, target: '_blank', rel: 'noopener' }, [
+            el('strong', {}, (o.icon ? o.icon + ' ' : '') + o.label),
+          ])
+        );
+      });
+      var listed = 0;
       GP.AUDIENCES.forEach(function (a) {
         if (!groups[a].length) return;
+        listed++;
         parts.push(el('h2', {}, a));
         groups[a].forEach(function (p) {
           parts.push(card(p));
         });
       });
-      if (!parts.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing to sign up for right now. Please check back soon.'));
+      if (!listed) parts.push(el('p', { class: 'gp-muted' }, 'Nothing to sign up for right now. Please check back soon.'));
       parts.push(
         el('p', { style: 'margin-top:1.5rem;text-align:center' }, [
           el('a', { class: 'gp-btn gp-light', href: GP.pageUrl('help') }, 'Request help or service'),

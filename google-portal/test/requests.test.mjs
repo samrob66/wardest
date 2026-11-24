@@ -618,3 +618,103 @@ describe('Christmas giving offers (decision 16)', () => {
     expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'moving')['On Help page']).toBe(false);
   });
 });
+
+// ---------- 1.1.1 (decision 17): the giving form can be offered on the Service Opportunities page ----------
+
+describe('Christmas giving on the Service Opportunities page (decision 17)', () => {
+  function setGiving(gp, changes) {
+    const cats = gp.serviceTab_('Categories');
+    cats.update(cats.find('Id', 'christmas-giving'), changes);
+    gp.gpBegin_();
+  }
+  const giveUrl = (gp) => gp.fakes.forms.get(fileFor(gp, 'christmas-giving')['Form id']).getPublishedUrl();
+
+  it('unticked (the default): Serve has no offers', () => {
+    const gp = wardWithCouple();
+    expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'christmas-giving')['On Serve page']).toBe(false);
+    expect(plain(gp.apiServe_()).offers).toEqual([]);
+  });
+
+  it('ticked: Serve carries the offer within a minute, with no Set up', () => {
+    const gp = wardWithCouple();
+    expect(plain(gp.apiServe_()).offers).toEqual([]); // now cached
+    setGiving(gp, { 'On Serve page': true });
+    gp.fakes.setNow('2026-12-01 10:02');
+    gp.gpBegin_();
+    expect(plain(gp.apiServe_()).offers).toEqual([{ id: 'christmas-giving', label: 'Offer to give at Christmas', icon: '🎁', url: giveUrl(gp) }]);
+  });
+
+  it('On Serve page is ignored on every other row', () => {
+    const gp = wardWithCouple();
+    const cats = gp.serviceTab_('Categories');
+    for (const id of ['moving', 'christmas', 'other', 'meals']) cats.update(cats.find('Id', id), { 'On Serve page': true });
+    gp.gpBegin_();
+    expect(plain(gp.apiServe_()).offers).toEqual([]);
+  });
+
+  it('the Help page never shows the giving form, even with On Help page ticked', () => {
+    const gp = wardWithCouple();
+    setGiving(gp, { 'On Help page': true, 'On Serve page': true });
+    gp.gpMenuSetUp(); // clears the Help page cache
+    gp.gpBegin_();
+    const help = plain(gp.apiHelp_());
+    expect(help.tiles.map((t) => t.id)).toEqual(['moving', 'christmas', 'other']);
+    expect(JSON.stringify(help)).not.toContain('christmas-giving');
+    expect(JSON.stringify(help)).not.toContain(giveUrl(gp));
+  });
+
+  it('ticking changes nothing about who can open the folders or who is told', () => {
+    function snapshot(gp) {
+      const ids = [gp.fakes.spreadsheet.getId(), ...filesOf(gp).map((f) => f['Folder id'])];
+      const perms = ids.map((id) => [id, permsOf(gp, id)]);
+      gp.fakes.mail.sent.length = 0;
+      submit(gp, 'christmas-giving', { Name: 'Sister Giver', 'Phone or email': '555-0199', 'What would you like to give?': 'I want to give to another family this Christmas' });
+      const told = gp.fakes.mail.sent.map((m) => m.to).sort();
+      gp.fakes.mail.sent.length = 0;
+      return { perms, told };
+    }
+    const gp = wardWithCouple();
+    setGiving(gp, { Coordinators: COUPLE.join(', ') });
+    gp.gpMenuSyncSharing();
+    const before = snapshot(gp);
+    expect(before.told).toEqual([...COUPLE].sort());
+    setGiving(gp, { 'On Serve page': true });
+    gp.gpMenuSetUp();
+    gp.gpMenuSyncSharing();
+    expect(snapshot(gp)).toEqual(before);
+  });
+
+  it("Set up lists the giving form's link either way, saying where it shows", () => {
+    const gp = wardWithCouple();
+    gp.gpMenuSetUp();
+    expect(gp.fakes.alerts.at(-1)).toContain('Christmas giving offers (not on any public page; share privately): ' + giveUrl(gp));
+    setGiving(gp, { 'On Serve page': true });
+    gp.gpMenuSetUp();
+    expect(gp.fakes.alerts.at(-1)).toContain('Christmas giving offers (on the Service Opportunities page; you can also share the link): ' + giveUrl(gp));
+    // Request kinds on the Help page are not listed.
+    expect(gp.fakes.alerts.at(-1)).not.toContain('Moving help (');
+  });
+
+  it('the On Serve page column is appended to an existing sheet without changing other rows', () => {
+    const gp = loadPortal({ seed: true });
+    const sh = gp.fakes.spreadsheet.getSheetByName('Categories');
+    // As a sheet from before 1.1.1: no On Serve page column (it is the last one).
+    const c = sh.raw()[0].indexOf('On Serve page') + 1;
+    expect(c).toBe(sh.raw()[0].length);
+    for (let r = 1; r <= sh.getMaxRows(); r++) {
+      sh.validations.delete(`${r},${c}`);
+      if (sh.cell(r, c) !== '') sh.write(r, c, '');
+    }
+    gp.gpBegin_();
+    expect(gp.table_(sh).headers).not.toContain('On Serve page');
+    const t = gp.serviceTab_('Categories');
+    t.update(t.find('Id', 'moving'), { Coordinators: 'helper.coord@example.test', 'On Help page': true });
+    t.update(t.find('Id', 'other'), { 'On Help page': false });
+    // (rowsOf keys the emptied last column as '' before the header comes back.)
+    const before = gp.fakes.spreadsheet.rowsOf('Categories').map(({ '': gone, ...rest }) => rest);
+    gp.gpEnsureTabs_(gp.fakes.spreadsheet);
+    const after = gp.fakes.spreadsheet.rowsOf('Categories');
+    expect(after.map(({ 'On Serve page': x, ...rest }) => rest)).toEqual(before);
+    for (const r of after) expect(r['On Serve page']).toBe(false);
+  });
+});
