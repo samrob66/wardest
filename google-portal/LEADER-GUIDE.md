@@ -22,14 +22,10 @@ button: paste it into a ward email (addresses in **Bcc**) or a message.
 who. You get an email when someone cancels, and a *You're now short* email when it is after the
 cancel cutoff.
 
-**Remove anyone you don't recognize before the reminder.** Private details go to volunteers in
-their reminder the day before. Click **Remove** next to a name you don't know; the person gets
-an email and the spot opens again.
-
-**Send details for same-day sign-ups.** Someone who signs up on the day of the role never gets
-a reminder, so on that day they show *Details not sent*. Check you recognize them, then click
-**Send details** to email them the private details. (Everyone else gets the details in their
-reminder; there is nothing to do for them.)
+**Approve first-timers.** Someone signing up for the first time confirms their email, then
+waits under **Waiting for approval** for a leader of the organization of their first post (or
+the bishopric). Check the ward directory, then **Approve** or **Decline**. Only approved
+volunteers (and leaders) count toward a role and get the private details.
 
 **Change a post.** **Edit** changes a post. A date or start time with people signed up can't be
 moved or removed until you remove them (or cancel that date, below). **Copy this post** starts

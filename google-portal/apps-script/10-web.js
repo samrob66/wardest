@@ -27,10 +27,14 @@ var POST_ACTIONS = [
   'getPost',
   'savePost',
   'removeSignup',
-  'sendDetails',
   'signOutEverywhere',
   'cancelPost',
   'cancelDate',
+  'waiting',
+  'decide',
+  'bishopric',
+  'volunteers',
+  'needsHelp',
 ];
 
 function jsonOut_(obj) {
@@ -122,9 +126,6 @@ function dispatch_(action, data) {
     removeSignup: function () {
       return apiRemoveSignup_(data);
     },
-    sendDetails: function () {
-      return apiSendDetails_(data);
-    },
     signOutEverywhere: function () {
       return apiSignOutEverywhere_(data);
     },
@@ -133,6 +134,21 @@ function dispatch_(action, data) {
     },
     cancelDate: function () {
       return apiCancelDate_(data);
+    },
+    waiting: function () {
+      return apiWaiting_(data);
+    },
+    decide: function () {
+      return apiDecide_(data);
+    },
+    bishopric: function () {
+      return apiBishopric_(data);
+    },
+    volunteers: function () {
+      return apiVolunteers_(data);
+    },
+    needsHelp: function () {
+      return apiNeedsHelp_(data);
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };

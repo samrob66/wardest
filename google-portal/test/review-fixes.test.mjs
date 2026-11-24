@@ -48,23 +48,7 @@ describe('D1: Close and Draft keep reminders; Cancelled and Past do not', () => 
   });
 });
 
-describe('details owed and Send details', () => {
-  it('detailsDue only on the day of the role, and Send details sends once', () => {
-    const gp = setup();
-    signup(gp);
-    const k = linkFor(gp, 'sister.example@example.test');
-    const flag = () => plain(gp.apiListPosts_({ k })).posts[0].signups[0].detailsDue;
-    expect(flag()).toBe(false);
-    gp.fakes.setNow('2026-12-02 08:00'); // the day itself, reminder never ran
-    expect(flag()).toBe(true);
-    const id = gp.fakes.spreadsheet.rowsOf('Sign-ups')[0]['Sign-up id'];
-    gp.fakes.mail.sent.length = 0;
-    expect(plain(gp.apiSendDetails_({ k, signupId: id })).ok).toBe(true);
-    expect(plain(gp.apiSendDetails_({ k, signupId: id }))).toEqual({ ok: false, error: 'Details were already sent to this person.' });
-    expect(gp.fakes.mail.sent).toHaveLength(1);
-    expect(flag()).toBe(false);
-  });
-
+describe('details in the reminder (phase 2: Send details is gone)', () => {
   it('the reminder stamps Details sent at only when the post has details', () => {
     const gp = setup();
     const t = gp.serviceTab_('Posts');

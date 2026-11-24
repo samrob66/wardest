@@ -328,6 +328,17 @@ function tplWaitingNotice_(s, name, items) {
   };
 }
 
+/** A leader approved this address. Each sign-up that now counts gets its own email. */
+function tplApproved_(s, volunteer) {
+  var ward = s.ward_name || 'the ward';
+  var lines = [
+    'Hi ' + volunteer.Name + ',',
+    'Thank you for offering to serve. A leader has approved your address, so your sign-ups in ' + ward + ' now count and new ones count at once.',
+    'Each sign-up gets its own email with the details you need and a link to cancel.',
+  ];
+  return { subject: "You're approved to serve: " + ward, html: paras_(lines.map(esc)), text: lines.join('\n\n') };
+}
+
 /** To the post's leaders and coordinators: every role has its number. */
 function tplFullyFilled_(s, post) {
   var line = post.Title + ' is fully filled: every role has the people it needs.';
@@ -355,20 +366,6 @@ function tplReminder_(s, post, slot, signup, cancelUrl, details) {
     d.html +
     button_(cancelUrl, 'Cancel my sign-up');
   return { subject: 'Reminder: ' + post.Title + ' tomorrow', html: html, text: text.join('\n\n') };
-}
-
-function tplDetails_(s, post, slot) {
-  var when = fmtWhen_(slot);
-  var details = post['Private details'] || '';
-  var text = [
-    'Here are the details for ' + slot.Role + ' on ' + when + ' (' + post.Title + '). Please keep them private:',
-    details,
-  ];
-  var html = paras_([
-    'Here are the details for <strong>' + esc(slot.Role) + '</strong> on ' + esc(when) + ' (' + esc(post.Title) + '). Please keep them private:',
-    esc(details).replace(/\n/g, '<br>'),
-  ]);
-  return { subject: 'Details for ' + post.Title, html: html, text: text.join('\n\n') };
 }
 
 function tplCancelNotice_(s, post, slot, signup, late, stillFull) {

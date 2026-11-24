@@ -9,7 +9,7 @@ import { loadPortal, seedPost } from './harness.mjs';
 const PURE = [
   'isDateStr', 'isTimeStr', 'normDate', 'normTime', 'normLocalDT', 'normMonth', 'addDays', 'weekday', 'localMinusHours', 'cmpLocal',
   'sanitizeCell', 'esc', 'isEmail', 'normEmail', 'clip', 'isTicked', 'splitList',
-  'validatePost', 'countsBySlot', 'slotStart', 'postSummary', 'publicPost', 'checkSignup', 'cancelIsLate', 'remindersDue', 'detailsDue',
+  'validatePost', 'countsBySlot', 'slotStart', 'postSummary', 'publicPost', 'checkSignup', 'cancelIsLate', 'remindersDue',
   'postsToMarkPast', 'leaderAccess', 'canSeePost', 'canEditPost', 'noticeRecipients', 'rateCheck',
   'volunteerState', 'signupStatusFor', 'overLimitOnConfirm', 'canApprove', 'approversFor', 'nudgesDue', 'lapsesDue', 'warningsDue',
   'needsHelpSoon',

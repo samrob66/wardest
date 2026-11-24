@@ -173,19 +173,6 @@ describe('remindersDue', () => {
   });
 });
 
-describe('detailsDue', () => {
-  const post = POST();
-  const slot = SLOT({ Date: '2026-12-03', Start: '17:00' });
-  it('is true only on the day itself, when the reminder can no longer carry the details', () => {
-    expect(gp.detailsDue(SU(), slot, post, '2026-12-02 18:30')).toBe(false);
-    expect(gp.detailsDue(SU(), SLOT({ Date: '2026-12-20' }), post, '2026-12-02 18:30')).toBe(false);
-    expect(gp.detailsDue(SU(), slot, post, '2026-12-03 08:00')).toBe(true);
-    expect(gp.detailsDue(SU({ 'Details sent at': '2026-12-02 18:00' }), slot, post, '2026-12-03 08:00')).toBe(false);
-    expect(gp.detailsDue(SU(), slot, POST({ 'Private details': '' }), '2026-12-03 08:00')).toBe(false);
-    expect(gp.detailsDue(SU({ Status: 'Removed' }), slot, post, '2026-12-03 08:00')).toBe(false);
-  });
-});
-
 describe('postsToMarkPast', () => {
   it('marks Open and Closed posts whose every date is before today', () => {
     const posts = [POST(), POST({ 'Post id': 'p2', Status: 'Closed' }), POST({ 'Post id': 'p3', Status: 'Draft' }), POST({ 'Post id': 'p4' })];

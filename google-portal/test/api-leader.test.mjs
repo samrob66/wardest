@@ -33,7 +33,7 @@ describe('who am I', () => {
     const r = plain(gp.apiWhoami_({ k: linkFor(gp, 'sister.helper@example.test') }));
     expect(r.ok).toBe(true);
     expect(r.leader).toEqual({ name: 'Sister Helper', calling: 'Primary Secretary', organization: 'Primary' });
-    expect(r.access).toEqual({ isBishopric: false, createOrgs: ['Primary'], editOrgs: ['Primary'] });
+    expect(r.access).toEqual({ isBishopric: false, isCouncil: false, canApprove: true, createOrgs: ['Primary'], baseCreateOrgs: ['Primary'], editOrgs: ['Primary'], catOrgs: {}, coordinates: [] });
     expect(r.categories.map((c) => c.id)).toContain('meals');
     expect(r.categories.map((c) => c.id)).not.toContain('moving');
     expect(r.defaults).toEqual({ cutoffHours: 24 });
@@ -69,7 +69,6 @@ describe('org editor of Primary', () => {
     expect(plain(gp.apiSavePost_({ k, action: 'close', post: { postId: 'p1' } })).ok).toBe(false);
     expect(plain(gp.apiSavePost_({ k, action: 'draft', post: newPost() })).fields.organization).toBeTruthy();
     expect(plain(gp.apiRemoveSignup_({ k, signupId: signupId(gp, 'brother.volunteer@example.test') })).ok).toBe(false);
-    expect(plain(gp.apiSendDetails_({ k, signupId: signupId(gp, 'brother.volunteer@example.test') })).ok).toBe(false);
     expect(gp.fakes.spreadsheet.rowsOf('Sign-ups').every((s) => s.Status === 'Confirmed')).toBe(true);
     expect(gp.fakes.mail.sent).toHaveLength(0);
   });
@@ -167,18 +166,6 @@ describe('sign-ups on the leader page', () => {
     expect(plain(gp.apiPost_('pubmeals01')).post.slots[0]).toMatchObject({ filled: 0, full: false });
     // Their cancel link no longer works.
     expect(gp.fakes.system.rowsOf('Tokens').some((t) => t.Subject === id)).toBe(false);
-  });
-
-  it('Send details emails the private details and stamps the row', () => {
-    const gp = setup();
-    const k = linkFor(gp, 'sister.example@example.test');
-    const id = signupId(gp, 'brother.volunteer@example.test');
-    const list = plain(gp.apiListPosts_({ k }));
-    expect(list.posts.find((p) => p.postId === 'p1').signups[0].detailsSent).toBe(false);
-    expect(plain(gp.apiSendDetails_({ k, signupId: id })).ok).toBe(true);
-    expect(gp.fakes.mail.sent[0].body).toContain('123 Example Lane');
-    const after = plain(gp.apiListPosts_({ k }));
-    expect(after.posts.find((p) => p.postId === 'p1').signups[0].detailsSent).toBe(true);
   });
 
   it('sign out everywhere replaces the link', () => {

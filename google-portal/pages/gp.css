@@ -124,6 +124,7 @@ textarea { min-height: 88px; }
 .gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }
 .gp-slot:first-child { border-top: none; }
 .gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }
+.gp-tag { font-size: 0.78rem; background: var(--gp-soft); border: 1px solid var(--gp-line); border-radius: 999px; padding: 0.05rem 0.55rem; color: var(--gp-muted); }
 
 .gp-tabs { display: flex; gap: 0.4rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }
 .gp-tabs button { flex: 1 1 auto; }

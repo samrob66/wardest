@@ -1,19 +1,21 @@
 /**
  * Leader API: what leader.html calls with a leader link (k). Every handler starts by checking
  * the link against the Leaders tab; what the leader may see and change comes from
- * leaderAccess(). Emails of volunteers go only to leaders who may edit the post.
+ * leaderAccess() (role boxes plus the categories they coordinate). Emails of volunteers go only
+ * to leaders who may edit the post, and to approvers on Waiting for approval.
  */
 
 function relink_() {
   return { ok: false, error: TEXT.leaderRelink, relink: true };
 }
 
-/** {leader, email, access, s} or null when the link is not valid now. */
+/** {leader, email, access, s, categories} or null when the link is not valid now. */
 function leaderCtx_(data) {
   var leader = leaderFromLink_(data && data.k);
   if (!leader) return null;
   var s = settings_();
-  return { leader: leader, email: normEmail(leader.Email), access: leaderAccess(leader, s.organizations), s: s };
+  var categories = serviceTab_(TAB.categories).rows();
+  return { leader: leader, email: normEmail(leader.Email), access: leaderAccess(leader, s.organizations, categories), s: s, categories: categories };
 }
 
 function opportunityCategories_() {
@@ -23,24 +25,44 @@ function opportunityCategories_() {
       return c.Kind === CATEGORY_KIND.opportunity && !isTicked(c.Archived) && c.Id;
     })
     .map(function (c) {
-      return { id: String(c.Id), name: c.Name, icon: c.Icon };
+      return { id: String(c.Id), name: c.Name, icon: c.Icon, audiences: audiencesOf_(c['Default audiences']) };
     });
+}
+
+/** Categories this leader may create in: all of them with an organization of their own, else only theirs. */
+function creatableCategories_(access) {
+  var all = opportunityCategories_();
+  if ((access.baseCreateOrgs || []).length) return all;
+  return all.filter(function (c) {
+    return access.catOrgs && access.catOrgs[c.id];
+  });
 }
 
 function apiWhoami_(data) {
   var lc = leaderCtx_(data);
   if (!lc) return relink_();
+  var a = lc.access;
   return {
     ok: true,
     leader: { name: lc.leader.Name, calling: lc.leader.Calling, organization: lc.leader.Organization },
-    access: { isBishopric: lc.access.isBishopric, createOrgs: lc.access.createOrgs, editOrgs: lc.access.editOrgs },
+    access: {
+      isBishopric: a.isBishopric,
+      isCouncil: a.seeAllNames,
+      canApprove: a.isBishopric || a.editOrgs.length > 0,
+      createOrgs: a.createOrgs,
+      baseCreateOrgs: a.baseCreateOrgs,
+      editOrgs: a.editOrgs,
+      catOrgs: a.catOrgs,
+      coordinates: a.categories,
+    },
     organizations: lc.s.organizations,
-    categories: opportunityCategories_(),
+    categories: creatableCategories_(a),
     defaults: { cutoffHours: lc.s.default_cancel_cutoff_hours },
   };
 }
 
 function slotOut_(sl, counts) {
+  var c = (counts && counts[sl['Slot id']]) || { filled: 0, waiting: 0 };
   return {
     slotId: sl['Slot id'],
     date: sl.Date,
@@ -48,10 +70,17 @@ function slotOut_(sl, counts) {
     end: sl.End,
     role: sl.Role,
     needed: Number(sl.Needed) || 0,
-    filled: filledOf_(counts, sl['Slot id']),
+    filled: c.filled || 0,
+    waiting: c.waiting || 0,
     roleNote: sl['Role note'] || '',
     bringingPrompt: sl['Bringing prompt'] || '',
   };
+}
+
+/** 'Ana (signed up by Sister Example)' for a child, else the name. */
+function signupLabel_(su) {
+  var child = String(su['Child first name'] || '').trim();
+  return child ? child + ' (signed up by ' + su.Name + ')' : String(su.Name);
 }
 
 /** Posts the leader may see: current ones, or with {past: true} the Past and Cancelled ones. */
@@ -63,8 +92,6 @@ function apiListPosts_(data) {
   var slotsByPost = groupBy_(d.slots, 'Post id');
   var signupsByPost = groupBy_(d.signups, 'Post id');
   var wantPast = !!(data && data.past);
-  var now = nowLocal_();
-  var slotById = indexBy_(d.slots, 'Slot id');
   var posts = d.posts
     .filter(function (p) {
       var over = p.Status === POST_STATUS.past || p.Status === POST_STATUS.cancelled;
@@ -91,7 +118,7 @@ function apiListPosts_(data) {
         }),
         signups: (signupsByPost[p['Post id']] || [])
           .filter(function (su) {
-            return su.Status === SIGNUP_STATUS.confirmed;
+            return isActiveSignup_(su.Status);
           })
           .map(function (su) {
             var o = {
@@ -99,11 +126,10 @@ function apiListPosts_(data) {
               slotId: su['Slot id'],
               name: su.Name,
               childName: su['Child first name'] || '',
+              label: signupLabel_(su),
               bringing: su.Bringing || '',
               status: su.Status,
-              detailsSent: !!su['Details sent at'],
-              // The reminder can no longer carry the details (the role is today): offer Send details.
-              detailsDue: !!slotById[su['Slot id']] && detailsDue(su, slotById[su['Slot id']], p, now),
+              overLimit: isTicked(su['Over limit']),
             };
             if (canEdit) o.email = su.Email;
             return o;
@@ -189,7 +215,10 @@ function apiSavePost_(data) {
     oldSlots.forEach(function (sl) {
       keepDates[sl['Slot id']] = sl.Date;
     });
-    var allowed = existing ? uniq_(lc.access.editOrgs.concat([existing.Organization])) : lc.access.createOrgs;
+    var cat = String(input.category == null ? '' : input.category).trim();
+    var allowed = existing
+      ? uniq_(lc.access.editOrgs.concat([existing.Organization], (lc.access.catOrgs && lc.access.catOrgs[cat]) || []))
+      : allowedOrgsFor_(lc.access, cat);
     var catIds = opportunityCategories_().map(function (c) {
       return c.id;
     });
@@ -202,6 +231,11 @@ function apiSavePost_(data) {
       keepDates: keepDates,
     });
     if (!v.ok) return { ok: false, error: 'Please fix the marked fields.', fields: v.errors };
+    // A leader who edits this post only as a coordinator of its category keeps it in one of theirs.
+    var byOrgOrCreator = existing && (normEmail(existing['Created by']) === lc.email || lc.access.editOrgs.indexOf(existing.Organization) >= 0);
+    if (existing && !byOrgOrCreator && lc.access.categories.indexOf(v.post.category) < 0) {
+      return { ok: false, error: 'Please fix the marked fields.', fields: { category: 'Keep it in a category you coordinate.' } };
+    }
 
     var counts = countsBySlot(d.signups);
     var fields = {};
@@ -316,48 +350,18 @@ function apiRemoveSignup_(data) {
   var done = withLock_(function () {
     var f = editableSignup_(lc, data.signupId);
     if (f.error) return f;
-    if (f.signup.Status !== SIGNUP_STATUS.confirmed) return { already: true };
+    if (!isActiveSignup_(f.signup.Status)) return { already: true };
     serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
     refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
     return f;
   });
   if (done.error) return { ok: false, error: done.error };
   if (done.already) return { ok: true, message: 'Already removed.' };
-  revokeTokens_('cancel', done.signup['Sign-up id']);
+  revokeSignupTokens_(done.signup['Sign-up id']);
   clearServeCache_();
   var t = tplRemoved_(lc.s, done.post, done.slot);
   sendOrQueue_({ to: done.signup.Email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
   return { ok: true, message: 'Removed. We emailed ' + done.signup.Name + '.' };
-}
-
-/**
- * Emails the private details to one sign-up. The row is claimed (Details sent at stamped) under
- * the lock from a fresh read, so a double click or the hourly reminder can't send them twice.
- */
-function apiSendDetails_(data) {
-  var lc = leaderCtx_(data);
-  if (!lc) return relink_();
-  var now = nowLocal_();
-  var f = withLock_(function () {
-    var x = editableSignup_(lc, data.signupId);
-    if (x.error) return x;
-    if (x.signup.Status !== SIGNUP_STATUS.confirmed) return { error: 'This person is no longer signed up.' };
-    if (!x.post['Private details']) return { error: 'This opportunity has no private details to send.' };
-    if (x.signup['Details sent at']) return { error: TEXT.detailsAlreadySent };
-    serviceTab_(TAB.signups).update(x.signup, { 'Details sent at': now });
-    return x;
-  });
-  if (f.error) return { ok: false, error: f.error };
-  var t = tplDetails_(lc.s, f.post, f.slot);
-  var r = sendOrQueue_({ to: f.signup.Email, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
-  if (r === 'refused') {
-    withLock_(function () {
-      var again = indexBy_(serviceTab_(TAB.signups).rows(), 'Sign-up id')[f.signup['Sign-up id']];
-      if (again) serviceTab_(TAB.signups).update(again, { 'Details sent at': '' });
-    });
-    return { ok: false, error: 'That email address does not work.' };
-  }
-  return { ok: true, message: r === 'sent' ? 'Details sent.' : 'Details will go out within 10 minutes.' };
 }
 
 /**
@@ -404,6 +408,12 @@ function cancelPostOrDate_(data) {
       var what = (date ? 'date' : 'opportunity') + ' cancelled: ' + (sl ? fmtDateShort_(sl.Date) + ', ' + sl.Role : 'unknown date');
       signupsT.update(su, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name + ' (' + what + ')' });
     });
+    // Sign-ups still waiting (email or approval) on what is called off simply lapse; no email.
+    d.signups.forEach(function (su) {
+      if (su['Post id'] === post['Post id'] && isWaitingSignup_(su.Status) && slotIds.indexOf(su['Slot id']) >= 0) {
+        signupsT.update(su, { Status: SIGNUP_STATUS.lapsed });
+      }
+    });
     var stamp = { 'Last changed by': lc.leader.Name, 'Last changed at': nowLocal_() };
     if (date) {
       serviceTab_(TAB.slots).removeMany(slots);
@@ -413,7 +423,7 @@ function cancelPostOrDate_(data) {
       serviceTab_(TAB.posts).update(post, stamp);
     }
     hit.forEach(function (su) {
-      revokeTokens_('cancel', su['Sign-up id']);
+      revokeSignupTokens_(su['Sign-up id']);
     });
     return { post: post, slots: slots, hit: hit };
   });
@@ -456,4 +466,221 @@ function apiSignOutEverywhere_(data) {
   revokeTokens_('leader', lc.email);
   sendLeaderLink_(lc.leader);
   return { ok: true, message: TEXT.signOutDone };
+}
+
+// ---------- approvals ----------
+
+/** The Volunteers row and first post for an address, with the data read once. */
+function volunteerCtx_(email) {
+  var d = volunteerData_();
+  var volsT = serviceTab_(TAB.volunteers);
+  var v = volunteersByEmail_(volsT.rows())[normEmail(email)] || null;
+  var postsById = indexBy_(d.posts, 'Post id');
+  return { d: d, volsT: volsT, v: v, firstPost: v ? postsById[v['First post']] || null : null, postsById: postsById };
+}
+
+/**
+ * Volunteers this leader may approve: Pending, address confirmed, first post in an organization
+ * the leader edits (or any, for the bishopric). Name, email, first post and waiting sign-ups.
+ */
+function apiWaiting_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var d = volunteerData_();
+  var postsById = indexBy_(d.posts, 'Post id');
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var byEmail = groupBy_(
+    d.signups.map(function (su) {
+      return { e: normEmail(su.Email), su: su };
+    }),
+    'e'
+  );
+  var out = serviceTab_(TAB.volunteers)
+    .rows()
+    .filter(function (v) {
+      return v.Status === VOLUNTEER_STATUS.pending && !!v['Email confirmed at'] && isEmail(v.Email);
+    })
+    .filter(function (v) {
+      return canApprove(lc.access, lc.email, v, postsById[v['First post']] || null);
+    })
+    .map(function (v) {
+      var first = postsById[v['First post']];
+      return {
+        email: normEmail(v.Email),
+        name: v.Name,
+        confirmedAt: v['Email confirmed at'],
+        firstPost: first ? first.Title : '',
+        firstPostOrganization: first ? first.Organization : '',
+        signups: (byEmail[normEmail(v.Email)] || [])
+          .map(function (x) {
+            return x.su;
+          })
+          .filter(function (su) {
+            return su.Status === SIGNUP_STATUS.waitingApproval;
+          })
+          .map(function (su) {
+            var p = postsById[su['Post id']] || {};
+            var sl = slotsById[su['Slot id']] || {};
+            return { title: p.Title || '', organization: p.Organization || '', date: sl.Date || '', start: sl.Start || '', role: sl.Role || '', childName: su['Child first name'] || '' };
+          }),
+      };
+    })
+    .sort(function (a, b) {
+      return cmpLocal(a.confirmedAt, b.confirmedAt);
+    });
+  return { ok: true, volunteers: out };
+}
+
+/**
+ * data: {k, email, decision: 'approve'|'decline'}. Approve: the address is approved ward-wide and
+ * each sign-up waiting for approval counts (confirmation, or the withdraw email when it is over
+ * the number); one approved email. Decline: its waiting sign-ups lapse; one polite email. Both
+ * record Decided by (the leader's name) and Decided at.
+ */
+function apiDecide_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var decision = data && data.decision;
+  if (decision !== 'approve' && decision !== 'decline') return { ok: false, error: TEXT.badRequest };
+  var done = withLock_(function () {
+    var x = volunteerCtx_(data.email);
+    if (!x.v) return { error: 'That volunteer was not found.' };
+    if (!canApprove(lc.access, lc.email, x.v, x.firstPost)) return { error: TEXT.cannotApprove };
+    if (x.v.Status !== VOLUNTEER_STATUS.pending || !x.v['Email confirmed at']) return { error: 'This person is not waiting for approval.' };
+    var now = nowLocal_();
+    var today = now.slice(0, 10);
+    var email = normEmail(x.v.Email);
+    var record = { 'Decided by': lc.leader.Name, 'Decided at': now };
+    var signupsT = serviceTab_(TAB.signups);
+    var slotsT = serviceTab_(TAB.slots);
+    var slotsById = indexBy_(x.d.slots, 'Slot id');
+    var mine = x.d.signups.filter(function (su) {
+      return normEmail(su.Email) === email && isWaitingSignup_(su.Status);
+    });
+    var lapse = function (su) {
+      signupsT.update(su, { Status: SIGNUP_STATUS.lapsed });
+      if (slotsById[su['Slot id']]) refreshFilled_(slotsT, slotsById[su['Slot id']], x.d.signups);
+    };
+    if (decision === 'decline') {
+      x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.declined }, record));
+      mine.forEach(lapse);
+      return { v: x.v, decision: decision };
+    }
+    x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.approved }, record));
+    var live = [];
+    mine.forEach(function (su) {
+      var sl = slotsById[su['Slot id']];
+      var p = x.postsById[su['Post id']];
+      var over = !sl || !p || sl.Date < today || p.Status === POST_STATUS.cancelled || p.Status === POST_STATUS.past;
+      if (over) lapse(su);
+      else live.push(su);
+    });
+    return { v: x.v, decision: decision, d: x.d, confirmed: confirmSignupsLocked_(live, x.d) };
+  });
+  if (done.error) return { ok: false, error: done.error };
+  clearServeCache_();
+  var s = lc.s;
+  var to = normEmail(done.v.Email);
+  var t;
+  if (done.decision === 'decline') {
+    t = tplContactToSignUp_(s);
+    sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+    return { ok: true, message: 'Declined. We emailed ' + done.v.Name + '.' };
+  }
+  t = tplApproved_(s, done.v);
+  sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'normal' });
+  sendConfirmations_(done.confirmed, done.d);
+  filledNotices_(
+    done.confirmed.map(function (c) {
+      return c.post['Post id'];
+    })
+  );
+  var n = done.confirmed.length;
+  return { ok: true, message: 'Approved. ' + n + ' sign-up' + (n === 1 ? '' : 's') + ' now count' + (n === 1 ? 's' : '') + '. We emailed ' + done.v.Name + '.' };
+}
+
+/**
+ * Bishopric only. data: {k, email, decision: 'undo'|'revoke'}. Undo a decline (or a revoke):
+ * Pending again. Revoke an approval: Revoked, so new sign-ups are blocked; Confirmed sign-ups
+ * stay and the answer says how many are still to come. Recorded like approvals.
+ */
+function apiBishopric_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  if (!lc.access.isBishopric) return { ok: false, error: TEXT.bishopricOnly };
+  var decision = data && data.decision;
+  if (decision !== 'undo' && decision !== 'revoke') return { ok: false, error: TEXT.badRequest };
+  var done = withLock_(function () {
+    var x = volunteerCtx_(data.email);
+    if (!x.v) return { error: 'That volunteer was not found.' };
+    var now = nowLocal_();
+    var record = { 'Decided by': lc.leader.Name, 'Decided at': now };
+    if (decision === 'undo') {
+      if (x.v.Status !== VOLUNTEER_STATUS.declined && x.v.Status !== VOLUNTEER_STATUS.revoked) return { error: 'Only a decline or a revoke can be undone.' };
+      x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.pending }, record));
+      return { message: 'Undone. ' + x.v.Name + ' is waiting again; their next sign-up comes to Waiting for approval.' };
+    }
+    if (x.v.Status !== VOLUNTEER_STATUS.approved) return { error: 'Only an approved volunteer can be revoked.' };
+    x.volsT.update(x.v, merge_({ Status: VOLUNTEER_STATUS.revoked }, record));
+    var today = now.slice(0, 10);
+    var slotsById = indexBy_(x.d.slots, 'Slot id');
+    var email = normEmail(x.v.Email);
+    var n = x.d.signups.filter(function (su) {
+      var sl = slotsById[su['Slot id']];
+      return normEmail(su.Email) === email && su.Status === SIGNUP_STATUS.confirmed && sl && sl.Date >= today;
+    }).length;
+    return {
+      message:
+        "Revoked. They can't sign up again. " +
+        (n ? n + ' upcoming sign-up' + (n === 1 ? ' stays' : 's stay') + '; remove ' + (n === 1 ? 'it' : 'them') + ' on My opportunities if needed.' : 'They have no upcoming sign-ups.'),
+    };
+  });
+  if (done.error) return { ok: false, error: done.error };
+  return { ok: true, message: done.message };
+}
+
+/** Bishopric only: every volunteer with status and who decided. */
+function apiVolunteers_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  if (!lc.access.isBishopric) return { ok: false, error: TEXT.bishopricOnly };
+  var postsById = indexBy_(serviceTab_(TAB.posts).rows(), 'Post id');
+  var list = serviceTab_(TAB.volunteers)
+    .rows()
+    .filter(function (v) {
+      return isEmail(v.Email);
+    })
+    .map(function (v) {
+      var first = postsById[v['First post']];
+      return {
+        email: normEmail(v.Email),
+        name: v.Name,
+        status: v.Status || VOLUNTEER_STATUS.pending,
+        decidedBy: v['Decided by'] || '',
+        decidedAt: v['Decided at'] || '',
+        emailConfirmed: !!v['Email confirmed at'],
+        firstPost: first ? first.Title : '',
+      };
+    })
+    .sort(function (a, b) {
+      return cmpLocal(String(a.name).toLowerCase(), String(b.name).toLowerCase());
+    });
+  return { ok: true, volunteers: list };
+}
+
+/** Ward council and bishopric: short roles of open posts in the next 14 days. */
+function apiNeedsHelp_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  if (!lc.access.seeAllNames) return { ok: false, error: TEXT.councilOnly };
+  return { ok: true, rows: needsHelpRows_(lc.s) };
+}
+
+/** needsHelpSoon over the current tabs, each with its public link. */
+function needsHelpRows_(s) {
+  var d = volunteerData_();
+  return needsHelpSoon(d.posts, groupBy_(d.slots, 'Post id'), countsBySlot(d.signups), todayLocal_()).map(function (r) {
+    r.publicUrl = pageUrl_(s, 'post', { p: r.publicId });
+    return r;
+  });
 }

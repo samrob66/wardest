@@ -30,7 +30,7 @@ GP.footer();
 (function () {
   var el = GP.el;
   var main = GP.$('gp-main');
-  var DETAILS_NOTE = "Private details go to volunteers in their reminder the day before. Remove anyone you don't recognize before then.";
+  var STATUS_LABEL = { 'Waiting-email': 'Waiting for their email click', 'Waiting-approval': 'Waiting for approval' };
   var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var K = '';
   var me = null;
@@ -75,12 +75,26 @@ GP.footer();
     return { slotId: '', start: r.start, end: r.end, role: r.role, needed: r.needed, roleNote: r.roleNote, bringingPrompt: r.bringingPrompt };
   }
 
+  /** Organizations this form may use: the leader's own, plus the chosen category's when they coordinate it. */
+  function orgsFor(f) {
+    var extra = (me.access.catOrgs && me.access.catOrgs[f.category]) || [];
+    var base = f.postId ? me.access.editOrgs.concat([f.organization]) : me.access.baseCreateOrgs;
+    return uniq(base.concat(extra));
+  }
+
+  function categoryById(id) {
+    for (var i = 0; i < me.categories.length; i++) if (me.categories[i].id === id) return me.categories[i];
+    return null;
+  }
+
   function newForm() {
-    return {
+    // A coordinator with no organization of their own starts in their first category.
+    var cat = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';
+    var f = {
       postId: '',
       status: '',
-      organization: me.access.createOrgs[0] || '',
-      category: '',
+      organization: '',
+      category: cat,
       title: '',
       audiences: [],
       publicNote: '',
@@ -88,6 +102,10 @@ GP.footer();
       cutoffHours: '',
       dates: [{ date: '', roles: [blankRole()] }],
     };
+    f.organization = orgsFor(f)[0] || '';
+    var c = categoryById(cat);
+    if (c && c.audiences) f.audiences = c.audiences.slice();
+    return f;
   }
 
   /** Server post → form model (slots grouped by date). */
@@ -203,10 +221,31 @@ GP.footer();
 
   // ---------- the signed-in page ----------
 
+  function tab(name, label, before) {
+    return el('button', {
+      type: 'button',
+      role: 'tab',
+      'aria-selected': String(state.tab === name),
+      onclick: function () {
+        if (before) before();
+        state.tab = name;
+        render();
+      },
+    }, label);
+  }
+
   function render() {
+    var a = me.access;
     var tabs = el('div', { class: 'gp-tabs', role: 'tablist' }, [
-      el('button', { type: 'button', role: 'tab', 'aria-selected': String(state.tab === 'list'), onclick: function () { state.tab = 'list'; render(); } }, 'My opportunities'),
-      el('button', { type: 'button', role: 'tab', 'aria-selected': String(state.tab === 'form'), onclick: function () { if (!state.form) state.form = newForm(); state.errors = {}; state.formError = ''; state.tab = 'form'; render(); } }, state.form && state.form.postId ? 'Edit opportunity' : 'New opportunity'),
+      tab('list', 'My opportunities'),
+      a.canApprove ? tab('waiting', 'Waiting for approval') : null,
+      a.isCouncil ? tab('needs', 'Needs help soon') : null,
+      tab('form', state.form && state.form.postId ? 'Edit opportunity' : 'New opportunity', function () {
+        if (!state.form) state.form = newForm();
+        state.errors = {};
+        state.formError = '';
+      }),
+      a.isBishopric ? tab('volunteers', 'Volunteers') : null,
     ]);
     var signOut = el('button', {
       type: 'button',
@@ -226,8 +265,116 @@ GP.footer();
     var note = state.flash ? GP.message(state.flash.kind, state.flash.text) : null;
     state.flash = null;
     GP.show(main, [who, tabs, note, body]);
-    if (state.tab === 'list') renderList(body);
-    else renderForm(body);
+    if (state.tab === 'waiting') renderWaiting(body);
+    else if (state.tab === 'needs') renderNeeds(body);
+    else if (state.tab === 'volunteers') renderVolunteers(body);
+    else if (state.tab === 'form') renderForm(body);
+    else renderList(body);
+  }
+
+  /** Runs a leader action, then shows its answer above the current tab. */
+  function act(action, data, box, btn) {
+    if (btn) btn.disabled = true;
+    call(action, data).then(function (res) {
+      flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));
+      render();
+    }, function (e) {
+      if (btn) btn.disabled = false;
+      failed(e, box);
+    });
+  }
+
+  // ---------- Waiting for approval ----------
+
+  function renderWaiting(body) {
+    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
+    call('waiting').then(function (res) {
+      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
+      var parts = [
+        el('p', { class: 'gp-meta' }, 'People who confirmed their email and wait for a leader. Check the ward directory, then approve or decline. Approval counts for the whole ward; you and the time are recorded.'),
+      ];
+      if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'Nobody is waiting for you.'));
+      res.volunteers.forEach(function (v) {
+        var out = el('div');
+        var approve = el('button', { type: 'button', onclick: function () { act('decide', { email: v.email, decision: 'approve' }, out, approve); } }, 'Approve');
+        var decline = el('button', {
+          type: 'button',
+          class: 'gp-danger',
+          onclick: function () {
+            if (!window.confirm('Decline ' + v.name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;
+            act('decide', { email: v.email, decision: 'decline' }, out, decline);
+          },
+        }, 'Decline');
+        parts.push(el('div', { class: 'gp-card' }, [
+          el('h3', {}, v.name),
+          el('p', { class: 'gp-meta' }, v.email + ' · first signed up for ' + (v.firstPost || 'an opportunity') + (v.firstPostOrganization ? ' (' + v.firstPostOrganization + ')' : '')),
+          v.signups.length
+            ? el('div', {}, v.signups.map(function (s) {
+                return el('div', { class: 'gp-person' }, (s.childName ? s.childName + ': ' : '') + s.title + ' · ' + GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTime(s.start) : '') + ' · ' + s.role);
+              }))
+            : el('p', { class: 'gp-muted' }, 'No sign-ups waiting right now.'),
+          el('p', {}, [approve, decline]),
+          out,
+        ]));
+      });
+      GP.show(body, parts);
+    }, function (e) { failed(e, body); });
+  }
+
+  // ---------- Needs help soon ----------
+
+  function renderNeeds(body) {
+    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
+    call('needsHelp').then(function (res) {
+      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
+      var parts = [el('p', { class: 'gp-meta' }, 'Open roles still short in the next 14 days, soonest first.')];
+      if (!res.rows.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing is short in the next 14 days.'));
+      res.rows.forEach(function (r) {
+        parts.push(el('div', { class: 'gp-slot' }, [
+          el('strong', {}, GP.fmtDate(r.date) + (r.start ? ', ' + GP.fmtTimes(r.start, r.end) : '') + ' · ' + r.role),
+          el('span', { class: 'gp-count' }, ' ' + r.filled + ' of ' + r.needed + ' filled'),
+          el('div', { class: 'gp-meta' }, [r.organization + ' · ', el('a', { href: r.publicUrl, target: '_blank', rel: 'noopener' }, r.title)]),
+        ]));
+      });
+      GP.show(body, parts);
+    }, function (e) { failed(e, body); });
+  }
+
+  // ---------- Volunteers (bishopric) ----------
+
+  function renderVolunteers(body) {
+    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
+    call('volunteers').then(function (res) {
+      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
+      var parts = [el('p', { class: 'gp-meta' }, 'Everyone who has signed up. Undo a decline to let someone sign up again; revoke an approval when someone should no longer serve (their current sign-ups stay until you remove them).')];
+      if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'No volunteers yet.'));
+      res.volunteers.forEach(function (v) {
+        var out = el('div');
+        var bits = [
+          el('strong', {}, v.name),
+          el('span', { class: 'gp-meta' }, ' ' + v.email),
+          el('div', { class: 'gp-meta' }, v.status + (v.status === 'Pending' && !v.emailConfirmed ? ' (has not clicked the email yet)' : '') + (v.decidedBy ? ' · ' + v.decidedBy + ', ' + v.decidedAt : '') + (v.firstPost ? ' · first: ' + v.firstPost : '')),
+        ];
+        if (v.status === 'Declined' || v.status === 'Revoked') {
+          var undo = el('button', { type: 'button', class: 'gp-light', onclick: function () { act('bishopric', { email: v.email, decision: 'undo' }, out, undo); } }, 'Undo ' + (v.status === 'Declined' ? 'decline' : 'revoke'));
+          bits.push(undo);
+        }
+        if (v.status === 'Approved') {
+          var revoke = el('button', {
+            type: 'button',
+            class: 'gp-danger',
+            onclick: function () {
+              if (!window.confirm('Revoke ' + v.name + '? They can no longer sign up. Their current sign-ups stay until you remove them.')) return;
+              act('bishopric', { email: v.email, decision: 'revoke' }, out, revoke);
+            },
+          }, 'Revoke');
+          bits.push(revoke);
+        }
+        bits.push(out);
+        parts.push(el('div', { class: 'gp-person' }, bits));
+      });
+      GP.show(body, parts);
+    }, function (e) { failed(e, body); });
   }
 
   // ---------- My opportunities ----------
@@ -305,7 +452,6 @@ GP.footer();
     if (p.status === 'Closed' || p.status === 'Draft') {
       items.push(el('p', { class: 'gp-meta' }, 'No one new can sign up. People already signed up keep their place and still get their reminder.'));
     }
-    if (p.signups.length) items.push(el('p', { class: 'gp-meta' }, DETAILS_NOTE));
     var dates = {};
     p.slots.forEach(function (s) {
       dates[s.date] = true;
@@ -333,7 +479,7 @@ GP.footer();
       items.push(
         el('div', { class: 'gp-slot' }, [
           el('strong', {}, GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '') + ' · ' + s.role),
-          el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.filled >= s.needed ? ' · Filled ✓' : '')),
+          el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.waiting ? ' · ' + s.waiting + ' waiting' : '') + (s.filled >= s.needed ? ' · Filled ✓' : '')),
         ].concat(people.length ? people : [el('div', { class: 'gp-person gp-muted' }, 'No one yet.')]).concat(dateBits))
       );
     });
@@ -370,25 +516,11 @@ GP.footer();
   }
 
   function personRow(p, s, su, out) {
-    var bits = [el('span', {}, su.name + (su.childName ? ' (for ' + su.childName + ')' : ''))];
+    var bits = [el('span', {}, su.label || su.name)];
+    if (STATUS_LABEL[su.status]) bits.push(el('span', { class: 'gp-tag' }, STATUS_LABEL[su.status]));
+    if (su.overLimit) bits.push(el('span', { class: 'gp-tag' }, 'Over the number'));
     if (su.bringing) bits.push(el('span', { class: 'gp-meta' }, 'Bringing: ' + su.bringing));
     if (su.email) bits.push(el('span', { class: 'gp-meta' }, su.email));
-    // Only for a sign-up the day-before reminder can no longer reach (the role is today).
-    if (p.canEdit && su.detailsDue) {
-      bits.push(el('span', { class: 'gp-error' }, 'Details not sent'));
-      bits.push(
-        el('button', {
-          type: 'button',
-          class: 'gp-light',
-          onclick: function () {
-            call('sendDetails', { signupId: su.signupId }).then(function (res) {
-              flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));
-              render();
-            }, function (e) { failed(e, out); });
-          },
-        }, 'Send details')
-      );
-    }
     if (p.canEdit && p.status !== 'Past' && p.status !== 'Cancelled') {
       bits.push(
         el('button', {
@@ -418,7 +550,8 @@ GP.footer();
         f.dates.forEach(function (d) {
           d.roles = d.roles.map(copyRole);
         });
-        if (me.access.createOrgs.indexOf(f.organization) < 0) f.organization = me.access.createOrgs[0] || '';
+        if (!me.access.baseCreateOrgs.length && !categoryById(f.category)) f.category = me.categories[0] ? me.categories[0].id : '';
+        if (orgsFor(f).indexOf(f.organization) < 0) f.organization = orgsFor(f)[0] || '';
       }
       state.form = f;
       state.errors = {};
@@ -439,9 +572,9 @@ GP.footer();
 
   function renderForm(body) {
     var f = state.form || (state.form = newForm());
-    var orgs = f.postId ? uniq(me.access.editOrgs.concat([f.organization])) : me.access.createOrgs;
+    var orgs = orgsFor(f);
     if (!orgs.length) {
-      return GP.show(body, GP.message('alert', "Your leader role can't create opportunities yet. Ask the bishopric to tick Org editor for you on the Leaders tab."));
+      return GP.show(body, GP.message('alert', "Your leader role can't create opportunities yet. Ask the bishopric to tick Org editor for you on the Leaders tab, or to add your email to a category's Coordinators."));
     }
     if (orgs.indexOf(f.organization) < 0) f.organization = orgs[0];
 
@@ -449,12 +582,25 @@ GP.footer();
       return el('option', { value: o, selected: o === f.organization ? 'selected' : null }, o);
     }));
     org.value = f.organization;
-    var cat = el('select', { id: 'gp-cat', onchange: function () { f.category = cat.value; } }, [el('option', { value: '' }, '(none)')].concat(
+    // Leaders with an organization of their own may leave the category blank; coordinators pick one of theirs.
+    var catChoices = (me.access.baseCreateOrgs.length ? [el('option', { value: '' }, '(none)')] : []).concat(
       me.categories.map(function (c) {
         return el('option', { value: c.id }, (c.icon ? c.icon + ' ' : '') + c.name);
       })
-    ));
+    );
+    if (f.category && !categoryById(f.category)) catChoices.push(el('option', { value: f.category }, f.category));
+    var cat = el('select', {
+      id: 'gp-cat',
+      onchange: function () {
+        f.category = cat.value;
+        var c = categoryById(f.category);
+        if (c && c.audiences && c.audiences.length && !f.audiences.length) f.audiences = c.audiences.slice();
+        render();
+      },
+    }, catChoices);
     cat.value = f.category;
+    var childNote = el('p', { class: 'gp-meta' + (f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0 ? '' : ' gp-hidden') },
+      'Who is serving: the sign-up form asks "Me / My child" and takes a child\'s first name. Every email goes to the parent; you see "Ana (signed up by …)".');
     var title = bindText(el('input', { type: 'text', id: 'gp-title-in', maxlength: '100', value: f.title }), f, 'title');
     var audiences = el('div', { role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {
       var box = el('input', {
@@ -464,6 +610,8 @@ GP.footer();
           f.audiences = GP.AUDIENCES.filter(function (x) {
             return x === a ? box.checked : f.audiences.indexOf(x) >= 0;
           });
+          var young = f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0;
+          childNote.className = 'gp-meta' + (young ? '' : ' gp-hidden');
         },
       });
       return el('label', { class: 'gp-check' }, [box, a]);
@@ -477,12 +625,12 @@ GP.footer();
     var parts = [
       el('h2', {}, f.postId ? 'Edit opportunity' : 'New opportunity'),
       state.formError ? GP.message('alert', state.formError) : null,
-      field('Organization', org, 'organization'),
       field('Category', cat, 'category'),
+      field('Organization', org, 'organization'),
       field('Title (everyone sees this)', title, 'title'),
-      el('div', {}, [el('label', {}, 'Who is it for?'), audiences, err('audiences')]),
+      el('div', {}, [el('label', {}, 'Who is it for?'), audiences, err('audiences'), childNote]),
       field('Public note (everyone sees this)', note, 'publicNote'),
-      field('Private details: an address, a gate code (sent only to the people signed up, in their reminder the day before)', priv, 'privateDetails'),
+      field('Private details: an address, a gate code (sent only to approved volunteers who are signed up: in their confirmation email, their reminder and My sign-ups, until the date is over)', priv, 'privateDetails'),
       field('Cancel cutoff in hours (after this, a cancellation tells you that you are short)', cutoff, 'cutoffHours'),
       el('h2', {}, 'Dates and roles'),
       err('slots'),

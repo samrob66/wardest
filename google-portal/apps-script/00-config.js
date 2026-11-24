@@ -54,10 +54,10 @@ var TEXT = {
   removeSignupsFirst: 'Remove the people signed up for this date first.',
   postCancelled: "This opportunity was cancelled and can't be reopened.",
   onlyDate: 'This is the only date. Cancel the whole opportunity instead.',
-  detailsAlreadySent: 'Details were already sent to this person.',
+  cannotApprove: "You can't approve or decline this person.",
+  bishopricOnly: 'Only the bishopric can do this.',
+  councilOnly: 'Needs help soon is for the ward council and the bishopric.',
   signOutDone: 'We emailed you a new leader link. The old one no longer works.',
-  phaseOneDetailsNote:
-    "Private details go to volunteers in their reminder the day before. Remove anyone you don't recognize before then.",
 };
 
 /** Limits (spec section 7.3). The total of confirm emails a day is Settings confirm_limit_per_day. */

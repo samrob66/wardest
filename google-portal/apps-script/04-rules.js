@@ -341,21 +341,6 @@ function remindersDue(signups, slotsById, postsById, nowLocal, reminderHour) {
     });
 }
 
-/**
- * Private details still owed to a Confirmed sign-up whose reminder can no longer carry them: the
- * role is today (reminders go out the day before, so a same-day sign-up never gets one).
- */
-function detailsDue(signup, slot, post, nowLocal) {
-  return (
-    signup.Status === SIGNUP_STATUS.confirmed &&
-    !signup['Details sent at'] &&
-    !!post['Private details'] &&
-    post.Status !== POST_STATUS.past &&
-    post.Status !== POST_STATUS.cancelled &&
-    slot.Date === nowLocal.slice(0, 10)
-  );
-}
-
 /** Open or Closed posts whose every slot date is before today. */
 function postsToMarkPast(posts, slotsByPost, todayLocal) {
   return posts

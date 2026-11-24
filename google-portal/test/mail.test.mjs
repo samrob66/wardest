@@ -115,7 +115,6 @@ describe('templates', () => {
     expect(gp.tplReminder_(s, post, slot, signup, 'u', false).text).not.toContain('123 Example Lane');
     const child = gp.tplReminder_(s, post, slot, { ...signup, 'Child first name': 'Ana' }, 'u', true);
     expect(child.text).toContain('Ana is signed up for');
-    expect(gp.tplDetails_(s, post, slot).text).toContain('123 Example Lane');
   });
 
   it('names cancellations and shortfalls', () => {
