@@ -142,15 +142,56 @@ function mailQuota_() {
   return MailApp.getRemainingDailyQuota();
 }
 
-/** Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. */
+/**
+ * Settings test_mail_only, read (2.3.1, decision 21): {on, allow, catchAll, bad}. allow holds the
+ * valid addresses (normalized), catchAll the first of them, bad the entries that aren't addresses.
+ */
+function testMailList_(raw) {
+  var entries = splitList(raw);
+  var allow = [];
+  var bad = [];
+  entries.forEach(function (e) {
+    if (isEmail(e)) allow.push(normEmail(e));
+    else bad.push(e);
+  });
+  return { on: entries.length > 0, allow: uniq_(allow), catchAll: allow.length ? normEmail(allow[0]) : '', bad: bad };
+}
+
+/**
+ * Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. This is the only code
+ * that sends mail, so the test-mode switch here covers every email:
+ *   - test_mail_only blank: sent as asked ('sent');
+ *   - on: a listed address gets it as asked ('sent'); anyone else's goes to the first listed
+ *     address with "[TEST for <address>] " in front of the subject ('redirected');
+ *   - on with an entry that isn't an address: every email is redirected, listed or not;
+ *   - on with no valid address at all: nothing is sent; the email is logged and dropped
+ *     ('dropped'; never queued, or it would reach real people once test mode is off).
+ */
 function sendMailNow_(msg) {
+  var test = testMailList_(settings_().test_mail_only);
+  var to = msg.to;
+  var subject = msg.subject;
+  var result = 'sent';
+  if (test.on) {
+    var original = normEmail(msg.to);
+    if (!test.catchAll) {
+      log_('test mode: not sent (test_mail_only has no valid address)', original + ' | ' + msg.subject);
+      return 'dropped';
+    }
+    if (test.bad.length || test.allow.indexOf(original) < 0) {
+      to = test.catchAll;
+      subject = '[TEST for ' + original + '] ' + msg.subject;
+      result = 'redirected';
+    }
+  }
   var opts = {
-    to: msg.to,
-    subject: msg.subject,
+    to: to,
+    subject: subject,
     htmlBody: msg.html,
     body: msg.text,
   };
   if (msg.name) opts.name = msg.name;
   if (msg.replyTo) opts.replyTo = msg.replyTo;
   MailApp.sendEmail(opts);
+  return result;
 }

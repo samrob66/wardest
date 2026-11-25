@@ -489,6 +489,15 @@ function healthLines_(opts) {
   notifyBishopProblems_(reqCats, leaders_()).forEach(function (line) {
     add(false, line);
   });
+  // Test mode (2.3.1): always a PROBLEM while on, so it can't be forgotten at go-live.
+  var testMail = testMailList_(s.test_mail_only);
+  if (testMail.on) {
+    if (!testMail.catchAll) add(false, 'Test mode: test_mail_only has no valid address, so no email is sent at all. Fix it, or empty it to send email normally.');
+    else add(false, 'Test mode: email to anyone not in test_mail_only goes to ' + testMail.catchAll + '.');
+    testMail.bad.forEach(function (b) {
+      add(false, 'test_mail_only: "' + clip(b, 60) + '" is not an email address, so every email goes to ' + (testMail.catchAll || 'nobody') + '. Fix or remove it.');
+    });
+  }
   // The ward's look (2.3): a bad value is ignored on the pages; say so here.
   themeOf_(s).problems.forEach(function (line) {
     add(false, line);

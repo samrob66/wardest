@@ -14,6 +14,8 @@ soon, the daily health email): `docs/superpowers/plans/2026-11-24-google-portal-
 `docs/superpowers/plans/2026-11-24-google-portal-2.2-turn-into-opportunity.md`.
 2.3 plan (the ward's look on pages and request forms; spec §12 decision 20):
 `docs/superpowers/plans/2026-11-24-google-portal-2.3-branding-and-test-plan.md`.
+2.3.1 plan (test mode: Settings test_mail_only; spec §12 decision 21):
+`docs/superpowers/plans/2026-11-25-google-portal-2.3.1-test-mail-only.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).

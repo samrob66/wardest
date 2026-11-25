@@ -44,7 +44,8 @@ function budgetAllows_(priority, reserve) {
 }
 
 /**
- * msg: {to, subject, html, text, priority: 'high'|'normal'} → 'sent' | 'queued' | 'refused'.
+ * msg: {to, subject, html, text, priority: 'high'|'normal'} → 'sent' | 'queued' | 'refused' | 'dropped'
+ * ('dropped': test mode with no valid test address; see sendMailNow_).
  */
 function sendOrQueue_(msg) {
   var s = settings_();
@@ -61,8 +62,10 @@ function sendOrQueue_(msg) {
   var error = '';
   if (budgetAllows_(priority, s.email_reserve)) {
     try {
-      sendMailNow_({ to: to, subject: msg.subject, html: html, text: text, name: from.name, replyTo: from.replyTo });
-      log_('mail sent', to + ' | ' + msg.subject);
+      var how = sendMailNow_({ to: to, subject: msg.subject, html: html, text: text, name: from.name, replyTo: from.replyTo });
+      // Test mode may have dropped it (logged there) or sent it to the test address instead.
+      if (how === 'dropped') return 'dropped';
+      log_('mail sent', to + ' | ' + msg.subject + (how === 'redirected' ? ' | redirected to test address' : ''));
       return 'sent';
     } catch (e) {
       error = clip(e && e.message ? e.message : e, 300);
@@ -106,6 +109,8 @@ function drainOutbox_() {
     return t || a._row - b._row;
   });
   var sentIds = {};
+  var redirected = {};
+  var dropped = {};
   var failed = {};
   var sent = 0;
   var left = 0;
@@ -116,9 +121,12 @@ function drainOutbox_() {
       return;
     }
     try {
-      sendMailNow_({ to: m.To, subject: m.Subject, html: m.Html, text: m.Text, name: from.name, replyTo: from.replyTo });
+      var how = sendMailNow_({ to: m.To, subject: m.Subject, html: m.Html, text: m.Text, name: from.name, replyTo: from.replyTo });
+      // A dropped one (test mode with no valid address) leaves the Outbox too: never kept for later.
       sentIds[m.Id] = true;
-      sent++;
+      if (how === 'redirected') redirected[m.Id] = true;
+      if (how === 'dropped') dropped[m.Id] = true;
+      else sent++;
     } catch (e) {
       failed[m.Id] = clip(e && e.message ? e.message : e, 300);
     }
@@ -136,7 +144,7 @@ function drainOutbox_() {
     );
   });
   queued.forEach(function (m) {
-    if (sentIds[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject);
+    if (sentIds[m.Id] && !dropped[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject + (redirected[m.Id] ? ' | redirected to test address' : ''));
     if (failed[m.Id]) log_('mail error', m.To + ' | ' + m.Subject + ' | ' + failed[m.Id]);
   });
   return { sent: sent, left: left };

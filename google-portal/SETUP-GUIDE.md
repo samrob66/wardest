@@ -241,6 +241,7 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | theme_font | Optional Google Fonts family name for the pages | `Lora` |
    | theme_heading_font | Optional Google Fonts name for headings (blank: the same as theme_font) | (blank) |
    | form_template_url | Optional edit link of the ward's branded Google Form (section 6, step 8) | (blank for now) |
+   | test_mail_only | **Test mode**: leave empty, except while testing (section 9, *Test mode*) | (blank) |
 
 5. Open the **Leaders** tab. One row per leader:
 
@@ -505,6 +506,7 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 | Time zone | Do what the line says (Project Settings, or File > Settings in the Sheet). |
 | theme_background_url / theme_accent / theme_font / theme_heading_font … ignored | Fix the value in Settings as the line says (section 6, step 8), or empty the cell. |
 | form_template_url … | Paste the branded form's **edit** link from the form editor's address bar (section 6, step 8), or empty the cell. |
+| Test mode: … / test_mail_only … | Test mode is on (section 9). Fine while testing; empty **test_mail_only** before going live. A line about an entry that isn't an address: fix or remove that entry. |
 
 **The daily health email.** Every night the daily job runs these same checks. If any line is a
 **PROBLEM**, the bishop and the Executive Secretary get one email, *Service Portal: needs
@@ -529,8 +531,48 @@ Do the volunteer steps in a **private (incognito) window** so nothing is remembe
 box as it passes. To run a timed job now instead of waiting, signed in to the **shared
 account** (in a private window, on a computer), open **Extensions > Apps Script**, pick the job
 (**gpHourly**, **gpTenMinute** or **gpDaily**) in the function list at the top and click
-**Run**. Never run it from your own account: a job refuses anyone but the Service Sheet's owner
-and only writes *job refused* in the Log.
+**Run**. Never run it from your own account: a job run by anyone but the Service Sheet's owner
+does nothing.
+
+**Turn test mode on first** (see *Test mode* below) so the test emails reach only you, not the
+bishopric, coordinators or leaders. Turn it off again when you finish.
+
+### Test mode (send all email only to yourself)
+
+While you test, the portal would email real people: the bishopric (*Waiting for approval*,
+request notices), coordinators, leaders and the administrators. Test mode stops that.
+
+**Turn it on.** Signed in to the shared account, open the Service Sheet > **Settings** tab, find
+the row **test_mail_only**, and type into its **Value** cell the addresses that may still get
+email, separated by commas, **yours first**. For example:
+`brother.example@example.test, sister.example@example.test, test.b@example.test, test.b+c@example.test, test.b+d@example.test`.
+
+- Each address must be written out in full. Gmail's `+` variants (`name+c@…`) count as
+  different addresses, so list each one you use; there is no wildcard.
+- Capital letters and spaces don't matter.
+
+**What it does.** Every email the portal sends (sign-ups, approvals, reminders, request notices,
+leader links, alerts, the daily health email, and anything waiting in the Outbox):
+
+- to an address on the list: goes to that address as normal;
+- to anyone else: goes to the **first** address on the list instead, with
+  `[TEST for <their address>]` in front of the subject, so you can see who it would have gone to.
+  It is still one email per person, as it would be for real;
+- if an entry on the list isn't an email address, **every** email goes to the first valid
+  address with that prefix (even those to listed addresses), until you fix it;
+- if no entry is a valid address, **nothing** is sent at all (each email is written in the
+  System Sheet's Log as *test mode: not sent*), and nothing is kept to send later.
+
+The Log and the Outbox show the real recipient and *redirected to test address*. Nothing else
+changes: who can open which folder, who would be told, approvals and limits all work as for real.
+
+**Check it.** Run **Service Portal > Check health**: it shows *PROBLEM Test mode: email to anyone
+not in test_mail_only goes to <your address>*. That line (also in the daily health email) is
+there all the time test mode is on, so you can't forget it.
+
+**Turn it off.** Settings > **test_mail_only**: delete everything in its Value cell, so it is
+empty. Run **Check health**: the Test mode line is gone, and email goes to everyone as normal.
+Do this before the ward starts using the portal.
 
 **A. Make a test opportunity**
 

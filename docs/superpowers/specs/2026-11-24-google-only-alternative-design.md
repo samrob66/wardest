@@ -793,6 +793,15 @@ help soon", quota reserve and health email.
     branded form named in form_template_url (its items removed, the portal's questions added);
     existing forms are themed by hand in the Forms editor, because re-making them would change
     their addresses. The test plan is a Word document outside the repository.
+21. **Test mode sends every email only to the people testing** (§7.2; Sam, 2026-11-25, in 2.3.1).
+    Sam's words: "Let's do #2 but give me detailed instructions how I can restrict testing emails
+    to go only go to myself while testing (and how to turn it all back on afterwards)". A
+    Settings row, test_mail_only: a comma list of addresses that still get email; every other
+    email goes to the first of them with "[TEST for <address>] " in front of the subject, still one
+    per original recipient. The switch is in sendMailNow_, the only code that sends mail, so no
+    email can go around it. Fail closed: an entry that isn't an address sends everything to the
+    first valid one; with no valid address nothing is sent (logged and dropped, never queued).
+    Check health and the daily health email show a PROBLEM line while it is on.
 
 ## 13. Settled with Sam, and open questions
 

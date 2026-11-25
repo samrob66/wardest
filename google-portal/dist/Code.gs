@@ -15,7 +15,7 @@
  */
 
 /** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
-var GP_VERSION = 'phase-2.3';
+var GP_VERSION = 'phase-2.3.1';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -189,6 +189,7 @@ var SETTINGS_ROWS = [
   ['theme_accent', '', 'Optional accent colour as #rrggbb, e.g. #2f5d50. Blank: the standard colours.'],
   ['theme_font', '', 'Optional Google Fonts family name for the pages, e.g. Lora. Blank: the standard font.'],
   ['theme_heading_font', '', 'Optional Google Fonts family name for headings. Blank: the same as theme_font.'],
+  ['test_mail_only', '', 'TEST MODE. Blank: email goes to everyone as normal. Addresses here, separated by commas: only they get email, and every other email goes to the first address with [TEST for <address>] in front of its subject. Empty it before going live.'],
   ['form_template_url', '', 'Optional: the edit link of a branded Google Form (from the form editor\'s address bar). New request forms are made as copies of it, so they keep its look.'],
 ];
 var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day', 'confirm_limit_per_day'];
@@ -389,17 +390,58 @@ function mailQuota_() {
   return MailApp.getRemainingDailyQuota();
 }
 
-/** Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. */
+/**
+ * Settings test_mail_only, read (2.3.1, decision 21): {on, allow, catchAll, bad}. allow holds the
+ * valid addresses (normalized), catchAll the first of them, bad the entries that aren't addresses.
+ */
+function testMailList_(raw) {
+  var entries = splitList(raw);
+  var allow = [];
+  var bad = [];
+  entries.forEach(function (e) {
+    if (isEmail(e)) allow.push(normEmail(e));
+    else bad.push(e);
+  });
+  return { on: entries.length > 0, allow: uniq_(allow), catchAll: allow.length ? normEmail(allow[0]) : '', bad: bad };
+}
+
+/**
+ * Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. This is the only code
+ * that sends mail, so the test-mode switch here covers every email:
+ *   - test_mail_only blank: sent as asked ('sent');
+ *   - on: a listed address gets it as asked ('sent'); anyone else's goes to the first listed
+ *     address with "[TEST for <address>] " in front of the subject ('redirected');
+ *   - on with an entry that isn't an address: every email is redirected, listed or not;
+ *   - on with no valid address at all: nothing is sent; the email is logged and dropped
+ *     ('dropped'; never queued, or it would reach real people once test mode is off).
+ */
 function sendMailNow_(msg) {
+  var test = testMailList_(settings_().test_mail_only);
+  var to = msg.to;
+  var subject = msg.subject;
+  var result = 'sent';
+  if (test.on) {
+    var original = normEmail(msg.to);
+    if (!test.catchAll) {
+      log_('test mode: not sent (test_mail_only has no valid address)', original + ' | ' + msg.subject);
+      return 'dropped';
+    }
+    if (test.bad.length || test.allow.indexOf(original) < 0) {
+      to = test.catchAll;
+      subject = '[TEST for ' + original + '] ' + msg.subject;
+      result = 'redirected';
+    }
+  }
   var opts = {
-    to: msg.to,
-    subject: msg.subject,
+    to: to,
+    subject: subject,
     htmlBody: msg.html,
     body: msg.text,
   };
   if (msg.name) opts.name = msg.name;
   if (msg.replyTo) opts.replyTo = msg.replyTo;
   MailApp.sendEmail(opts);
+  return result;
 }
 
 // ===== 02-util.js =====
@@ -1931,7 +1973,8 @@ function budgetAllows_(priority, reserve) {
 }
 
 /**
- * msg: {to, subject, html, text, priority: 'high'|'normal'} → 'sent' | 'queued' | 'refused'.
+ * msg: {to, subject, html, text, priority: 'high'|'normal'} → 'sent' | 'queued' | 'refused' | 'dropped'
+ * ('dropped': test mode with no valid test address; see sendMailNow_).
  */
 function sendOrQueue_(msg) {
   var s = settings_();
@@ -1948,8 +1991,10 @@ function sendOrQueue_(msg) {
   var error = '';
   if (budgetAllows_(priority, s.email_reserve)) {
     try {
-      sendMailNow_({ to: to, subject: msg.subject, html: html, text: text, name: from.name, replyTo: from.replyTo });
-      log_('mail sent', to + ' | ' + msg.subject);
+      var how = sendMailNow_({ to: to, subject: msg.subject, html: html, text: text, name: from.name, replyTo: from.replyTo });
+      // Test mode may have dropped it (logged there) or sent it to the test address instead.
+      if (how === 'dropped') return 'dropped';
+      log_('mail sent', to + ' | ' + msg.subject + (how === 'redirected' ? ' | redirected to test address' : ''));
       return 'sent';
     } catch (e) {
       error = clip(e && e.message ? e.message : e, 300);
@@ -1993,6 +2038,8 @@ function drainOutbox_() {
     return t || a._row - b._row;
   });
   var sentIds = {};
+  var redirected = {};
+  var dropped = {};
   var failed = {};
   var sent = 0;
   var left = 0;
@@ -2003,9 +2050,12 @@ function drainOutbox_() {
       return;
     }
     try {
-      sendMailNow_({ to: m.To, subject: m.Subject, html: m.Html, text: m.Text, name: from.name, replyTo: from.replyTo });
+      var how = sendMailNow_({ to: m.To, subject: m.Subject, html: m.Html, text: m.Text, name: from.name, replyTo: from.replyTo });
+      // A dropped one (test mode with no valid address) leaves the Outbox too: never kept for later.
       sentIds[m.Id] = true;
-      sent++;
+      if (how === 'redirected') redirected[m.Id] = true;
+      if (how === 'dropped') dropped[m.Id] = true;
+      else sent++;
     } catch (e) {
       failed[m.Id] = clip(e && e.message ? e.message : e, 300);
     }
@@ -2023,7 +2073,7 @@ function drainOutbox_() {
     );
   });
   queued.forEach(function (m) {
-    if (sentIds[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject);
+    if (sentIds[m.Id] && !dropped[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject + (redirected[m.Id] ? ' | redirected to test address' : ''));
     if (failed[m.Id]) log_('mail error', m.To + ' | ' + m.Subject + ' | ' + failed[m.Id]);
   });
   return { sent: sent, left: left };
@@ -5664,6 +5714,15 @@ function healthLines_(opts) {
   notifyBishopProblems_(reqCats, leaders_()).forEach(function (line) {
     add(false, line);
   });
+  // Test mode (2.3.1): always a PROBLEM while on, so it can't be forgotten at go-live.
+  var testMail = testMailList_(s.test_mail_only);
+  if (testMail.on) {
+    if (!testMail.catchAll) add(false, 'Test mode: test_mail_only has no valid address, so no email is sent at all. Fix it, or empty it to send email normally.');
+    else add(false, 'Test mode: email to anyone not in test_mail_only goes to ' + testMail.catchAll + '.');
+    testMail.bad.forEach(function (b) {
+      add(false, 'test_mail_only: "' + clip(b, 60) + '" is not an email address, so every email goes to ' + (testMail.catchAll || 'nobody') + '. Fix or remove it.');
+    });
+  }
   // The ward's look (2.3): a bad value is ignored on the pages; say so here.
   themeOf_(s).problems.forEach(function (line) {
     add(false, line);
@@ -6144,4 +6203,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "3acbad9b877b";
+var GP_BUILD = "6095c921574e";
