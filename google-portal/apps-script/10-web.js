@@ -286,6 +286,7 @@ function themeHead_(t) {
     vars.push('--gp-panel: rgba(255, 255, 255, 0.92)');
     vars.push('--gp-panel-radius: 14px');
     vars.push('--gp-panel-pad: 1rem');
+    vars.push('--gp-panel-top: 1.5rem');
   }
   if (t.accent) {
     vars.push('--gp-accent: ' + t.accent);

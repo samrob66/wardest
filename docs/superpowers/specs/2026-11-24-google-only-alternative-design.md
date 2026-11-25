@@ -780,6 +780,19 @@ help soon", quota reserve and health email.
     the leader page would put request details behind a weaker link. The script makes only a
     Draft (never Open), with no request text in any public field; the president (or whoever may
     edit it) finishes and publishes it.
+20. **The pages and request forms can wear the ward's look** (§5.3; Sam, 2026-11-24, in 2.3).
+    Sam's words: "Any chance you could use the same background as the existing pages, so the
+    entire site looks branded? Also, this is the brand for our Google Forms: <a public Google
+    Form> Could you match it? Finally, please provide a testing document for my wife and I go run
+    through (for complete testing), doing things in logical order so it all makes sense."
+    Pages: optional Settings rows theme_background_url (https only), theme_accent (#rrggbb),
+    theme_font and theme_heading_font (Google Fonts names) become CSS variables on every page;
+    with a picture, text sits on a light panel (the hub's own white wash over its picture), and
+    the picture scrolls on phones. A bad value is ignored and reported by Check health. Forms:
+    FormApp can't set a form's theme, so new request forms are made as Drive copies of the
+    branded form named in form_template_url (its items removed, the portal's questions added);
+    existing forms are themed by hand in the Forms editor, because re-making them would change
+    their addresses. The test plan is a Word document outside the repository.
 
 ## 13. Settled with Sam, and open questions
 

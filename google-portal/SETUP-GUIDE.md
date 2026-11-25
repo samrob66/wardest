@@ -32,6 +32,24 @@ How a volunteer is known (no Google account needed):
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
 
+> **If you already set up before 2.3** (before the pages and forms could take the ward's look),
+> do this once, signed in to the shared account in a private window:
+> 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
+> 2. **Deploy > Manage deployments**, select the deployment, click the **pencil**, set
+>    **Version** to **New version**, click **Deploy** (skip if you haven't deployed yet).
+> 3. Run **Service Portal > Set up**. It adds five Settings rows, all blank: **theme_background_url**,
+>    **theme_accent**, **theme_font**, **theme_heading_font** and **form_template_url**. Blank
+>    keeps today's look.
+> 4. Fill them in as in section 6, step 8 (*The ward's look*), and theme the request forms you
+>    already have by hand (section 6, step 9).
+> 5. Run **Service Portal > Check health**: no line about theme_ or form_template_url should say
+>    PROBLEM.
+> 6. Only if you already gave the hub owner the hub files: run **Make hub files** and give them
+>    all the new page files (section 6, steps 1–3). The hub's pages carry the look only once they
+>    are replaced.
+>
+> If your ward is also before 2.2, do that box too (below).
+
 > **If you already set up before 2.2** (before a request could be turned into an opportunity),
 > do this once, signed in to the shared account in a private window:
 > 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
@@ -218,6 +236,11 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | confirm_limit_per_day | Most *Please confirm your email* messages in one day (first-timers) | `20` |
    | organizations | Organizations, separated by commas | (keep the list given) |
    | discord | Leave `off` | `off` |
+   | theme_background_url | Optional background picture for every portal page (section 6, step 8) | `https://example.github.io/rb1links/background.png` |
+   | theme_accent | Optional accent colour, as `#` and six letters or digits | `#2f5d50` |
+   | theme_font | Optional Google Fonts family name for the pages | `Lora` |
+   | theme_heading_font | Optional Google Fonts name for headings (blank: the same as theme_font) | (blank) |
+   | form_template_url | Optional edit link of the ward's branded Google Form (section 6, step 8) | (blank for now) |
 
 5. Open the **Leaders** tab. One row per leader:
 
@@ -405,6 +428,42 @@ pages. The hub belongs to the ward; its owner adds the files.
    - Share `<prefix>Give` only in a ward email with addresses in **Bcc**, or in the bulletin.
      Don't put it on the hub.
 
+8. **The ward's look.** The portal's pages can wear the same background, colour and font as the
+   hub, and new request forms can copy the look of the ward's branded Google Form. Each of these
+   Settings rows is optional; blank keeps the standard look.
+   - **theme_background_url**: the full `https://` address of the background picture. For a
+     hub on GitHub Pages, use the full address of the hub's own background image: open the hub,
+     right-click its background (or ask the hub owner for the file name) and put the file name
+     after the hub address, e.g. `https://example.github.io/rb1links/background.png`. Text sits
+     on a light panel so it stays readable on any picture; on phones the picture scrolls.
+   - **theme_accent**: the hub's main colour as `#` and six letters or digits, e.g. `#2f5d50`.
+     It colours the heading lines and fill bars; a dark enough colour also colours links and
+     buttons (a light one would be hard to read, so it is left off them).
+   - **theme_font** and **theme_heading_font**: a family name from fonts.google.com, e.g.
+     `Lora` (letters, digits and spaces only).
+   - **form_template_url**: open the ward's branded Google Form in the Forms editor (signed in to
+     the shared account, or make a copy of it into the shared account's Drive first: in the
+     form, **⋮ > Make a copy**), and paste the address from the browser's address bar. It looks
+     like `https://docs.google.com/forms/d/…/edit`. **Not** the link you send people (that
+     one has `/forms/d/e/…/viewform` and is refused). From then on Set up makes each **new**
+     request form as a copy of it, so it keeps the header picture, colours and fonts, and then
+     puts in the portal's own questions and wording.
+   - Run **Check health**: a value it can't use shows as a **PROBLEM** line naming the row, and
+     the pages simply leave that part as standard.
+   - Run **Make hub files** and give the hub owner the new page files; the script's own pages
+     (`…/exec?page=…`) show the look at once.
+9. **Theme the request forms you already have, by hand.** Set up never re-makes a form that
+   exists (a new form would get a new address, breaking short links such as `<prefix>Give` and
+   needing new triggers). For each form in Drive > **Service Portal** (Moving help, Christmas
+   help, Other help, Christmas giving offers, and any you added):
+   1. In another tab, open the **branded** form in the editor and click the **palette** icon
+      (*Customize theme*) at the top. Note its **Header** picture, **Colour** and the **Font
+      style** of the header, questions and text.
+   2. Open the portal's form, click the **palette** icon, and set the same: **Header > Choose
+      image** (upload the same picture, or pick it from your Drive or Photos), **Colour**, and
+      **Font style** for Header, Question and Text. Close the panel; it saves by itself.
+   The form's link stays the same.
+
 **If there is no hub, or the hub test in Check health fails:** skip this step, leave
 **hub_url** blank, and point the two short links at the web app's own pages instead:
 `<web_app_url>?page=serve` and `<web_app_url>?page=help` (web_app_url being the **Web app URL** from the Deploy box, ending in `/exec` — not a form link (docs.google.com/forms/…)). These pages work the same but show
@@ -444,6 +503,8 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 | Email left today | Today's 100 emails are nearly used. Wait a day; queued mail goes out by itself. |
 | Outbox failed | Open the System Sheet's Outbox tab and read the Error column (often a mistyped address). |
 | Time zone | Do what the line says (Project Settings, or File > Settings in the Sheet). |
+| theme_background_url / theme_accent / theme_font / theme_heading_font … ignored | Fix the value in Settings as the line says (section 6, step 8), or empty the cell. |
+| form_template_url … | Paste the branded form's **edit** link from the form editor's address bar (section 6, step 8), or empty the cell. |
 
 **The daily health email.** Every night the daily job runs these same checks. If any line is a
 **PROBLEM**, the bishop and the Executive Secretary get one email, *Service Portal: needs

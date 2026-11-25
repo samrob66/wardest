@@ -12,6 +12,8 @@ withdraw, nudges and lapses, My sign-ups, children, coordinators and fill warnin
 soon, the daily health email): `docs/superpowers/plans/2026-11-24-google-portal-phase-2.md`.
 2.2 plan (turn a request into a draft opportunity from its request sheet; spec §12 decision 19):
 `docs/superpowers/plans/2026-11-24-google-portal-2.2-turn-into-opportunity.md`.
+2.3 plan (the ward's look on pages and request forms; spec §12 decision 20):
+`docs/superpowers/plans/2026-11-24-google-portal-2.3-branding-and-test-plan.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).
