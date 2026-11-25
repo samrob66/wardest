@@ -346,15 +346,40 @@ function newRequestForm_(s, c, portal, problems) {
   if (tpl && tpl.error) {
     if (problems && problems.indexOf(tpl.error) < 0) problems.push(tpl.error);
   } else if (tpl) {
+    var copy = null;
     try {
-      var copy = DriveApp.getFileById(tpl.id).makeCopy(title, portal);
+      copy = DriveApp.getFileById(tpl.id).makeCopy(title, portal);
       var form = FormApp.openById(copy.getId());
       form.getItems().forEach(function (item) {
         form.deleteItem(item);
       });
+      // A template may carry its own response sheet, old answers or quiz mode: none of them.
+      try {
+        form.removeDestination();
+      } catch (e1) {
+        // it had no destination
+      }
+      try {
+        form.deleteAllResponses();
+      } catch (e2) {
+        // it had no responses
+      }
+      try {
+        form.setIsQuiz(false);
+      } catch (e3) {
+        // not a quiz
+      }
       form.setTitle(title);
       return form;
     } catch (e) {
+      // A copy that could not be opened or emptied is not left behind.
+      if (copy) {
+        try {
+          copy.setTrashed(true);
+        } catch (e4) {
+          // nothing more to do
+        }
+      }
       var line = 'Could not copy the form template (' + clip(e && e.message ? e.message : e, 120) + '); made plain forms instead. Check form_template_url.';
       if (problems && problems.indexOf(line) < 0) problems.push(line);
     }

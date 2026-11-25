@@ -58,7 +58,7 @@ describe('theme settings', () => {
       expect(html).toContain("--gp-font: 'Lora', Georgia, 'Times New Roman', serif");
       expect(html).toContain("--gp-heading-font: 'Playfair Display', Georgia, 'Times New Roman', serif");
       const links = html.match(/<link [^>]*fonts\.googleapis\.com[^>]*>/g) || [];
-      expect(links).toEqual(['<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&amp;family=Playfair+Display:wght@400;700&amp;display=swap">']);
+      expect(links).toEqual(['<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora&amp;family=Playfair+Display&amp;display=swap">']);
       // The theme comes after gp.css, inside <head>.
       expect(html.indexOf('id="gp-theme"')).toBeGreaterThan(html.indexOf('--gp-ink'));
       expect(html.indexOf('id="gp-theme"')).toBeLessThan(html.indexOf('</head>'));

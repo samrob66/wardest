@@ -94,8 +94,14 @@ function calledByOwner_(e) {
       });
       if (mine) return true;
     }
+    // From the editor: only the Service Sheet's owner (the shared account). An editor of the
+    // Sheet can open its script and press Run too, as themselves; that is refused. When Drive
+    // reports no owner, the account the run uses must be the one pressing Run (the earlier rule).
     var active = normEmail(Session.getActiveUser().getEmail());
-    return !!active && active === normEmail(Session.getEffectiveUser().getEmail());
+    if (!active || active !== normEmail(Session.getEffectiveUser().getEmail())) return false;
+    var ownerUser = DriveApp.getFileById(serviceSs_().getId()).getOwner();
+    var owner = ownerUser ? normEmail(ownerUser.getEmail()) : '';
+    return !owner || owner === active;
   } catch (err) {
     return false;
   }

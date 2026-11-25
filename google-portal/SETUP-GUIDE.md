@@ -526,9 +526,11 @@ You need three email addresses you can read:
   (a spare address of your own, or a family member's who will forward you the emails).
 
 Do the volunteer steps in a **private (incognito) window** so nothing is remembered. Tick each
-box as it passes. To run a timed job now instead of waiting, open **Extensions > Apps Script**,
-pick the job (**gpHourly**, **gpTenMinute** or **gpDaily**) in the function list at the top
-and click **Run**.
+box as it passes. To run a timed job now instead of waiting, signed in to the **shared
+account** (in a private window, on a computer), open **Extensions > Apps Script**, pick the job
+(**gpHourly**, **gpTenMinute** or **gpDaily**) in the function list at the top and click
+**Run**. Never run it from your own account: a job refuses anyone but the Service Sheet's owner
+and only writes *job refused* in the Log.
 
 **A. Make a test opportunity**
 

@@ -470,6 +470,9 @@ export class FakeForm {
     this.collectEmail = null;
     this.confirmation = '';
     this.deletedResponses = [];
+    this.destination = null;
+    this.responses = [];
+    this.quiz = false;
     this.accepting = true;
     this.published = true;
   }
@@ -527,7 +530,20 @@ export class FakeForm {
     return this;
   }
   deleteItem(item) {
+    if (this.failDeleteItem) throw new Error('Form not editable');
     this.items = this.items.filter((i) => i !== item);
+    return this;
+  }
+  removeDestination() {
+    this.destination = null;
+    return this;
+  }
+  deleteAllResponses() {
+    this.responses = [];
+    return this;
+  }
+  setIsQuiz(b) {
+    this.quiz = b;
     return this;
   }
   addTextItem() {
@@ -720,7 +736,19 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
     const form = forms.get(src.id);
     if (form) {
       const copy = new FakeForm(id, name);
-      Object.assign(copy, { description: form.description, theme: form.theme, collectEmail: form.collectEmail, confirmation: form.confirmation, requireLogin: form.requireLogin, limitOne: form.limitOne });
+      Object.assign(copy, {
+        description: form.description,
+        theme: form.theme,
+        collectEmail: form.collectEmail,
+        confirmation: form.confirmation,
+        requireLogin: form.requireLogin,
+        limitOne: form.limitOne,
+        // A copy made by hand in Drive may still point at a sheet, hold answers or be a quiz.
+        destination: form.destination === undefined ? null : form.destination,
+        responses: (form.responses || []).slice(),
+        quiz: !!form.quiz,
+        failDeleteItem: !!form.failDeleteItem,
+      });
       copy.items = form.items.map((it) => Object.assign(Object.create(Object.getPrototypeOf(it)), it, { form: copy, choices: it.choices.slice() }));
       forms.set(id, copy);
     }

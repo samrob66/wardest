@@ -291,8 +291,9 @@ function themeHead_(t) {
   if (t.accent) {
     vars.push('--gp-accent: ' + t.accent);
     vars.push('--gp-bar: ' + t.accent);
-    // Text colours only when the accent reads on white (4.5:1); a light accent stays decoration.
-    if (contrastWithWhite_(t.accent) >= 4.5) {
+    // Text colours only when the accent reads on white: 4.5:1, or 5.3:1 over a picture (the panel
+    // lets a little of the picture through); a lighter accent stays decoration.
+    if (contrastWithWhite_(t.accent) >= (t.bg ? 5.3 : 4.5)) {
       vars.push('--gp-link: ' + t.accent);
       vars.push('--gp-button: ' + t.accent);
     }
@@ -307,7 +308,7 @@ function themeHead_(t) {
         'https://fonts.googleapis.com/css2?' +
           families
             .map(function (f) {
-              return 'family=' + f.replace(/ /g, '+') + ':wght@400;700';
+              return 'family=' + f.replace(/ /g, '+');
             })
             .join('&') +
           '&display=swap'
@@ -321,17 +322,19 @@ function themeHead_(t) {
 function renderPage_(name, s, fallback) {
   var html = GP_PAGES[name];
   if (!s.preview_image_url) html = html.replace(/[^\n]*\{\{PREVIEW_IMAGE\}\}[^\n]*\n/g, '');
+  // The theme goes in after the placeholders are filled, so nothing in it is ever read as one.
   var head = themeHead_(themeOf_(s));
-  if (head) html = html.replace('</head>', function () {
-    return head + '</head>';
-  });
-  return fillTemplate_(html, {
+  var filled = fillTemplate_(html, {
     WARD_NAME: s.ward_name || '',
     WEB_APP_URL: s.web_app_url || '',
     CONTACT_EMAIL: s.contact_email || '',
     PREVIEW_IMAGE: s.preview_image_url || '',
     FALLBACK: !!fallback,
     PAGE_TITLE: PAGE_TITLES[name] || '',
+  });
+  if (!head) return filled;
+  return filled.replace('</head>', function () {
+    return head + '</head>';
   });
 }
 
