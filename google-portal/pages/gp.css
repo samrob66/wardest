@@ -13,6 +13,8 @@
   --gp-warn: #a4472b;
   --gp-bar: #4a6fa5;
   --gp-font: Georgia, 'Times New Roman', serif;
+  /* The ward's look (Settings theme_*): --gp-bg, --gp-panel, --gp-panel-radius, --gp-panel-pad,
+     --gp-button and --gp-heading-font are set only by a theme; their fallbacks are the standard look. */
 }
 
 * { box-sizing: border-box; }
@@ -23,9 +25,24 @@ body {
   margin: 0;
   font-family: var(--gp-font);
   color: var(--gp-ink);
-  background: var(--gp-page);
+  background-color: var(--gp-page);
+  background-image: var(--gp-bg, none);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   line-height: 1.5;
   min-height: 100vh;
+}
+/* Phones: iOS ignores fixed backgrounds, so the picture scrolls with the page. */
+@media (max-width: 760px) {
+  body { background-attachment: scroll; }
+}
+
+/* With a background picture, text sits on a light panel so it stays readable. */
+.gp-wrap, .gp-footer {
+  background: var(--gp-panel, transparent);
+  border-radius: var(--gp-panel-radius, 0);
 }
 
 .gp-wrap {
@@ -38,6 +55,7 @@ body {
 
 .gp-head { text-align: center; margin-bottom: 1.25rem; }
 .gp-ward { font-size: 0.85rem; color: var(--gp-muted); letter-spacing: 0.02em; margin: 0; }
+h1, h2, h3 { font-family: var(--gp-heading-font, var(--gp-font)); }
 h1 { font-size: 1.4rem; color: var(--gp-heading); margin: 0.2rem 0 0; }
 h2 {
   font-size: 1.05rem;
@@ -84,8 +102,8 @@ a.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }
   min-height: 44px;
   padding: 0.55rem 1rem;
   border-radius: 10px;
-  border: 1px solid var(--gp-heading);
-  background: var(--gp-heading);
+  border: 1px solid var(--gp-button, var(--gp-heading));
+  background: var(--gp-button, var(--gp-heading));
   color: #ffffff;
   font: inherit;
   font-size: 0.95rem;
@@ -93,7 +111,7 @@ a.gp-card:hover, a.gp-card:focus { background: var(--gp-soft); }
   text-decoration: none;
   margin: 0.2rem 0.3rem 0.2rem 0;
 }
-.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-heading); }
+.gp-btn.gp-light, button.gp-light { background: var(--gp-card); color: var(--gp-button, var(--gp-heading)); }
 .gp-btn.gp-danger, button.gp-danger { background: var(--gp-card); color: var(--gp-warn); border-color: var(--gp-warn); }
 button:disabled { opacity: 0.55; cursor: default; }
 
@@ -149,7 +167,7 @@ textarea { min-height: 88px; }
 .gp-footer {
   max-width: 560px;
   margin: 2rem auto 1rem;
-  padding: 0 1rem;
+  padding: var(--gp-panel-pad, 0) 1rem;
   font-size: 0.78rem;
   color: var(--gp-muted);
   text-align: center;

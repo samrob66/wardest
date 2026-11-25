@@ -374,7 +374,7 @@ describe('Turn a request into a draft opportunity (decision 19)', () => {
     gp.fakes.props.set('SCHEMA_VERSION', 'phase-2.1');
     gp.gpBegin_();
     gp.gpTenMinute();
-    expect(gp.fakes.props.get('SCHEMA_VERSION')).toBe('phase-2.2');
+    expect(gp.fakes.props.get('SCHEMA_VERSION')).toBe(gp.GP_VERSION);
     expect(gp.fakes.spreadsheet.rowsOf('Categories').find((c) => c.Id === 'moving')['Opportunity category']).toBe('moving-help');
   });
 

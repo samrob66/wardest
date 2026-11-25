@@ -318,6 +318,50 @@ function newRequestSheet_(folder, categoryName, month, headers) {
   return ss;
 }
 
+/**
+ * The template form's file id from Settings form_template_url: {id}, {error} or null (blank).
+ * Takes the editor link (…/forms/d/<id>/edit) or a bare id. A published …/forms/d/e/…/viewform
+ * link is not the file id, so it is refused with what to paste instead.
+ */
+function formTemplateId_(url) {
+  var u = String(url == null ? '' : url).trim();
+  if (!u) return null;
+  if (/\/forms\/d\/e\//.test(u) || /\/viewform\b/.test(u)) {
+    return { error: "form_template_url: paste the form's edit link (from the form editor's address bar), not its viewform link." };
+  }
+  var m = /\/forms\/d\/([A-Za-z0-9_-]+)/.exec(u);
+  if (m) return { id: m[1] };
+  if (/^[A-Za-z0-9_-]+$/.test(u)) return { id: u };
+  return { error: "form_template_url is not a Google Form edit link (it should look like https://docs.google.com/forms/d/…/edit)." };
+}
+
+/**
+ * A new, empty request form. With form_template_url set it is a Drive copy of that branded form
+ * (FormApp can't set a theme, but a copy keeps it) with every item removed; otherwise, or when the
+ * template can't be copied, a plain FormApp form. Problems go into problems; Set up never stops.
+ */
+function newRequestForm_(s, c, portal, problems) {
+  var title = requestFormTitle_(s, c);
+  var tpl = formTemplateId_(s.form_template_url);
+  if (tpl && tpl.error) {
+    if (problems && problems.indexOf(tpl.error) < 0) problems.push(tpl.error);
+  } else if (tpl) {
+    try {
+      var copy = DriveApp.getFileById(tpl.id).makeCopy(title, portal);
+      var form = FormApp.openById(copy.getId());
+      form.getItems().forEach(function (item) {
+        form.deleteItem(item);
+      });
+      form.setTitle(title);
+      return form;
+    } catch (e) {
+      var line = 'Could not copy the form template (' + clip(e && e.message ? e.message : e, 120) + '); made plain forms instead. Check form_template_url.';
+      if (problems && problems.indexOf(line) < 0) problems.push(line);
+    }
+  }
+  return FormApp.create(title);
+}
+
 function requestFormTitle_(s, c) {
   return c.Name + ' — ' + s.ward_name;
 }
@@ -373,7 +417,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
     var existing = portal.getFoldersByName(folderName);
     var folder = existing.hasNext() ? existing.next() : portal.createFolder(folderName);
     var ss = newRequestSheet_(folder, c.Name, month);
-    var form = FormApp.create(requestFormTitle_(s, c));
+    var form = newRequestForm_(s, c, portal, problems);
     form
       .setDescription(requestFormDescription_(s, c))
       .setCollectEmail(false)
@@ -382,6 +426,13 @@ function buildRequestForms_(s, categories, refreshed, problems) {
       .setPublishingSummary(false)
       .setConfirmationMessage(requestFormConfirmation_(c));
     addRequestQuestions_(form, c);
+    // A copied template may have asked for sign-in or one response each: requests never do.
+    try {
+      form.setLimitOneResponsePerUser(false);
+      form.setRequireLogin(false);
+    } catch (e) {
+      // setRequireLogin exists only for Workspace accounts
+    }
     if (typeof form.setPublished === 'function') form.setPublished(true);
     form.setAcceptingResponses(true);
     DriveApp.getFileById(form.getId()).moveTo(portal);

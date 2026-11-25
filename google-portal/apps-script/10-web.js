@@ -219,10 +219,111 @@ function fillTemplate_(html, values) {
     .join('');
 }
 
-/** A page from GP_PAGES with the ward's values filled in. */
+// ---------- the ward's look (2.3, decision 20) ----------
+
+var THEME_SERIF_FALLBACK = "Georgia, 'Times New Roman', serif";
+
+/** An https picture address safe inside CSS url("…"): no quotes, spaces, brackets or backslashes. */
+function isThemeImageUrl_(v) {
+  var u = String(v == null ? '' : v).trim();
+  return u.length <= 500 && /^https:\/\/[^\s"'()<>\\]+$/i.test(u);
+}
+
+function isThemeColour_(v) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(v == null ? '' : v).trim());
+}
+
+/** A Google Fonts family name: letters, digits and spaces, at most 40. */
+function isThemeFont_(v) {
+  var f = String(v == null ? '' : v).trim();
+  return f.length > 0 && f.length <= 40 && /^[A-Za-z0-9 ]+$/.test(f);
+}
+
+/** WCAG contrast ratio of a #rrggbb colour against white. */
+function contrastWithWhite_(hex) {
+  var h = String(hex).replace('#', '');
+  var lin = function (i) {
+    var c = parseInt(h.substr(i, 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  var L = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  return 1.05 / (L + 0.05);
+}
+
+/**
+ * The Settings theme, checked: {bg, accent, font, headingFont, problems}. A value that fails its
+ * check is left out (today's look for that part) and named in problems (Check health).
+ */
+function themeOf_(s) {
+  var t = { bg: '', accent: '', font: '', headingFont: '', problems: [] };
+  var val = function (k) {
+    return String(s[k] == null ? '' : s[k]).trim();
+  };
+  var bg = val('theme_background_url');
+  if (bg) {
+    if (isThemeImageUrl_(bg)) t.bg = bg;
+    else t.problems.push('theme_background_url must be a full https address of a picture (no spaces or quotes); it is ignored.');
+  }
+  var accent = val('theme_accent');
+  if (accent) {
+    if (isThemeColour_(accent)) t.accent = accent.toLowerCase();
+    else t.problems.push('theme_accent must be a colour like #2f5d50; it is ignored.');
+  }
+  ['theme_font', 'theme_heading_font'].forEach(function (k) {
+    var f = val(k);
+    if (!f) return;
+    if (isThemeFont_(f)) t[k === 'theme_font' ? 'font' : 'headingFont'] = f;
+    else t.problems.push(k + ' must be a Google Fonts family name (letters, digits and spaces, at most 40), e.g. Lora; it is ignored.');
+  });
+  return t;
+}
+
+/** The <link> and <style> that put the theme on a page ('' when nothing is set). */
+function themeHead_(t) {
+  var vars = [];
+  if (t.bg) {
+    vars.push('--gp-bg: linear-gradient(rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.42)), url("' + t.bg + '")');
+    vars.push('--gp-panel: rgba(255, 255, 255, 0.92)');
+    vars.push('--gp-panel-radius: 14px');
+    vars.push('--gp-panel-pad: 1rem');
+  }
+  if (t.accent) {
+    vars.push('--gp-accent: ' + t.accent);
+    vars.push('--gp-bar: ' + t.accent);
+    // Text colours only when the accent reads on white (4.5:1); a light accent stays decoration.
+    if (contrastWithWhite_(t.accent) >= 4.5) {
+      vars.push('--gp-link: ' + t.accent);
+      vars.push('--gp-button: ' + t.accent);
+    }
+  }
+  if (t.font) vars.push("--gp-font: '" + t.font + "', " + THEME_SERIF_FALLBACK);
+  if (t.headingFont) vars.push("--gp-heading-font: '" + t.headingFont + "', " + THEME_SERIF_FALLBACK);
+  if (!vars.length) return '';
+  var families = uniq_([t.font, t.headingFont].filter(String));
+  var link = families.length
+    ? '<link rel="stylesheet" href="' +
+      esc(
+        'https://fonts.googleapis.com/css2?' +
+          families
+            .map(function (f) {
+              return 'family=' + f.replace(/ /g, '+') + ':wght@400;700';
+            })
+            .join('&') +
+          '&display=swap'
+      ) +
+      '">\n'
+    : '';
+  return link + '<style id="gp-theme">\n:root {\n  ' + vars.join(';\n  ') + ';\n}\n</style>\n';
+}
+
+/** A page from GP_PAGES with the ward's values filled in, and the ward's look when set. */
 function renderPage_(name, s, fallback) {
   var html = GP_PAGES[name];
   if (!s.preview_image_url) html = html.replace(/[^\n]*\{\{PREVIEW_IMAGE\}\}[^\n]*\n/g, '');
+  var head = themeHead_(themeOf_(s));
+  if (head) html = html.replace('</head>', function () {
+    return head + '</head>';
+  });
   return fillTemplate_(html, {
     WARD_NAME: s.ward_name || '',
     WEB_APP_URL: s.web_app_url || '',

@@ -518,6 +518,18 @@ export class FakeForm {
     this.published = b;
     return this;
   }
+  setRequireLogin(b) {
+    this.requireLogin = b;
+    return this;
+  }
+  setLimitOneResponsePerUser(b) {
+    this.limitOne = b;
+    return this;
+  }
+  deleteItem(item) {
+    this.items = this.items.filter((i) => i !== item);
+    return this;
+  }
   addTextItem() {
     const i = new FakeItem(this, 'TEXT');
     this.items.push(i);
@@ -599,6 +611,10 @@ class FakeFile {
   }
   isTrashed() {
     return this.trashed;
+  }
+  /** A Drive copy. A copied form keeps its theme and its items (as Drive does). */
+  makeCopy(name, folder) {
+    return this.drive.copy(this, name, folder);
   }
 }
 
@@ -693,6 +709,23 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
       files.set(f.id, f);
       return f;
     },
+  };
+  const copies = [];
+  drive.copy = (src, name, folder) => {
+    if (src.trashed) throw new Error('File is in the trash');
+    const id = nextId(forms.has(src.id) ? 'form' : 'fi');
+    const f = new FakeFile(drive, id, name, src.mime, src.content);
+    f.parents = folder ? [folder.id] : ['root'];
+    files.set(id, f);
+    const form = forms.get(src.id);
+    if (form) {
+      const copy = new FakeForm(id, name);
+      Object.assign(copy, { description: form.description, theme: form.theme, collectEmail: form.collectEmail, confirmation: form.confirmation, requireLogin: form.requireLogin, limitOne: form.limitOne });
+      copy.items = form.items.map((it) => Object.assign(Object.create(Object.getPrototypeOf(it)), it, { form: copy, choices: it.choices.slice() }));
+      forms.set(id, copy);
+    }
+    copies.push({ from: src.id, to: id, name });
+    return f;
   };
   const root = new FakeFolder(drive, 'root', 'My Drive', null);
   folders.set('root', root);
@@ -1012,7 +1045,7 @@ export function createFakes({ tz = 'America/Denver' } = {}) {
     system,
     spreadsheets,
     forms,
-    drive: { files, folders, root, permissions, removed: removedFiles, permsOf },
+    drive: { files, folders, root, permissions, removed: removedFiles, permsOf, copies },
     mail: { sent: mailSent },
     alerts,
     menus,

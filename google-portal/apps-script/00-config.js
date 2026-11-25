@@ -7,7 +7,7 @@
  */
 
 /** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
-var GP_VERSION = 'phase-2.2';
+var GP_VERSION = 'phase-2.3';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -177,6 +177,11 @@ var SETTINGS_ROWS = [
   ['confirm_limit_per_day', 20, 'Most confirm-your-address emails sent in one day, all addresses together.'],
   ['organizations', 'Bishopric, Elders Quorum, Relief Society, Young Men, Young Women, Primary, Sunday School, Ward Mission, Temple and Family History, Activities', 'Organizations, separated by commas.'],
   ['discord', 'off', 'Discord announcements (phase 2). Leave off.'],
+  ['theme_background_url', '', 'Optional background picture for every portal page: a full https address, e.g. the hub\'s own background image. Blank: plain background.'],
+  ['theme_accent', '', 'Optional accent colour as #rrggbb, e.g. #2f5d50. Blank: the standard colours.'],
+  ['theme_font', '', 'Optional Google Fonts family name for the pages, e.g. Lora. Blank: the standard font.'],
+  ['theme_heading_font', '', 'Optional Google Fonts family name for headings. Blank: the same as theme_font.'],
+  ['form_template_url', '', 'Optional: the edit link of a branded Google Form (from the form editor\'s address bar). New request forms are made as copies of it, so they keep its look.'],
 ];
 var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day', 'confirm_limit_per_day'];
 

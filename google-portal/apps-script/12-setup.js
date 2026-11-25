@@ -489,6 +489,12 @@ function healthLines_(opts) {
   notifyBishopProblems_(reqCats, leaders_()).forEach(function (line) {
     add(false, line);
   });
+  // The ward's look (2.3): a bad value is ignored on the pages; say so here.
+  themeOf_(s).problems.forEach(function (line) {
+    add(false, line);
+  });
+  var tpl = formTemplateId_(s.form_template_url);
+  if (tpl && tpl.error) add(false, tpl.error);
 
   var quota = mailQuota_();
   add(quota > s.email_reserve, 'Email left today: ' + quota + ' (reserve ' + s.email_reserve + ').');
