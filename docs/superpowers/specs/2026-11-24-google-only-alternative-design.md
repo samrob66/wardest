@@ -800,8 +800,11 @@ help soon", quota reserve and health email.
     email goes to the first of them with "[TEST for <address>] " in front of the subject, still one
     per original recipient. The switch is in sendMailNow_, the only code that sends mail, so no
     email can go around it. Fail closed: an entry that isn't an address sends everything to the
-    first valid one; with no valid address nothing is sent (logged and dropped, never queued).
-    Check health and the daily health email show a PROBLEM line while it is on.
+    first valid one; with no valid address nothing is sent (logged and dropped, never queued,
+    and mail queued before test mode stays queued). Routing is also decided when an email is
+    queued, so an Outbox row made in test mode is already addressed to the tester and can't
+    reach the real person after test mode is turned off. Check health and the daily health email
+    show a PROBLEM line while it is on.
 
 ## 13. Settled with Sam, and open questions
 

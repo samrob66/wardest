@@ -72,11 +72,19 @@ function sendOrQueue_(msg) {
       log_('mail error', to + ' | ' + msg.subject + ' | ' + error);
     }
   }
+  // Test mode decides here too: a queued email is stored already addressed to the tester (or not
+  // queued at all with no valid test address), so it can't reach the real person later.
+  var route = testMailRoute_(to, msg.subject);
+  if (route.how === 'dropped') {
+    log_('test mode: not sent (test_mail_only has no valid address)', to + ' | ' + msg.subject);
+    return 'dropped';
+  }
+  if (route.how === 'redirected') log_('mail queued', to + ' | ' + msg.subject + ' | redirected to test address');
   systemTab_(SYS_TAB.outbox).append({
     Id: newId_('m'),
     'Queued at': nowLocal_(),
-    To: to,
-    Subject: msg.subject,
+    To: route.to,
+    Subject: route.subject,
     Html: html,
     Text: text,
     Priority: priority,
@@ -94,6 +102,18 @@ function sendOrQueue_(msg) {
 function drainOutbox_() {
   var s = settings_();
   var from = mailFrom_(s);
+  // Test mode with no valid address: send nothing and keep every row (some may be real mail
+  // queued before test mode was turned on). One Log line per run.
+  var test = testMailList_(s.test_mail_only);
+  if (test.on && !test.catchAll) {
+    var waiting = systemTab_(SYS_TAB.outbox)
+      .rows()
+      .filter(function (r) {
+        return r.Status === 'Queued';
+      }).length;
+    if (waiting) log_('test mode: Outbox kept (test_mail_only has no valid address)', waiting + ' waiting');
+    return { sent: 0, left: waiting };
+  }
   var queued = withLock_(function () {
     return systemTab_(SYS_TAB.outbox)
       .rows()
@@ -122,11 +142,15 @@ function drainOutbox_() {
     }
     try {
       var how = sendMailNow_({ to: m.To, subject: m.Subject, html: m.Html, text: m.Text, name: from.name, replyTo: from.replyTo });
-      // A dropped one (test mode with no valid address) leaves the Outbox too: never kept for later.
+      // Dropped (test mode lost its valid address mid-run): the row stays queued.
+      if (how === 'dropped') {
+        dropped[m.Id] = true;
+        left++;
+        return;
+      }
       sentIds[m.Id] = true;
       if (how === 'redirected') redirected[m.Id] = true;
-      if (how === 'dropped') dropped[m.Id] = true;
-      else sent++;
+      sent++;
     } catch (e) {
       failed[m.Id] = clip(e && e.message ? e.message : e, 300);
     }
@@ -144,7 +168,7 @@ function drainOutbox_() {
     );
   });
   queued.forEach(function (m) {
-    if (sentIds[m.Id] && !dropped[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject + (redirected[m.Id] ? ' | redirected to test address' : ''));
+    if (sentIds[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject + (redirected[m.Id] ? ' | redirected to test address' : ''));
     if (failed[m.Id]) log_('mail error', m.To + ' | ' + m.Subject + ' | ' + failed[m.Id]);
   });
   return { sent: sent, left: left };

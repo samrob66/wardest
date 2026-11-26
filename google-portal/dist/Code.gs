@@ -406,32 +406,39 @@ function testMailList_(raw) {
 }
 
 /**
- * Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. This is the only code
- * that sends mail, so the test-mode switch here covers every email:
- *   - test_mail_only blank: sent as asked ('sent');
+ * Where an email goes under the test-mode switch: {to, subject, how}.
+ *   - test_mail_only blank: as asked (how 'sent');
  *   - on: a listed address gets it as asked ('sent'); anyone else's goes to the first listed
  *     address with "[TEST for <address>] " in front of the subject ('redirected');
- *   - on with an entry that isn't an address: every email is redirected, listed or not;
- *   - on with no valid address at all: nothing is sent; the email is logged and dropped
- *     ('dropped'; never queued, or it would reach real people once test mode is off).
+ *   - on with an entry that isn't an address: every email is redirected, listed or not (one
+ *     already for the first address goes to it unchanged);
+ *   - on with no valid address at all: nowhere ('dropped').
+ * Decided both when an email is sent and when it is queued, so a queued email is already
+ * addressed to the tester and turning test mode off can't send it to the real person.
+ */
+function testMailRoute_(to, subject) {
+  var test = testMailList_(settings_().test_mail_only);
+  if (!test.on) return { to: to, subject: subject, how: 'sent' };
+  var original = normEmail(to);
+  if (!test.catchAll) return { to: original, subject: subject, how: 'dropped' };
+  if (original === test.catchAll || (!test.bad.length && test.allow.indexOf(original) >= 0)) return { to: to, subject: subject, how: 'sent' };
+  return { to: test.catchAll, subject: '[TEST for ' + original + '] ' + subject, how: 'redirected' };
+}
+
+/**
+ * Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. This is the only code
+ * that sends mail, so the test-mode switch here (testMailRoute_) covers every email. Returns
+ * 'sent', 'redirected', or 'dropped' (test mode with no valid address: logged, nothing sent).
  */
 function sendMailNow_(msg) {
-  var test = testMailList_(settings_().test_mail_only);
-  var to = msg.to;
-  var subject = msg.subject;
-  var result = 'sent';
-  if (test.on) {
-    var original = normEmail(msg.to);
-    if (!test.catchAll) {
-      log_('test mode: not sent (test_mail_only has no valid address)', original + ' | ' + msg.subject);
-      return 'dropped';
-    }
-    if (test.bad.length || test.allow.indexOf(original) < 0) {
-      to = test.catchAll;
-      subject = '[TEST for ' + original + '] ' + msg.subject;
-      result = 'redirected';
-    }
+  var route = testMailRoute_(msg.to, msg.subject);
+  if (route.how === 'dropped') {
+    log_('test mode: not sent (test_mail_only has no valid address)', route.to + ' | ' + msg.subject);
+    return 'dropped';
   }
+  var to = route.to;
+  var subject = route.subject;
+  var result = route.how;
   var opts = {
     to: to,
     subject: subject,
@@ -2001,11 +2008,19 @@ function sendOrQueue_(msg) {
       log_('mail error', to + ' | ' + msg.subject + ' | ' + error);
     }
   }
+  // Test mode decides here too: a queued email is stored already addressed to the tester (or not
+  // queued at all with no valid test address), so it can't reach the real person later.
+  var route = testMailRoute_(to, msg.subject);
+  if (route.how === 'dropped') {
+    log_('test mode: not sent (test_mail_only has no valid address)', to + ' | ' + msg.subject);
+    return 'dropped';
+  }
+  if (route.how === 'redirected') log_('mail queued', to + ' | ' + msg.subject + ' | redirected to test address');
   systemTab_(SYS_TAB.outbox).append({
     Id: newId_('m'),
     'Queued at': nowLocal_(),
-    To: to,
-    Subject: msg.subject,
+    To: route.to,
+    Subject: route.subject,
     Html: html,
     Text: text,
     Priority: priority,
@@ -2023,6 +2038,18 @@ function sendOrQueue_(msg) {
 function drainOutbox_() {
   var s = settings_();
   var from = mailFrom_(s);
+  // Test mode with no valid address: send nothing and keep every row (some may be real mail
+  // queued before test mode was turned on). One Log line per run.
+  var test = testMailList_(s.test_mail_only);
+  if (test.on && !test.catchAll) {
+    var waiting = systemTab_(SYS_TAB.outbox)
+      .rows()
+      .filter(function (r) {
+        return r.Status === 'Queued';
+      }).length;
+    if (waiting) log_('test mode: Outbox kept (test_mail_only has no valid address)', waiting + ' waiting');
+    return { sent: 0, left: waiting };
+  }
   var queued = withLock_(function () {
     return systemTab_(SYS_TAB.outbox)
       .rows()
@@ -2051,11 +2078,15 @@ function drainOutbox_() {
     }
     try {
       var how = sendMailNow_({ to: m.To, subject: m.Subject, html: m.Html, text: m.Text, name: from.name, replyTo: from.replyTo });
-      // A dropped one (test mode with no valid address) leaves the Outbox too: never kept for later.
+      // Dropped (test mode lost its valid address mid-run): the row stays queued.
+      if (how === 'dropped') {
+        dropped[m.Id] = true;
+        left++;
+        return;
+      }
       sentIds[m.Id] = true;
       if (how === 'redirected') redirected[m.Id] = true;
-      if (how === 'dropped') dropped[m.Id] = true;
-      else sent++;
+      sent++;
     } catch (e) {
       failed[m.Id] = clip(e && e.message ? e.message : e, 300);
     }
@@ -2073,7 +2104,7 @@ function drainOutbox_() {
     );
   });
   queued.forEach(function (m) {
-    if (sentIds[m.Id] && !dropped[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject + (redirected[m.Id] ? ' | redirected to test address' : ''));
+    if (sentIds[m.Id]) log_('mail sent', m.To + ' | ' + m.Subject + (redirected[m.Id] ? ' | redirected to test address' : ''));
     if (failed[m.Id]) log_('mail error', m.To + ' | ' + m.Subject + ' | ' + failed[m.Id]);
   });
   return { sent: sent, left: left };
@@ -6203,4 +6234,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "6095c921574e";
+var GP_BUILD = "860dc4b6e532";

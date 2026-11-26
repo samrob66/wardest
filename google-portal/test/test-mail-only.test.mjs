@@ -89,7 +89,11 @@ describe('test_mail_only', () => {
     // An outbox retry: queued while the quota was low, sent by the drain.
     gp.fakes.setQuota(10);
     gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Late One', email: 'late.one@example.test' });
-    expect(sys(gp).rowsOf('Outbox').map((m) => m.To)).toContain('late.one@example.test'); // the Outbox keeps the original
+    // Queued already addressed to the tester; the subject and the Log name the original.
+    const queuedRow = sys(gp).rowsOf('Outbox').find((m) => m.Subject.includes('late.one@example.test'));
+    expect(queuedRow.To).toBe(ME);
+    expect(queuedRow.Subject).toBe('[TEST for late.one@example.test] Please confirm your email: Meals for the Sample family');
+    expect(sys(gp).rowsOf('Log').some((l) => l.What === 'mail queued' && l.Detail.startsWith('late.one@example.test | '))).toBe(true);
     gp.fakes.setQuota(100);
     gp.gpTenMinute();
     expect(gp.fakes.mail.sent.some((m) => m.subject === '[TEST for late.one@example.test] Please confirm your email: Meals for the Sample family')).toBe(true);
@@ -131,14 +135,47 @@ describe('test_mail_only', () => {
     expect(sys(gp).rowsOf('Outbox')).toEqual([]);
     const notSent = sys(gp).rowsOf('Log').filter((l) => l.What === 'test mode: not sent (test_mail_only has no valid address)');
     expect(notSent.map((l) => l.Detail.split(' | ')[0]).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test', 'stranger@example.test']);
-    // A message already in the Outbox is dropped too, not kept for later.
-    sys(gp).getSheetByName('Outbox');
+    expect(gp.gpMenuCheckHealth().some((l) => l.startsWith('PROBLEM ') && l.includes('no valid address'))).toBe(true);
+  });
+
+  it('no valid address: mail queued before test mode stays queued (not sent, not deleted), logged once per run', () => {
+    const gp = ward();
+    // Real mail waiting in the Outbox from before test mode was turned on.
     gp.systemTab_('Outbox').append({ Id: 'mq', 'Queued at': '2026-12-01 09:00', To: 'queued@example.test', Subject: 'Old', Html: '<p>x</p>', Text: 'x', Priority: 'normal', Status: 'Queued' });
+    setSetting(gp, 'test_mail_only', 'nobody');
+    gp.gpTenMinute();
     gp.gpBegin_();
     gp.gpTenMinute();
     expect(gp.fakes.mail.sent).toEqual([]);
+    expect(sys(gp).rowsOf('Outbox').map((m) => [m.Id, m.Status])).toEqual([['mq', 'Queued']]);
+    expect(sys(gp).rowsOf('Log').filter((l) => l.What === 'test mode: Outbox kept (test_mail_only has no valid address)')).toHaveLength(2);
+    // Fixed list: it goes, to the tester.
+    setSetting(gp, 'test_mail_only', ME);
+    gp.gpTenMinute();
+    expect(sent(gp)).toEqual([{ to: ME, subject: '[TEST for queued@example.test] Old' }]);
+  });
+
+  it('mail queued during test mode is addressed to the tester, so turning test mode off never sends it to the real person', () => {
+    const gp = ward(ME);
+    gp.fakes.setQuota(30); // at the reserve: a normal message waits in the Outbox
+    expect(gp.sendOrQueue_({ to: 'bishop.example@example.test', subject: 'Waiting for approval: Brother New', html: '<p>x</p>', text: 'x', priority: 'normal' })).toBe('queued');
+    const row = sys(gp).rowsOf('Outbox')[0];
+    expect(row.To).toBe(ME);
+    expect(row.Subject).toBe('[TEST for bishop.example@example.test] Waiting for approval: Brother New');
+    expect(sys(gp).rowsOf('Log').some((l) => l.What === 'mail queued' && l.Detail.startsWith('bishop.example@example.test | ') && l.Detail.includes('redirected to test address'))).toBe(true);
+    // Test mode turned off before the next drain.
+    setSetting(gp, 'test_mail_only', '');
+    gp.fakes.setQuota(100);
+    gp.gpTenMinute();
+    expect(sent(gp)).toEqual([{ to: ME, subject: '[TEST for bishop.example@example.test] Waiting for approval: Brother New' }]);
+  });
+
+  it('no valid address: a message is dropped at queue time too, never queued', () => {
+    const gp = ward('nobody');
+    gp.fakes.setQuota(30);
+    expect(gp.sendOrQueue_({ to: 'bishop.example@example.test', subject: 'Waiting for approval: X', html: '<p>x</p>', text: 'x', priority: 'normal' })).toBe('dropped');
     expect(sys(gp).rowsOf('Outbox')).toEqual([]);
-    expect(gp.gpMenuCheckHealth().some((l) => l.startsWith('PROBLEM ') && l.includes('no valid address'))).toBe(true);
+    expect(sys(gp).rowsOf('Log').some((l) => l.What === 'test mode: not sent (test_mail_only has no valid address)')).toBe(true);
   });
 
   it('Check health shows a PROBLEM line while it is on, and none when blank', () => {

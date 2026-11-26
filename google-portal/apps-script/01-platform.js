@@ -158,32 +158,39 @@ function testMailList_(raw) {
 }
 
 /**
- * Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. This is the only code
- * that sends mail, so the test-mode switch here covers every email:
- *   - test_mail_only blank: sent as asked ('sent');
+ * Where an email goes under the test-mode switch: {to, subject, how}.
+ *   - test_mail_only blank: as asked (how 'sent');
  *   - on: a listed address gets it as asked ('sent'); anyone else's goes to the first listed
  *     address with "[TEST for <address>] " in front of the subject ('redirected');
- *   - on with an entry that isn't an address: every email is redirected, listed or not;
- *   - on with no valid address at all: nothing is sent; the email is logged and dropped
- *     ('dropped'; never queued, or it would reach real people once test mode is off).
+ *   - on with an entry that isn't an address: every email is redirected, listed or not (one
+ *     already for the first address goes to it unchanged);
+ *   - on with no valid address at all: nowhere ('dropped').
+ * Decided both when an email is sent and when it is queued, so a queued email is already
+ * addressed to the tester and turning test mode off can't send it to the real person.
+ */
+function testMailRoute_(to, subject) {
+  var test = testMailList_(settings_().test_mail_only);
+  if (!test.on) return { to: to, subject: subject, how: 'sent' };
+  var original = normEmail(to);
+  if (!test.catchAll) return { to: original, subject: subject, how: 'dropped' };
+  if (original === test.catchAll || (!test.bad.length && test.allow.indexOf(original) >= 0)) return { to: to, subject: subject, how: 'sent' };
+  return { to: test.catchAll, subject: '[TEST for ' + original + '] ' + subject, how: 'redirected' };
+}
+
+/**
+ * Sends one email now. msg: {to, subject, html, text, name?, replyTo?}. This is the only code
+ * that sends mail, so the test-mode switch here (testMailRoute_) covers every email. Returns
+ * 'sent', 'redirected', or 'dropped' (test mode with no valid address: logged, nothing sent).
  */
 function sendMailNow_(msg) {
-  var test = testMailList_(settings_().test_mail_only);
-  var to = msg.to;
-  var subject = msg.subject;
-  var result = 'sent';
-  if (test.on) {
-    var original = normEmail(msg.to);
-    if (!test.catchAll) {
-      log_('test mode: not sent (test_mail_only has no valid address)', original + ' | ' + msg.subject);
-      return 'dropped';
-    }
-    if (test.bad.length || test.allow.indexOf(original) < 0) {
-      to = test.catchAll;
-      subject = '[TEST for ' + original + '] ' + msg.subject;
-      result = 'redirected';
-    }
+  var route = testMailRoute_(msg.to, msg.subject);
+  if (route.how === 'dropped') {
+    log_('test mode: not sent (test_mail_only has no valid address)', route.to + ' | ' + msg.subject);
+    return 'dropped';
   }
+  var to = route.to;
+  var subject = route.subject;
+  var result = route.how;
   var opts = {
     to: to,
     subject: subject,

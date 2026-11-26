@@ -561,17 +561,29 @@ leader links, alerts, the daily health email, and anything waiting in the Outbox
 - if an entry on the list isn't an email address, **every** email goes to the first valid
   address with that prefix (even those to listed addresses), until you fix it;
 - if no entry is a valid address, **nothing** is sent at all (each email is written in the
-  System Sheet's Log as *test mode: not sent*), and nothing is kept to send later.
+  System Sheet's Log as *test mode: not sent*); email already waiting in the Outbox from before
+  stays there, unsent, until you fix the list.
 
-The Log and the Outbox show the real recipient and *redirected to test address*. Nothing else
-changes: who can open which folder, who would be told, approvals and limits all work as for real.
+An email that has to wait in the Outbox (when the day's email allowance runs low) is stored
+already addressed to you with the *[TEST for …]* subject, so it can't reach the real person even
+if you turn test mode off before it goes. The Log shows the real recipient and *redirected to
+test address*. Nothing else changes: who can open which folder, who would be told, approvals and
+limits all work as for real.
+
+**Don't forward a *[TEST for …]* email.** It still holds the real recipient's working links
+(a leader link, a cancel link): whoever gets it can use them.
 
 **Check it.** Run **Service Portal > Check health**: it shows *PROBLEM Test mode: email to anyone
 not in test_mail_only goes to <your address>*. That line (also in the daily health email) is
 there all the time test mode is on, so you can't forget it.
 
-**Turn it off.** Settings > **test_mail_only**: delete everything in its Value cell, so it is
-empty. Run **Check health**: the Test mode line is gone, and email goes to everyone as normal.
+**Turn it off.**
+1. Run **Service Portal > Check health** and find the *Outbox* line. It should say **0
+   waiting**. If not, run **gpTenMinute** (signed in to the shared account: Extensions > Apps
+   Script, pick **gpTenMinute**, **Run**) and check again.
+2. Settings > **test_mail_only**: delete everything in its Value cell, so it is empty.
+3. Run **Check health**: the Test mode line is gone, and email goes to everyone as normal.
+
 Do this before the ward starts using the portal.
 
 **A. Make a test opportunity**
