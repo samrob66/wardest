@@ -817,6 +817,20 @@ help soon", quota reserve and health email.
     Cancel this date. The Waiting for approval tab stays. The leader page checks its link when a
     form opens and when the page comes back into view (at most once a minute); a dead link
     shows the "Email me a leader link" box above the page and keeps what was typed.
+23. **A post for more than one audience shows once, under "Everyone"** (§5.3; Sam, 2026-11-27,
+    in 2.3.3). Sam's words: "Looks like, when opportunities are for both Brothers and Sisters,
+    that the same 4 slots are shown twice, making it look like there are 8 volunteer
+    opportunities ... Maybe we should have another category on the Service Opportunities page
+    for just "Members" and if it applies to anyone, it shows up under that category. If it's
+    only for Sisters, we would write "Sisters" under "default audiences" in the Categories
+    sheet, but never Sisters and Brothers. Thoughts?" and, to the recommendation below, "Yes".
+    The Service Opportunities page shows each post once: a post with more than one audience in
+    a full-width section at the top named by TEXT.everyone ("Everyone"), with its audiences
+    under the title in the fixed order Brothers · Sisters · Youth · Children; a single-audience
+    post in its own section. Order: the Christmas giving card, Everyone, Brothers | Sisters,
+    Youth, Children; empty sections hidden. No change to Default audiences or any column;
+    existing posts regroup by themselves. Other lists (Other ways to serve, Needs help soon,
+    leader page) already showed each post once.
 
 ## 13. Settled with Sam, and open questions
 

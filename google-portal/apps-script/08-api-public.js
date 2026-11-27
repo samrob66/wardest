@@ -82,7 +82,7 @@ function apiServe_() {
     .sort(function (a, b) {
       return cmpLocal(a.firstDate, b.firstDate) || cmpLocal(a.title, b.title);
     });
-  var answer = { ok: true, ward: wardInfo_(s), posts: posts, offers: serveOffers_() };
+  var answer = { ok: true, ward: wardInfo_(s), posts: posts, offers: serveOffers_(), labels: { everyone: TEXT.everyone } };
   var json = JSON.stringify(answer);
   if (json.length < 90000) {
     try {

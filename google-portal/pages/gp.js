@@ -214,18 +214,35 @@ var GP = (function () {
     return out;
   }
 
-  /** {Brothers: [], Sisters: [], Youth: [], Children: []}; full posts last in each group. */
+  /** A post's audiences in the fixed order (Brothers, Sisters, Youth, Children). */
+  function audiencesOf(p) {
+    var have = p.audiences || [];
+    return AUDIENCES.filter(function (a) {
+      return have.indexOf(a) >= 0;
+    });
+  }
+
+  /** 'Brothers · Sisters' (the fixed order). */
+  function audienceLine(p) {
+    return audiencesOf(p).join(' · ');
+  }
+
+  /**
+   * {Everyone: [], Brothers: [], Sisters: [], Youth: [], Children: []}, each post in exactly one
+   * group: Everyone when it has more than one audience, else its one audience (decision 23).
+   * Full posts last in each group.
+   */
   function groupByAudience(posts) {
-    var out = {};
+    var out = { Everyone: [] };
     AUDIENCES.forEach(function (a) {
       out[a] = [];
     });
     (posts || []).forEach(function (p) {
-      (p.audiences || []).forEach(function (a) {
-        if (out[a]) out[a].push(p);
-      });
+      var aud = audiencesOf(p);
+      if (aud.length > 1) out.Everyone.push(p);
+      else if (aud.length === 1) out[aud[0]].push(p);
     });
-    AUDIENCES.forEach(function (a) {
+    ['Everyone'].concat(AUDIENCES).forEach(function (a) {
       out[a] = out[a]
         .filter(function (p) {
           return !p.full;
@@ -283,6 +300,7 @@ var GP = (function () {
     copyText: copyText,
     expandDates: expandDates,
     groupByAudience: groupByAudience,
+    audienceLine: audienceLine,
     fmtDate: fmtDate,
     fmtTime: fmtTime,
     fmtTimes: fmtTimes,

@@ -9,7 +9,9 @@ as you on the leader page.
 Moving, Service project, …; every new opportunity needs one, and its usual audiences are ticked
 for you; **Copy this post** keeps the category when you may use it), then the organization, a
 title, who it is for (Brothers, Sisters, Youth, Children), a public note, and any **private
-details** (an address, a gate code). Then add dates: each date has one or more roles with how
+details** (an address, a gate code). On the Service Opportunities page a post for one audience
+shows under that audience; a post for more than one shows once, at the top under **Everyone**,
+with its audiences (e.g. *Brothers · Sisters*) under the title. Then add dates: each date has one or more roles with how
 many people, times if you want them, a note, and an optional question such as *What are you
 bringing?*
 - **Add date** adds one date (copying the last date's roles); **Copy this date** duplicates a

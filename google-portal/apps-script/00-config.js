@@ -39,6 +39,8 @@ var TEXT = {
   signedUp: "You're signed up. We sent a confirmation to your email.",
   // Every public sign-up answer (sign-ups spec 6.3 item 6): never says whether the address was known.
   signupThanks: 'Thanks. Check your email to finish or see your sign-up.',
+  // The Service Opportunities section for posts with more than one audience (decision 23).
+  everyone: 'Everyone',
   pickCategory: 'Pick a category',
   noChildren: 'Children and youth can be signed up only for opportunities for youth or children.',
   linkExpired: 'This link has expired.',

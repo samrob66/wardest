@@ -598,8 +598,10 @@ Do this before the ward starts using the portal.
       opportunities as **Draft** and is not on the serve page.
 - [ ] **Edit** it and **Publish**. Copy the public link.
 - [ ] Open the serve page (short link) **on a phone**: the card shows the Service project icon 🛠️ above
-      its title and a fill bar. On a computer, **Brothers** and **Sisters** sit side by side;
-      on the phone they are stacked.
+      its title and a fill bar. A post for **one** audience shows under that audience (on a
+      computer **Brothers** and **Sisters** sit side by side; on the phone they are stacked). A
+      post for **more than one** audience shows once, at the top under **Everyone**, with a line
+      such as *Brothers · Sisters* under its title.
 
 **B. A first-timer (test address A): confirm, approve, over the number, withdraw**
 

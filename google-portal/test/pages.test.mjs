@@ -25,17 +25,29 @@ describe('gp.js pure helpers', () => {
     expect(plain(GP.expandDates('nope', '2026-12-01', [1]))).toEqual([]);
   });
 
-  it('groupByAudience lists a post in each of its audiences, full posts last', () => {
+  it('groupByAudience puts each post in exactly one group: Everyone when it has more than one audience; full posts last', () => {
     const posts = [
       { publicId: 'a', audiences: ['Youth', 'Children'], full: true },
       { publicId: 'b', audiences: ['Youth'], full: false },
       { publicId: 'c', audiences: ['Sisters'], full: false },
+      { publicId: 'd', audiences: ['Sisters', 'Brothers'], full: false },
+      { publicId: 'e', audiences: ['Youth'], full: true },
     ];
     const g = plain(GP.groupByAudience(posts));
-    expect(Object.keys(g)).toEqual(['Brothers', 'Sisters', 'Youth', 'Children']);
-    expect(g.Youth.map((p) => p.publicId)).toEqual(['b', 'a']);
-    expect(g.Children.map((p) => p.publicId)).toEqual(['a']);
+    expect(Object.keys(g)).toEqual(['Everyone', 'Brothers', 'Sisters', 'Youth', 'Children']);
+    expect(g.Everyone.map((p) => p.publicId)).toEqual(['d', 'a']);
+    expect(g.Youth.map((p) => p.publicId)).toEqual(['b', 'e']);
+    expect(g.Sisters.map((p) => p.publicId)).toEqual(['c']);
+    expect(g.Children).toEqual([]);
     expect(g.Brothers).toEqual([]);
+    const all = Object.values(g).flat().map((p) => p.publicId).sort();
+    expect(all).toEqual(['a', 'b', 'c', 'd', 'e']); // each exactly once
+  });
+
+  it('audienceLine lists the audiences of a post in the fixed order', () => {
+    expect(GP.audienceLine({ audiences: ['Sisters', 'Brothers'] })).toBe('Brothers · Sisters');
+    expect(GP.audienceLine({ audiences: ['Children', 'Youth'] })).toBe('Youth · Children');
+    expect(GP.audienceLine({ audiences: ['Children', 'Sisters', 'Brothers', 'Youth'] })).toBe('Brothers · Sisters · Youth · Children');
   });
 
   it('formats dates and times', () => {
@@ -232,7 +244,7 @@ describe('serve.html', () => {
   it('Brothers and Sisters side by side, Youth and Children with the parent line, category icons', async () => {
     const card = (id, audiences, over = {}) => ({ publicId: id, title: 'Post ' + id, organization: 'Relief Society', category: 'meals', categoryName: 'Meals', categoryIcon: '🍲', audiences, firstDate: '2026-12-03', lastDate: '2026-12-03', needed: 4, filled: 1, full: false, status: 'Open', ...over });
     const doc = await renderPage('serve', '', {
-      serve: { ok: true, ward: WARD, posts: [card('a', ['Brothers', 'Sisters']), card('b', ['Children'])] },
+      serve: { ok: true, ward: WARD, posts: [card('a', ['Brothers']), card('c', ['Sisters']), card('b', ['Children'])] },
     });
     const main = doc.ids['gp-main'];
     const nodes = main.all();
@@ -395,7 +407,7 @@ describe('serve.html: 1.1.1 offer card with the phase 2 layout', () => {
   it('draws the offer card first, then Brothers and Sisters side by side, with category icons', async () => {
     const card = (id, audiences) => ({ publicId: id, title: 'Post ' + id, organization: 'Relief Society', category: 'meals', categoryName: 'Meals', categoryIcon: '🍲', audiences, firstDate: '2026-12-03', lastDate: '2026-12-03', needed: 4, filled: 1, full: false, status: 'Open' });
     const offer = { id: 'christmas-giving', label: 'Offer to give at Christmas', icon: '🎁', url: 'https://docs.example.test/forms/d/e/pub-form9/viewform' };
-    const doc = await renderPage('serve', '', { serve: { ok: true, ward: WARD, posts: [card('a', ['Brothers', 'Sisters'])], offers: [offer] } });
+    const doc = await renderPage('serve', '', { serve: { ok: true, ward: WARD, posts: [card('a', ['Brothers']), card('c', ['Sisters'])], offers: [offer] } });
     const main = doc.ids['gp-main'];
     expect(main.children[0].attrs.href).toBe(offer.url);
     expect(main.children[0].textContent).toContain('🎁 Offer to give at Christmas');

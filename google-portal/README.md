@@ -18,6 +18,8 @@ soon, the daily health email): `docs/superpowers/plans/2026-11-24-google-portal-
 `docs/superpowers/plans/2026-11-25-google-portal-2.3.1-test-mail-only.md`.
 2.3.2 plan (Approve on the post, the leader-page button line, stale-link warning; spec §12 decision 22):
 `docs/superpowers/plans/2026-11-27-google-portal-2.3.2-approve-on-post.md`.
+2.3.3 plan (multi-audience posts once, under Everyone; spec §12 decision 23):
+`docs/superpowers/plans/2026-11-27-google-portal-2.3.3-everyone-section.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).

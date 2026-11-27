@@ -151,6 +151,7 @@ textarea { min-height: 88px; }
 .gp-pair > .gp-section { min-width: 0; }
 .gp-cat { font-size: 0.8rem; color: var(--gp-muted); margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .gp-cat-icon { margin-right: 0.35rem; text-transform: none; }
+.gp-aud { font-size: 0.85rem; color: var(--gp-heading); margin: 0 0 0.1rem; }
 @media (min-width: 720px) {
   .gp-pair { grid-template-columns: 1fr 1fr; }
 }
