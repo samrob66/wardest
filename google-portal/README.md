@@ -16,6 +16,8 @@ soon, the daily health email): `docs/superpowers/plans/2026-11-24-google-portal-
 `docs/superpowers/plans/2026-11-24-google-portal-2.3-branding-and-test-plan.md`.
 2.3.1 plan (test mode: Settings test_mail_only; spec §12 decision 21):
 `docs/superpowers/plans/2026-11-25-google-portal-2.3.1-test-mail-only.md`.
+2.3.2 plan (Approve on the post, the leader-page button line, stale-link warning; spec §12 decision 22):
+`docs/superpowers/plans/2026-11-27-google-portal-2.3.2-approve-on-post.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).

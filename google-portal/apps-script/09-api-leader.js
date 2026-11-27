@@ -89,6 +89,16 @@ function apiListPosts_(data) {
   var counts = countsBySlot(d.signups);
   var slotsByPost = groupBy_(d.slots, 'Post id');
   var signupsByPost = groupBy_(d.signups, 'Post id');
+  var postsById = indexBy_(d.posts, 'Post id');
+  var volunteers = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
+  // May this leader approve or decline the person behind a waiting sign-up (decision 22)? The
+  // same rule as the Waiting for approval tab: canApprove, on the volunteer's first post.
+  var canDecide = function (su) {
+    if (su.Status !== SIGNUP_STATUS.waitingApproval) return false;
+    var v = volunteers[normEmail(su.Email)];
+    if (!v || v.Status !== VOLUNTEER_STATUS.pending || !v['Email confirmed at']) return false;
+    return canApprove(lc.access, lc.email, v, postsById[v['First post']] || null);
+  };
   var wantPast = !!(data && data.past);
   var posts = d.posts
     .filter(function (p) {
@@ -129,7 +139,10 @@ function apiListPosts_(data) {
               bringing: su.Bringing || '',
               status: su.Status,
               overLimit: isTicked(su['Over limit']),
+              canDecide: canDecide(su),
             };
+            // Addresses only to leaders who may edit the post (as before); deciding from the post
+            // names the sign-up id instead.
             if (canEdit) o.email = su.Email;
             return o;
           }),
@@ -547,7 +560,9 @@ function apiWaiting_(data) {
 }
 
 /**
- * data: {k, email, decision: 'approve'|'decline'}. Approve: the address is approved ward-wide and
+ * data: {k, email | signupId, decision: 'approve'|'decline'}. From the Waiting for approval tab
+ * the volunteer is named by email; from a post (decision 22) by one of their sign-up ids, so a
+ * leader who may approve but not edit the post never needs the address. Approve: the address is approved ward-wide and
  * each sign-up waiting for approval counts (confirmation, or the withdraw email when it is over
  * the number); one approved email. Decline: its waiting sign-ups lapse; one polite email. Both
  * record Decided by (the leader's name) and Decided at.
@@ -558,7 +573,12 @@ function apiDecide_(data) {
   var decision = data && data.decision;
   if (decision !== 'approve' && decision !== 'decline') return { ok: false, error: TEXT.badRequest };
   var done = withLock_(function () {
-    var x = volunteerCtx_(data.email);
+    var who = data.email;
+    if (!who && data.signupId) {
+      var su = indexBy_(serviceTab_(TAB.signups).rows(), 'Sign-up id')[String(data.signupId)];
+      who = su ? su.Email : '';
+    }
+    var x = volunteerCtx_(who);
     if (!x.v) return { error: 'That volunteer was not found.' };
     if (!canApprove(lc.access, lc.email, x.v, x.firstPost)) return { error: TEXT.cannotApprove };
     if (x.v.Status !== VOLUNTEER_STATUS.pending || !x.v['Email confirmed at']) return { error: 'This person is not waiting for approval.' };

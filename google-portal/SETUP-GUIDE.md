@@ -23,9 +23,9 @@ How a volunteer is known (no Google account needed):
 
 - **First time**, the sign-up waits. The volunteer gets a *Please confirm your email* message
   and clicks **Confirm my address**. Then a leader of the organization whose opportunity they
-  first signed up for (or the bishopric) sees them under **Waiting for approval**, checks the
-  ward directory, and clicks **Approve** or **Decline**. The leader's name and the time are
-  recorded.
+  first signed up for (or the bishopric) sees them under **Waiting for approval** (or on the
+  post itself, on the person's line), checks the ward directory, and clicks **Approve** or
+  **Decline**. The leader's name and the time are recorded.
 - **Approved volunteers and leaders** count at once. Their confirmation email carries the
   private details (an address, a gate code), a cancel button and a link to **My sign-ups**.
 - **The page never says which of these happened.** Every sign-up answers *Thanks. Check your
@@ -617,7 +617,8 @@ Do this before the ward starts using the portal.
       page says the very same sentence, and you get *You're signed up* at once, with **Test
       address** in it (leaders skip approval). The role shows **Filled ✓**.
 - [ ] Leader page > **Waiting for approval**: test address A is listed with its email and
-      *first signed up for* your test post. Click **Approve**. It says *Approved. 1 sign-up
+      *first signed up for* your test post. Click **Approve** (or click it on the person's line
+      on the post under My opportunities: the same thing). It says *Approved. 1 sign-up
       now counts.* In the Service Sheet's **Volunteers** tab, A's row says **Approved**, with
       your name in **Decided by** and the time in **Decided at**.
 - [ ] Address A gets *You're approved to serve* and *Thank you: … already has the people it

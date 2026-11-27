@@ -805,6 +805,18 @@ help soon", quota reserve and health email.
     queued, so an Outbox row made in test mode is already addressed to the tester and can't
     reach the real person after test mode is turned off. Check health and the daily health email
     show a PROBLEM line while it is on.
+22. **Approve and Decline on the post; a stale link warns early** (§5.6; Sam, 2026-11-27, in
+    2.3.2). Sam's words, while testing: "I'm at 4.7 and viewing the opportunity, wanting to
+    approve - but I only see "remove" and "cancel"" then "Can't the approval button be moved to
+    the "My opportunities" tab instead of having to switch context?" and "The "Approve" button
+    should be first. Then Remove, and then Cancel this date. The interface needs some help -
+    let's put all three buttons on the same line". A waiting person's line on a post shows
+    Approve and Decline to leaders the existing rule (canApprove) lets decide; the decision names
+    the sign-up, so no address reaches a leader who couldn't see it before. Each person is one
+    line: name, email (editors only), then Approve, Decline, Remove and, on the date's last line,
+    Cancel this date. The Waiting for approval tab stays. The leader page checks its link when a
+    form opens and when the page comes back into view (at most once a minute); a dead link
+    shows the "Email me a leader link" box above the page and keeps what was typed.
 
 ## 13. Settled with Sam, and open questions
 

@@ -34,20 +34,43 @@ GP.footer();
   var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var K = '';
   var me = null;
-  var state = { tab: 'list', past: false, form: null, errors: {}, formError: '', flash: null };
+  var state = { tab: 'list', past: false, form: null, errors: {}, formError: '', flash: null, relink: '' };
+  var lastLinkCheck = 0;
 
   // ---------- helpers ----------
 
+  /**
+   * Calls the script with this leader link. An answer saying the link no longer works (relink)
+   * keeps the page as it is, form and all, and shows the "Email me a leader link" box above it.
+   */
   function call(action, data) {
     data = data || {};
     data.k = K;
     return GP.call(action, data).then(function (res) {
       if (res && res.relink) {
-        showRequest(res.error);
+        if (!me) {
+          showRequest(res.error);
+        } else if (!state.relink) {
+          state.relink = res.error || 'This leader link no longer works.';
+          render();
+          window.scrollTo(0, 0);
+        }
         throw { handled: true };
       }
       return res;
     });
+  }
+
+  /**
+   * Is the link still good? Asked when a form opens and when the page comes back into view (at
+   * most once a minute), so a stale link shows up before anyone types (decision 22).
+   */
+  function checkLink(force) {
+    if (!me || state.relink) return;
+    var now = new Date().getTime();
+    if (!force && now - lastLinkCheck < 60000) return;
+    lastLinkCheck = now;
+    call('whoami').then(function () {}, function () {});
   }
 
   function failed(err, box) {
@@ -195,6 +218,11 @@ GP.footer();
   // ---------- request a link ----------
 
   function showRequest(error) {
+    GP.show(main, requestParts(error));
+  }
+
+  /** The "Email me a leader link" box. */
+  function requestParts(error) {
     var email = el('input', { type: 'email', id: 'gp-req-email', autocomplete: 'email', maxlength: '254' });
     var out = el('div');
     var button = el('button', { type: 'submit' }, 'Email me a leader link');
@@ -218,12 +246,19 @@ GP.footer();
       },
       [el('label', { for: 'gp-req-email' }, 'Your email, as it is on the ward leader list'), email, el('p', {}, [button])]
     );
-    GP.show(main, [
+    return [
       error ? GP.message('alert', error) : null,
       el('p', {}, 'Leaders open this page with a personal link sent by email. Type your email and we will send you one.'),
       form,
       out,
-    ]);
+    ];
+  }
+
+  /** Shown above the page when the link stopped working while it was open. */
+  function relinkBox(error) {
+    return el('div', { class: 'gp-card', id: 'gp-relink' }, requestParts(error).concat([
+      el('p', { class: 'gp-meta' }, 'Nothing below was saved. Copy anything you typed before you open the new link (it opens a fresh page).'),
+    ]));
   }
 
   // ---------- the signed-in page ----------
@@ -251,6 +286,7 @@ GP.footer();
         if (!state.form) state.form = newForm();
         state.errors = {};
         state.formError = '';
+        checkLink(true);
       }),
       a.isBishopric ? tab('volunteers', 'Volunteers') : null,
     ]);
@@ -271,7 +307,9 @@ GP.footer();
     var body = el('div');
     var note = state.flash ? GP.message(state.flash.kind, state.flash.text) : null;
     state.flash = null;
-    GP.show(main, [who, tabs, note, body]);
+    GP.show(main, [state.relink ? relinkBox(state.relink) : null, who, tabs, note, body]);
+    // With a dead link only the form (already on the page) is shown; the other tabs need the link.
+    if (state.relink && state.tab !== 'form') return;
     if (state.tab === 'waiting') renderWaiting(body);
     else if (state.tab === 'needs') renderNeeds(body);
     else if (state.tab === 'volunteers') renderVolunteers(body);
@@ -474,24 +512,33 @@ GP.footer();
         if (x.slotId === su.slotId) bookedDates[x.date] = true;
       });
     });
-    var cancelShown = {};
+    // The last role of each date: its last row carries that date's "Cancel this date".
+    var lastSlotOfDate = {};
     p.slots.forEach(function (s) {
-      var people = (bySlot[s.slotId] || []).map(function (su) {
-        return personRow(p, s, su, out);
+      lastSlotOfDate[s.date] = s.slotId;
+    });
+    p.slots.forEach(function (s) {
+      // One "Cancel this date" per date with people signed up, when the post has other dates;
+      // it goes at the end of the date's last row, after that row's own buttons.
+      var cancelDate = null;
+      var dateBox = null;
+      if (p.canEdit && live && multiDate && bookedDates[s.date] && lastSlotOfDate[s.date] === s.slotId) {
+        dateBox = el('div');
+        var box = dateBox;
+        cancelDate = el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, s.date, box); } }, 'Cancel this date');
+      }
+      var list = bySlot[s.slotId] || [];
+      var people = list.map(function (su, i) {
+        return personRow(p, s, su, out, i === list.length - 1 ? cancelDate : null);
       });
-      var dateBits = [];
-      // One "Cancel this date" per date with people signed up, when the post has other dates.
-      if (p.canEdit && live && multiDate && bookedDates[s.date] && !cancelShown[s.date]) {
-        cancelShown[s.date] = true;
-        var dateBox = el('div');
-        dateBits.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, s.date, dateBox); } }, 'Cancel this date'));
-        dateBits.push(dateBox);
+      if (!people.length) {
+        people = [el('div', { class: 'gp-person' }, [el('span', { class: 'gp-muted' }, 'No one yet.'), cancelDate ? el('span', { class: 'gp-actions' }, [cancelDate]) : null])];
       }
       items.push(
         el('div', { class: 'gp-slot' }, [
           el('strong', {}, GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '') + ' · ' + s.role),
           el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.waiting ? ' · ' + s.waiting + ' waiting' : '') + (s.filled >= s.needed ? ' · Filled ✓' : '')),
-        ].concat(people.length ? people : [el('div', { class: 'gp-person gp-muted' }, 'No one yet.')]).concat(dateBits))
+        ].concat(people).concat(dateBox ? [dateBox] : []))
       );
     });
     if (p.canEdit && live) {
@@ -526,14 +573,38 @@ GP.footer();
     return el('div', { class: 'gp-card' }, items);
   }
 
-  function personRow(p, s, su, out) {
+  /**
+   * One line per person: name, tags, what they bring, email (to editors only), then the buttons
+   * together in this order: Approve, Decline, Remove, and on the date's last row Cancel this date.
+   */
+  function personRow(p, s, su, out, cancelDate) {
     var bits = [el('span', {}, su.label || su.name)];
+    var buttons = [];
     if (STATUS_LABEL[su.status]) bits.push(el('span', { class: 'gp-tag' }, STATUS_LABEL[su.status]));
     if (su.overLimit) bits.push(el('span', { class: 'gp-tag' }, 'Over the number'));
     if (su.bringing) bits.push(el('span', { class: 'gp-meta' }, 'Bringing: ' + su.bringing));
     if (su.email) bits.push(el('span', { class: 'gp-meta' }, su.email));
+    // Approve / Decline right here when this leader may decide for this person (decision 22); the
+    // Waiting for approval tab does the same.
+    if (su.canDecide) {
+      var approve = el('button', {
+        type: 'button',
+        onclick: function () {
+          act('decide', { signupId: su.signupId, decision: 'approve' }, out, approve);
+        },
+      }, 'Approve');
+      var decline = el('button', {
+        type: 'button',
+        class: 'gp-danger',
+        onclick: function () {
+          if (!window.confirm('Decline ' + su.name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;
+          act('decide', { signupId: su.signupId, decision: 'decline' }, out, decline);
+        },
+      }, 'Decline');
+      buttons.push(approve, decline);
+    }
     if (p.canEdit && p.status !== 'Past' && p.status !== 'Cancelled') {
-      bits.push(
+      buttons.push(
         el('button', {
           type: 'button',
           class: 'gp-danger',
@@ -547,6 +618,8 @@ GP.footer();
         }, 'Remove')
       );
     }
+    if (cancelDate) buttons.push(cancelDate);
+    if (buttons.length) bits.push(el('span', { class: 'gp-actions' }, buttons));
     return el('div', { class: 'gp-person' }, bits);
   }
 
@@ -570,6 +643,7 @@ GP.footer();
       state.formError = '';
       state.tab = 'form';
       render();
+      checkLink(true);
     }, function (e) { failed(e, out); });
   }
 
@@ -821,9 +895,22 @@ GP.footer();
     call('whoami').then(function (res) {
       if (!res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
       me = res;
+      lastLinkCheck = new Date().getTime();
       render();
     }, failed);
   });
+
+  // Coming back to the page (another tab, another app): check the link again, at most once a minute.
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') checkLink(false);
+    });
+  }
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('focus', function () {
+      checkLink(false);
+    });
+  }
 })();
 </script>
 </body>

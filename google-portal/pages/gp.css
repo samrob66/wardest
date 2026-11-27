@@ -142,6 +142,10 @@ textarea { min-height: 88px; }
 .gp-slot { border-top: 1px solid var(--gp-line); padding: 0.55rem 0; }
 .gp-slot:first-child { border-top: none; }
 .gp-person { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; padding: 0.3rem 0 0.3rem 0.8rem; }
+/* A person's buttons stay together and wrap as one group; on a narrow phone they wrap among
+   themselves rather than overflow. */
+.gp-actions { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; max-width: 100%; }
+.gp-actions button { margin: 0; padding: 0.35rem 0.75rem; font-size: 0.88rem; white-space: nowrap; }
 /* Serve page: Brothers and Sisters side by side on wide screens, stacked on phones. */
 .gp-pair { display: grid; grid-template-columns: 1fr; gap: 0 1rem; }
 .gp-pair > .gp-section { min-width: 0; }

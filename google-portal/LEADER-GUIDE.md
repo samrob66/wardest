@@ -28,7 +28,9 @@ button: paste it into a ward email (addresses in **Bcc**) or a message.
 **Approve first-timers.** Someone signing up for the first time gets an email asking them to
 confirm their address. Once they click it, they appear under **Waiting for approval** for the
 leaders of the organization whose opportunity they first signed up for, and for the bishopric.
-Check the ward directory, then:
+You can decide in either place: on the **Waiting for approval** tab, or right on the post under
+**My opportunities**, where the person's line shows **Approve** and **Decline** (only to leaders
+who may decide for them). Check the ward directory, then:
 - **Approve**: they are approved for the whole ward. Every sign-up they have waiting counts at
   once, and each one gets its confirmation email with the private details. From then on their
   sign-ups count straight away.
@@ -88,7 +90,14 @@ a new draft from it.
   date get the email; the other dates carry on.
 
 **Sign out everywhere.** If your link may have been forwarded, click **Sign out everywhere**.
-The old link stops working and a new one is emailed to you.
+The old link stops working and a new one is emailed to you. Open the newest link on every device
+you use (phone, computer). If a page is still open with an old link, it shows *This leader link
+has expired…* and an **Email me a leader link** box at the top as soon as you come back to it or
+open a form. Nothing you type there can be saved: copy it, then open the newest link.
+
+**The buttons on a person's line** are, in order: **Approve** and **Decline** (someone waiting
+for approval, if you may decide for them), **Remove**, and on the last line of each date
+**Cancel this date** (posts with more than one date).
 
 **Gemini.** Do not ask Gemini to read, summarize or draft from the Service Sheet, the request
 sheets or request notices.
