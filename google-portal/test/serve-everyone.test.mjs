@@ -127,6 +127,21 @@ describe('Service Opportunities page: Everyone (decision 23)', () => {
     expect(main.textContent).toContain('Brothers · Sisters · Youth · Children');
   });
 
+  it('an Everyone card for Youth or Children carries the parent line; one without them does not', () => {
+    const PARENT = 'A parent signs up for their child';
+    const main = runServe({ ok: true, posts: [P('yc', ['Youth', 'Children']), P('by', ['Brothers', 'Youth']), P('bs', ['Brothers', 'Sisters'])] });
+    const card = (id) => main.all().find((n) => n.tagName === 'a' && n.textContent.includes('Post ' + id));
+    expect(card('yc').textContent).toContain(PARENT);
+    expect(card('by').textContent).toContain(PARENT);
+    expect(card('bs').textContent).not.toContain(PARENT);
+    // The parent line comes right under the audience line.
+    const kids = card('by').children.filter(Boolean).map((c) => c.className);
+    expect(kids.indexOf('gp-aud') + 1).toBe(kids.indexOf('gp-meta gp-parent'));
+    // The Everyone section heading itself has no parent line.
+    const everyone = main.all().find((n) => n.tagName === 'section');
+    expect(everyone.children.filter((c) => c && c.tagName === 'p' && c.textContent === PARENT)).toEqual([]);
+  });
+
   it('the section name comes from the API (TEXT.everyone), so a ward can rename it', () => {
     const main = runServe({ ok: true, labels: { everyone: 'All members' }, posts: [P('meal', ['Sisters', 'Brothers'])] });
     expect(sections(main)).toEqual([['All members', ['Post meal']]]);
