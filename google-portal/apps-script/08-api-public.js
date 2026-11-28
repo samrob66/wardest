@@ -8,9 +8,23 @@ function wardInfo_(s) {
   return { name: s.ward_name, contact: s.contact_email, serveLink: s.serve_short_link, helpLink: s.help_short_link };
 }
 
-/** A category's Picture for its posts (2.6 §7); filled in by task 9. */
+/**
+ * A category's Picture for its posts (2.6 §7): a full https image address, checked like
+ * theme_background_url; anything else (or blank) is '' (no picture; Check health names it).
+ */
 function categoryPicture_(category) {
-  return '';
+  var u = String((category && category.Picture) == null ? '' : category.Picture).trim();
+  return u && isThemeImageUrl_(u) ? u : '';
+}
+
+/** Check health lines for Categories rows whose Picture is not a usable https image address. */
+function pictureProblems_(categories) {
+  var out = [];
+  (categories || []).forEach(function (c) {
+    var u = String(c.Picture == null ? '' : c.Picture).trim();
+    if (u && !isThemeImageUrl_(u)) out.push((c.Name || c.Id) + ' Picture must be a full https address of a picture (no spaces or quotes); it is ignored.');
+  });
+  return out;
 }
 
 function clearServeCache_() {
@@ -80,6 +94,7 @@ function apiServe_() {
       var c = cats[p.Category];
       sum.categoryName = c ? String(c.Name || '') : '';
       sum.categoryIcon = c ? String(c.Icon || '') : '';
+      sum.picture = categoryPicture_(c);
       return sum;
     })
     .filter(function (sum) {
@@ -157,7 +172,12 @@ function apiPost_(publicId) {
   var slots = d.slots.filter(function (sl) {
     return sl['Post id'] === post['Post id'];
   });
-  return { ok: true, ward: wardInfo_(s), post: publicPost(post, slots, countsBySlot(d.signups), todayLocal_()) };
+  var out = publicPost(post, slots, countsBySlot(d.signups), todayLocal_());
+  // 2.6: the category's picture, and the meal fields (allergies first on the page) when it has any.
+  out.picture = categoryPicture_(serviceTab_(TAB.categories).find('Id', post.Category));
+  var meal = mealOf_(post);
+  if (meal) out.meal = meal;
+  return { ok: true, ward: wardInfo_(s), post: out };
 }
 
 /**

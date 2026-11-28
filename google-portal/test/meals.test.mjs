@@ -671,3 +671,56 @@ describe('task 6: the progress checklist', () => {
     expect(row).toMatchObject({ 'Family emails': 'anna.sample@example.test, grandma@example.test', Allergies: 'Shellfish', 'Drop-off': 'Regular', 'Food likes': 'Soups, Mexican' });
   });
 });
+
+// ---------- task 9: a picture for each category; the public post's meal fields ----------
+
+describe('task 9: Categories Picture on serve, post, listPosts and getPost', () => {
+  const PIC = 'https://rb1.example.test/links/meals-baby.jpg';
+
+  function shownMealPost(picture) {
+    const gp = mealsWardWithLeader();
+    const c = gp.serviceTab_('Categories');
+    c.update(c.find('Id', 'meals-new-moms'), { Picture: picture });
+    gp.gpBegin_();
+    const p = draftFrom(gp, BABY_ANSWERS);
+    const k = linkFor(gp, COORD1);
+    gp.apiSavePost_({ k, mode: 'publish', post: { postId: p['Post id'], organization: 'Relief Society', category: 'meals-new-moms', title: p.Title, audiences: ['Sisters'], publicNote: p['Public note'], privateDetails: p['Private details'], cutoffHours: 24, showOnServe: true,
+      slots: [{ date: '2026-12-05', start: '17:30', end: '', role: 'Bring a meal', needed: 2 }] } });
+    gp.gpBegin_();
+    return { gp, p: postsOf(gp).find((x) => x['Post id'] === p['Post id']), k };
+  }
+
+  it('a valid https picture is answered everywhere; the post page also gets the meal fields and no private details', () => {
+    const { gp, p, k } = shownMealPost(PIC);
+    expect(plain(gp.apiServe_()).posts.find((x) => x.publicId === p['Public id']).picture).toBe(PIC);
+    const pub = plain(gp.apiPost_(p['Public id'])).post;
+    expect(pub.picture).toBe(PIC);
+    expect(pub.meal).toEqual({ allergies: 'No peanuts', likes: 'Soups, Mexican', serves: '2 adults, 3 kids', dropoffWindow: '5:30-6:30 pm', dropoff: 'Quiet', coordinateWith: 'Anna and Ben' });
+    expect(pub.publicNote).toBe('Meals start: 3 days after baby comes. How often: Every other day.');
+    const json = JSON.stringify(pub);
+    for (const bad of ['Example Lane', '555-01', 'anna.sample@', 'Family']) expect(json).not.toContain(bad);
+    expect(plain(gp.apiListPosts_({ k })).posts.find((x) => x.postId === p['Post id']).picture).toBe(PIC);
+    expect(plain(gp.apiGetPost_({ k, postId: p['Post id'] })).post.picture).toBe(PIC);
+  });
+
+  it('blank, http or quoted pictures are ignored and Check health names the category', () => {
+    for (const bad of ['http://rb1.example.test/x.jpg', 'https://rb1.example.test/a b.jpg', 'javascript:alert(1)', 'https://x.example.test/"onerror=']) {
+      const { gp, p } = shownMealPost(bad);
+      expect(plain(gp.apiPost_(p['Public id'])).post.picture).toBe('');
+      expect(plain(gp.apiServe_()).posts.find((x) => x.publicId === p['Public id']).picture).toBe('');
+      expect(gp.gpMenuCheckHealth()).toContain('PROBLEM Meals for New Moms Picture must be a full https address of a picture (no spaces or quotes); it is ignored.');
+    }
+    const { gp, p } = shownMealPost('');
+    expect(plain(gp.apiPost_(p['Public id'])).post.picture).toBe('');
+    expect(gp.gpMenuCheckHealth().some((l) => l.includes('Picture'))).toBe(false);
+  });
+
+  it('a post with no meal fields has no meal on its public page', () => {
+    const gp = loadPortal({ seed: true });
+    seedPostPlain(gp);
+    gp.gpBegin_();
+    const pub = plain(gp.apiPost_('pubmeals01')).post;
+    expect(pub).not.toHaveProperty('meal');
+    expect(pub.picture).toBe('');
+  });
+});

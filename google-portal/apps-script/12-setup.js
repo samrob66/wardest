@@ -529,6 +529,10 @@ function healthLines_(opts) {
   themeOf_(s).problems.forEach(function (line) {
     add(false, line);
   });
+  // Category pictures (2.6): the same check; a bad one shows no picture.
+  pictureProblems_(serviceTab_(TAB.categories).rows()).forEach(function (line) {
+    add(false, line);
+  });
   var tpl = formTemplateId_(s.form_template_url);
   if (tpl && tpl.error) add(false, tpl.error);
 

@@ -3205,9 +3205,23 @@ function wardInfo_(s) {
   return { name: s.ward_name, contact: s.contact_email, serveLink: s.serve_short_link, helpLink: s.help_short_link };
 }
 
-/** A category's Picture for its posts (2.6 §7); filled in by task 9. */
+/**
+ * A category's Picture for its posts (2.6 §7): a full https image address, checked like
+ * theme_background_url; anything else (or blank) is '' (no picture; Check health names it).
+ */
 function categoryPicture_(category) {
-  return '';
+  var u = String((category && category.Picture) == null ? '' : category.Picture).trim();
+  return u && isThemeImageUrl_(u) ? u : '';
+}
+
+/** Check health lines for Categories rows whose Picture is not a usable https image address. */
+function pictureProblems_(categories) {
+  var out = [];
+  (categories || []).forEach(function (c) {
+    var u = String(c.Picture == null ? '' : c.Picture).trim();
+    if (u && !isThemeImageUrl_(u)) out.push((c.Name || c.Id) + ' Picture must be a full https address of a picture (no spaces or quotes); it is ignored.');
+  });
+  return out;
 }
 
 function clearServeCache_() {
@@ -3277,6 +3291,7 @@ function apiServe_() {
       var c = cats[p.Category];
       sum.categoryName = c ? String(c.Name || '') : '';
       sum.categoryIcon = c ? String(c.Icon || '') : '';
+      sum.picture = categoryPicture_(c);
       return sum;
     })
     .filter(function (sum) {
@@ -3354,7 +3369,12 @@ function apiPost_(publicId) {
   var slots = d.slots.filter(function (sl) {
     return sl['Post id'] === post['Post id'];
   });
-  return { ok: true, ward: wardInfo_(s), post: publicPost(post, slots, countsBySlot(d.signups), todayLocal_()) };
+  var out = publicPost(post, slots, countsBySlot(d.signups), todayLocal_());
+  // 2.6: the category's picture, and the meal fields (allergies first on the page) when it has any.
+  out.picture = categoryPicture_(serviceTab_(TAB.categories).find('Id', post.Category));
+  var meal = mealOf_(post);
+  if (meal) out.meal = meal;
+  return { ok: true, ward: wardInfo_(s), post: out };
 }
 
 /**
@@ -7289,6 +7309,10 @@ function healthLines_(opts) {
   themeOf_(s).problems.forEach(function (line) {
     add(false, line);
   });
+  // Category pictures (2.6): the same check; a bad one shows no picture.
+  pictureProblems_(serviceTab_(TAB.categories).rows()).forEach(function (line) {
+    add(false, line);
+  });
   var tpl = formTemplateId_(s.form_template_url);
   if (tpl && tpl.error) add(false, tpl.error);
 
@@ -7772,4 +7796,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: each card's \"Show QR Code\" button opens the hub's existing QR pop-up, the same\n  function the hub's other cards call (openQR(title, link) here; if the hub's function has\n  another name, use that name in both buttons). No QR image files are needed. A hub without a\n  QR pop-up can leave each button out (from <button to </button>). A card whose short link is\n  not set yet has no button; add the short link in Settings and make the hub files again.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */\n  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }\n  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }\n  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }\n  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }\n  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }\n  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }\n  .gp-hub-top { display: flex; align-items: stretch; }\n  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }\n  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }\n  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }\n  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }\n  .gp-hub-qr:hover { background: #f4f7fc; }\n  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }\n  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }\n  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }\n</style>\n<div class=\"gp-hub-cols\">\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n    <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"serve.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Ways to serve in {{WARD_NAME}}</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{SERVE_SHORT_LINK}}</div>\n    </div>\n  </section>\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n    <h2 id=\"gp-hub-help\">Service Requests</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"help.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Request help or service</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Requests','https://{{HELP_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{HELP_SHORT_LINK}}</div>\n    </div>\n  </section>\n</div>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "477222c29dc3";
+var GP_BUILD = "51f222c836dd";
