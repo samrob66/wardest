@@ -426,20 +426,20 @@ var FIELD_NOTES = {
     // Meals request sheet (2.6, decision 28): one column per form answer, then the hand columns.
     'Meals for': ['Meals: the first answer, A new baby or A member in hardship. Make opportunity picks the category from it.', 'Example: A new baby'],
     "Mom's name": ['Meals (new baby): the mother\'s name.', 'Blank: not given.', 'Example: Anna Sample'],
-    "Mom's phone": ['Meals (new baby): the mother\'s phone. Private: only in the draft\'s private details when she is ticked to coordinate.', 'Example: 555-0100'],
-    "Mom's email": ['Meals (new baby): the mother\'s email. Goes to the post\'s Family emails when she is ticked to coordinate.', 'Blank: not given.', 'Example: anna.sample@example.test'],
+    "Mom's phone": ['Meals (new baby): the mother\'s phone. Private: only in the draft\'s private details, when she is ticked to coordinate, or when nobody is ticked.', 'Example: 555-0100'],
+    "Mom's email": ['Meals (new baby): the mother\'s email. Goes to the post\'s Family emails when she is ticked to coordinate, or when nobody is ticked.', 'Blank: not given.', 'Example: anna.sample@example.test'],
     "Dad's name": ['Meals (new baby): the father\'s name.', 'Blank: not given.', 'Example: Ben Sample'],
-    "Dad's phone": ['Meals (new baby): the father\'s phone. Private, like Mom\'s phone.', 'Blank: not given.', 'Example: 555-0101'],
-    "Dad's email": ['Meals (new baby): the father\'s email. Goes to Family emails when he is ticked to coordinate.', 'Blank: not given.', 'Example: ben.sample@example.test'],
+    "Dad's phone": ['Meals (new baby): the father\'s phone. Private: only in the draft\'s private details, when he is ticked to coordinate, or when nobody is ticked.', 'Blank: not given.', 'Example: 555-0101'],
+    "Dad's email": ['Meals (new baby): the father\'s email. Goes to Family emails when he is ticked to coordinate, or when nobody is ticked.', 'Blank: not given.', 'Example: ben.sample@example.test'],
     'Due date': ['Meals (new baby): the due date, YYYY-MM-DD (a best guess is fine).', 'Example: 2027-01-15'],
     'Induction date': ['Meals (new baby): a planned induction date, YYYY-MM-DD.', 'Blank: none planned.', 'Example: 2027-01-10'],
     'Boy, girl or surprise': ['Meals (new baby): Boy, Girl or Surprise.', 'Blank: not answered.', 'Example: Surprise'],
     'Adult name': ['Meals (hardship): the name of the person asking.', 'Blank: a new-baby request.', 'Example: Sister Sample'],
-    'Adult phone': ['Meals (hardship): their phone. Private: only in the draft\'s private details.', 'Example: 555-0102'],
-    'Adult email': ['Meals (hardship): their email. Goes to Family emails when they are ticked to coordinate.', 'Blank: not given.', 'Example: sister.sample@example.test'],
+    'Adult phone': ['Meals (hardship): their phone. Private: only in the draft\'s private details, when they are ticked to coordinate, or when nobody is ticked.', 'Example: 555-0102'],
+    'Adult email': ['Meals (hardship): their email. Goes to Family emails when they are ticked to coordinate, or when nobody is ticked.', 'Blank: not given.', 'Example: sister.sample@example.test'],
     'Second adult name': ['Meals (hardship): an optional second adult in the home.', 'Blank: none.', 'Example: Brother Sample'],
-    'Second adult phone': ['Meals (hardship): the second adult\'s phone. Private.', 'Blank: none.', 'Example: 555-0103'],
-    'Second adult email': ['Meals (hardship): the second adult\'s email.', 'Blank: none.', 'Example: brother.sample@example.test'],
+    'Second adult phone': ['Meals (hardship): the second adult\'s phone. Private: only in the draft\'s private details, when they are ticked to coordinate, or when nobody is ticked.', 'Blank: none.', 'Example: 555-0103'],
+    'Second adult email': ['Meals (hardship): the second adult\'s email. Goes to Family emails when they are ticked to coordinate, or when nobody is ticked.', 'Blank: none.', 'Example: brother.sample@example.test'],
     Address: ['Meals: where meals go. Private: only in the draft\'s private details.', 'Example: 123 Example Lane'],
     'Meals start': ['Meals: when meals should start, as they wrote it.', 'Blank: not answered.', 'Example: 3 days after baby comes'],
     'How often': ['Meals: Daily, Every other day or Specific dates.', 'Example: Every other day'],
@@ -6184,16 +6184,24 @@ function firstWord_(name) {
 }
 
 /**
- * "the Sample" when every named person shares a last name, else their first names joined with
- * "and"; '' when nobody is named. A one-word name has no last name.
+ * The meal post's title from the named parents or adults: "Meals for the Sample family" when every
+ * named person shares a last name, else "Meals for Anna and Ben" (their first names; the
+ * coordinator's choice, 2.6 review), else "Meals for a family". A one-word name has no last name.
  */
+function mealTitle_(names) {
+  var f = familyName_(names);
+  if (!f.text) return 'Meals for a family';
+  return f.same ? 'Meals for the ' + f.text + ' family' : 'Meals for ' + f.text;
+}
+
+/** {same, text}: the shared last name (same) or the first names joined with "and"; text '' when nobody is named. */
 function familyName_(names) {
   var list = names
     .map(function (n) {
       return String(n == null ? '' : n).trim();
     })
     .filter(String);
-  if (!list.length) return '';
+  if (!list.length) return { same: false, text: '' };
   var lasts = list.map(function (n) {
     var w = n.split(/\s+/);
     return w.length > 1 ? w[w.length - 1] : '';
@@ -6201,12 +6209,12 @@ function familyName_(names) {
   var same = lasts.every(function (l) {
     return l && l.toLowerCase() === lasts[0].toLowerCase();
   });
-  return same ? lasts[0] : joinNames_(list.map(firstWord_));
+  return same ? { same: true, text: lasts[0] } : { same: false, text: joinNames_(list.map(firstWord_)) };
 }
 
 /**
  * A meals draft (2.6, decision 28; changes decision 19 for meals only, by Sam's choice: "Go ahead
- * and include their names"). Public: the title "Meals for the <family> family", allergies, food
+ * and include their names"). Public: the title (mealTitle_), allergies, food
  * likes, how many it feeds, the drop-off window and kind, and the first names to coordinate
  * with, and the schedule they asked for in the Public note (editable). Private: the address, the
  * phones of the people ticked to coordinate with and the Other contact. Family emails: the addresses of the people ticked (or all
@@ -6232,7 +6240,7 @@ function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
     return ticks.indexOf(p.tick) >= 0;
   });
   var reach = ticked.length ? ticked : people;
-  var family = familyName_(
+  var title = mealTitle_(
     people.map(function (p) {
       return p.name;
     })
@@ -6267,7 +6275,7 @@ function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
       'Public id': newId_(''),
       Organization: splitList(oc['Owning organizations'])[0] || splitList(kind['Owning organizations'])[0] || 'Relief Society',
       Category: String(oc.Id),
-      Title: clip(family ? 'Meals for the ' + family + ' family' : 'Meals for a family', 100),
+      Title: clip(title, 100),
       Audiences: (audiencesOf_(oc['Default audiences']).length ? audiencesOf_(oc['Default audiences']) : ['Sisters']).join(', '),
       'Public note': clip(hint.join(' '), 2000),
       'Private details': clip(lines.join('\n'), 1000),
@@ -7796,4 +7804,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: each card's \"Show QR Code\" button opens the hub's existing QR pop-up, the same\n  function the hub's other cards call (openQR(title, link) here; if the hub's function has\n  another name, use that name in both buttons). No QR image files are needed. A hub without a\n  QR pop-up can leave each button out (from <button to </button>). A card whose short link is\n  not set yet has no button; add the short link in Settings and make the hub files again.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */\n  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }\n  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }\n  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }\n  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }\n  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }\n  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }\n  .gp-hub-top { display: flex; align-items: stretch; }\n  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }\n  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }\n  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }\n  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }\n  .gp-hub-qr:hover { background: #f4f7fc; }\n  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }\n  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }\n  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }\n</style>\n<div class=\"gp-hub-cols\">\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n    <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"serve.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Ways to serve in {{WARD_NAME}}</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{SERVE_SHORT_LINK}}</div>\n    </div>\n  </section>\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n    <h2 id=\"gp-hub-help\">Service Requests</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"help.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Request help or service</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Requests','https://{{HELP_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{HELP_SHORT_LINK}}</div>\n    </div>\n  </section>\n</div>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "51f222c836dd";
+var GP_BUILD = "10b7851546e4";

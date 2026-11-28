@@ -382,16 +382,24 @@ function firstWord_(name) {
 }
 
 /**
- * "the Sample" when every named person shares a last name, else their first names joined with
- * "and"; '' when nobody is named. A one-word name has no last name.
+ * The meal post's title from the named parents or adults: "Meals for the Sample family" when every
+ * named person shares a last name, else "Meals for Anna and Ben" (their first names; the
+ * coordinator's choice, 2.6 review), else "Meals for a family". A one-word name has no last name.
  */
+function mealTitle_(names) {
+  var f = familyName_(names);
+  if (!f.text) return 'Meals for a family';
+  return f.same ? 'Meals for the ' + f.text + ' family' : 'Meals for ' + f.text;
+}
+
+/** {same, text}: the shared last name (same) or the first names joined with "and"; text '' when nobody is named. */
 function familyName_(names) {
   var list = names
     .map(function (n) {
       return String(n == null ? '' : n).trim();
     })
     .filter(String);
-  if (!list.length) return '';
+  if (!list.length) return { same: false, text: '' };
   var lasts = list.map(function (n) {
     var w = n.split(/\s+/);
     return w.length > 1 ? w[w.length - 1] : '';
@@ -399,12 +407,12 @@ function familyName_(names) {
   var same = lasts.every(function (l) {
     return l && l.toLowerCase() === lasts[0].toLowerCase();
   });
-  return same ? lasts[0] : joinNames_(list.map(firstWord_));
+  return same ? { same: true, text: lasts[0] } : { same: false, text: joinNames_(list.map(firstWord_)) };
 }
 
 /**
  * A meals draft (2.6, decision 28; changes decision 19 for meals only, by Sam's choice: "Go ahead
- * and include their names"). Public: the title "Meals for the <family> family", allergies, food
+ * and include their names"). Public: the title (mealTitle_), allergies, food
  * likes, how many it feeds, the drop-off window and kind, and the first names to coordinate
  * with, and the schedule they asked for in the Public note (editable). Private: the address, the
  * phones of the people ticked to coordinate with and the Other contact. Family emails: the addresses of the people ticked (or all
@@ -430,7 +438,7 @@ function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
     return ticks.indexOf(p.tick) >= 0;
   });
   var reach = ticked.length ? ticked : people;
-  var family = familyName_(
+  var title = mealTitle_(
     people.map(function (p) {
       return p.name;
     })
@@ -465,7 +473,7 @@ function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
       'Public id': newId_(''),
       Organization: splitList(oc['Owning organizations'])[0] || splitList(kind['Owning organizations'])[0] || 'Relief Society',
       Category: String(oc.Id),
-      Title: clip(family ? 'Meals for the ' + family + ' family' : 'Meals for a family', 100),
+      Title: clip(title, 100),
       Audiences: (audiencesOf_(oc['Default audiences']).length ? audiencesOf_(oc['Default audiences']) : ['Sisters']).join(', '),
       'Public note': clip(hint.join(' '), 2000),
       'Private details': clip(lines.join('\n'), 1000),

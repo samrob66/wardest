@@ -469,10 +469,10 @@ describe('task 4: Make opportunity makes a meal draft', () => {
     expect(p['Public note']).toBe('How often: Daily.');
   });
 
-  it('title: different last names give the first names; only Mom ticked gives only her email and phone', () => {
+  it('title: different last names give "Meals for Anna and Ben"; only Mom ticked gives only her email and phone', () => {
     const gp = mealsWardWithLeader();
     const p = draftFrom(gp, { ...BABY_ANSWERS, "Dad's name": 'Ben Other', 'Who should the sisters coordinate with?': ['Mom'] });
-    expect(p.Title).toBe('Meals for the Anna and Ben family');
+    expect(p.Title).toBe('Meals for Anna and Ben');
     expect(p['Coordinate with']).toBe('Anna');
     expect(p['Family emails']).toBe('anna.sample@example.test');
     expect(p['Private details']).toContain('Anna: 555-0100');

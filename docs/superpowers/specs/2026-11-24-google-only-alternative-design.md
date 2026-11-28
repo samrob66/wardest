@@ -903,7 +903,8 @@ help soon", quota reserve and health email.
     question branches to a baby or a hardship section (two Help tiles open it prefilled); a
     request sheet with a column per answer plus Baby's name, Gender, Birth date, Photo link and
     Shared with RS; Make opportunity makes a hidden zero-date Draft in `meals-new-moms` or
-    `meals-hardship` whose public fields carry the family name, allergies (first), food likes,
+    `meals-hardship` whose public fields carry the title ("Meals for the Sample family", or "Meals for Anna and Ben"
+    when the last names differ), allergies (first), food likes,
     serves, drop-off window and kind, the first names to coordinate with, and the schedule they
     asked for in the editable Public note, while the address and phones stay private. This
     changes decision 19 for the meals categories only (Sam: "Go ahead and include their
