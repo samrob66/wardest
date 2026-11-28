@@ -2,6 +2,7 @@
 // Spec docs/superpowers/specs/2026-11-28-google-portal-meals-design.md; API contract 2-6-api-contract.md.
 import { describe, it, expect } from 'vitest';
 import { loadPortal } from './harness.mjs';
+import { formSubmitEvent } from './fakes.mjs';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
 const cats = (gp) => gp.fakes.spreadsheet.rowsOf('Categories');
@@ -52,5 +53,199 @@ describe('task 1: Categories columns and the meals seeds', () => {
   it('every new header has a note', () => {
     const gp = loadPortal();
     for (const h of ['Picture', 'Sign-up notices to']) expect(plain(gp.FIELD_NOTES.tabs.Categories[h]).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ---------- tasks 2 and 3: the meals form and its request sheet ----------
+
+const COORDS = 'sister.meals1@example.test, sister.meals2@example.test';
+
+/** Set up on a ward whose meals rows have their coordinators. */
+function mealsWard() {
+  const gp = loadPortal({ seed: true });
+  const t = gp.serviceTab_('Categories');
+  t.update(t.find('Id', 'meal-request'), { Coordinators: COORDS });
+  t.update(t.find('Id', 'meals-new-moms'), { Coordinators: COORDS });
+  t.update(t.find('Id', 'meals-hardship'), { Coordinators: COORDS });
+  gp.fakes.props.delete('SYSTEM_ID');
+  gp.gpMenuSetUp();
+  gp.gpBegin_();
+  gp.fakes.mail.sent.length = 0;
+  return gp;
+}
+const sysOf = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'));
+const mealFile = (gp) => sysOf(gp).rowsOf('Request files').find((f) => f['Category id'] === 'meal-request');
+const mealForm = (gp) => gp.fakes.forms.get(mealFile(gp)['Form id']);
+const mealSheet = (gp) => gp.fakes.spreadsheets.get(mealFile(gp)['Sheet id']).getSheetByName('Requests');
+const mealRows = (gp) => gp.fakes.spreadsheets.get(mealFile(gp)['Sheet id']).rowsOf('Requests');
+
+const BABY_ANSWERS = {
+  'What are the meals for?': 'A new baby',
+  "Mom's name": 'Anna Sample',
+  "Mom's phone": '555-0100',
+  "Mom's email": 'anna.sample@example.test',
+  "Dad's name": 'Ben Sample',
+  "Dad's phone": '555-0101',
+  "Dad's email": 'ben.sample@example.test',
+  'Due date': '2027-01-15',
+  'Boy, girl or surprise?': 'Surprise',
+  'Who should the sisters coordinate with?': ['Mom', 'Dad'],
+  Address: '123 Example Lane',
+  'When should meals start?': '3 days after baby comes',
+  'How often?': 'Every other day',
+  'Best drop-off time window': '5:30-6:30 pm',
+  'Drop-off': 'Quiet drop-off (text on arrival)',
+  'How many adults should the meals feed?': '2',
+  'How many kids?': '3',
+  'Allergies, restrictions or dislikes': 'No peanuts',
+  'Favorite foods or cuisines': 'Soups, Mexican',
+  Note: 'Thank you!',
+};
+const HARDSHIP_ANSWERS = {
+  'What are the meals for?': 'A member in hardship',
+  'Your name': 'Carla Example',
+  'Your phone': '555-0102',
+  'Your email': 'carla.example@example.test',
+  'Who should the sisters coordinate with?': ['Me', 'Other'],
+  'Other contact: name': 'Dana Helper',
+  'Other contact: phone': '555-0104',
+  Address: '9 Sample Court',
+  'How often?': 'Daily',
+  'Drop-off': 'Regular drop-off (knock or doorbell)',
+  'How many adults should the meals feed?': '1',
+  'Allergies, restrictions or dislikes': 'Vegetarian',
+};
+
+describe('task 2: the meals form (one form, two doors)', () => {
+  it('has the opening, the branching first question, both sections and the shared section', () => {
+    const gp = mealsWard();
+    const f = mealForm(gp);
+    expect(f.title).toBe('Meals — Riverbend 1st Ward (example)');
+    expect(f.description).toMatch(/^Congratulations on your new baby!/);
+    expect(f.description).toContain('at least 3 days after baby arrives');
+    expect(f.description).toContain('Best guesses are fine');
+    expect(f.description).toContain('Only the bishopric, the Relief Society leaders and the people they name see this request.');
+    expect(f.confirmation).toContain("we'd love to share a photo, name, gender and birth date with the Relief Society presidency");
+    expect(f.collectEmail).toBe(false);
+    const first = f.items[0];
+    expect(first).toMatchObject({ type: 'MULTIPLE_CHOICE', title: 'What are the meals for?', required: true, choices: ['A new baby', 'A member in hardship'] });
+    expect(f.items.filter((i) => i.type === 'PAGE_BREAK').map((i) => i.title)).toEqual(['About the baby and parents', 'About you', 'The meals']);
+    const shared = ['Address', 'When should meals start?', 'How often?', 'Which dates? (only for specific dates)', 'Best drop-off time window', 'Drop-off',
+      'How many adults should the meals feed?', 'How many kids?', 'Allergies, restrictions or dislikes', 'Favorite foods or cuisines', 'Note'];
+    const coord = ['Who should the sisters coordinate with?', 'Other contact: name', 'Other contact: phone'];
+    expect(f.pathFor('A new baby')).toEqual(['What are the meals for?', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email",
+      'Due date', 'Induction date (if planned)', 'Boy, girl or surprise?', ...coord, ...shared]);
+    expect(f.pathFor('A member in hardship')).toEqual(['What are the meals for?', 'Your name', 'Your phone', 'Your email', "Second adult's name",
+      "Second adult's phone", "Second adult's email", ...coord, ...shared]);
+    const byTitle = (t) => f.items.filter((i) => i.title === t);
+    expect(byTitle('Who should the sisters coordinate with?').map((i) => [i.type, i.choices])).toEqual([['CHECKBOX', ['Mom', 'Dad', 'Other']], ['CHECKBOX', ['Me', 'The second adult', 'Other']]]);
+    expect(byTitle('Drop-off')[0].choices).toEqual(['Regular drop-off (knock or doorbell)', 'Quiet drop-off (text on arrival)']);
+    expect(byTitle('How often?')[0].choices).toEqual(['Daily', 'Every other day', 'Specific dates']);
+    expect(byTitle('Induction date (if planned)')[0].required).toBe(false);
+    expect(byTitle('Boy, girl or surprise?')[0].required).toBe(false);
+    expect(byTitle('Address')[0].required).toBe(true);
+  });
+
+  it('the Help page shows two tiles that open the same form with the first question answered', () => {
+    const gp = mealsWard();
+    const tiles = plain(gp.apiHelp_()).tiles.filter((t) => t.id.startsWith('meal-request'));
+    const f = mealForm(gp);
+    const entry = `entry.${f.items[0].id}=`;
+    expect(tiles).toEqual([
+      { id: 'meal-request-baby', name: 'Meals for New Moms & Dads', icon: '🍲', url: `${f.getPublishedUrl()}?usp=pp_url&${entry}A%20new%20baby` },
+      { id: 'meal-request-hardship', name: 'Meals for Members in Hardship', icon: '🍲', url: `${f.getPublishedUrl()}?usp=pp_url&${entry}A%20member%20in%20hardship` },
+    ]);
+  });
+
+  it('an older meals form without the first question still gets both links, plain', () => {
+    const gp = mealsWard();
+    const f = mealForm(gp);
+    f.items = f.items.filter((i) => i.title !== 'What are the meals for?');
+    expect(plain(gp.mealPrefilledUrls_(f))).toEqual({ baby: f.getPublishedUrl(), hardship: f.getPublishedUrl() });
+  });
+
+  it('Set up again refreshes the wording and never makes a second meals form', () => {
+    const gp = mealsWard();
+    const f = mealForm(gp);
+    f.setDescription('old words');
+    const before = gp.fakes.forms.size;
+    gp.gpMenuSetUp();
+    expect(gp.fakes.forms.size).toBe(before);
+    expect(f.description).toMatch(/^Congratulations on your new baby!/);
+  });
+});
+
+describe('task 3: the meals request sheet', () => {
+  it('has a column per answer after the standard ones, then the hand columns, each with a note', () => {
+    const gp = mealsWard();
+    const sh = mealSheet(gp);
+    const headers = gp.table_(sh).headers;
+    expect(headers).toEqual([...gp.REQUEST_HEADERS, ...gp.MEAL_REQUEST_HEADERS]);
+    const col = headers.indexOf('Shared with RS') + 1;
+    expect(sh.validations.get(`2,${col}`)).toBe('checkbox');
+    expect(sh.getRange(1, col).getNote()).toBe(
+      'Tick this when baby is here, this row is complete, and the Relief Society presidency has been told they can open and review it.\nUnticked: not shared yet.\nExample: ticked'
+    );
+    // Other request sheets keep the standard columns only.
+    const moving = sysOf(gp).rowsOf('Request files').find((f) => f['Category id'] === 'moving');
+    expect(gp.table_(gp.fakes.spreadsheets.get(moving['Sheet id']).getSheetByName('Requests')).headers).toEqual(gp.REQUEST_HEADERS);
+  });
+
+  it('files a new-baby answer into its columns and emails only the coordinators, with no details', () => {
+    const gp = mealsWard();
+    gp.gpOnRequestSubmit(formSubmitEvent(mealForm(gp), BABY_ANSWERS));
+    const row = mealRows(gp)[0];
+    expect(row).toMatchObject({
+      Kind: 'Meals',
+      Status: 'New',
+      Name: 'Anna Sample',
+      'Phone or email': '555-0100',
+      'Meals for': 'A new baby',
+      "Mom's email": 'anna.sample@example.test',
+      "Dad's name": 'Ben Sample',
+      'Due date': '2027-01-15',
+      'Boy, girl or surprise': 'Surprise',
+      'Coordinate with': 'Mom, Dad',
+      Address: '123 Example Lane',
+      'Meals start': '3 days after baby comes',
+      'How often': 'Every other day',
+      'Drop-off window': '5:30-6:30 pm',
+      'Drop-off': 'Quiet drop-off (text on arrival)',
+      Adults: '2',
+      Kids: '3',
+      Allergies: 'No peanuts',
+      'Favorite foods': 'Soups, Mexican',
+      Note: 'Thank you!',
+      'Shared with RS': false,
+    });
+    expect(row['Request id']).toMatch(/^r/);
+    expect(mealForm(gp).deletedResponses).toEqual(['resp-1']);
+    const to = gp.fakes.mail.sent.filter((m) => m.subject.startsWith('New Meals request')).map((m) => m.to).sort();
+    expect(to).toEqual(['sister.meals1@example.test', 'sister.meals2@example.test']);
+    for (const m of gp.fakes.mail.sent) for (const bad of ['Anna', '555-0100', 'Example Lane', 'peanuts']) expect(m.body).not.toContain(bad);
+  });
+
+  it('files a hardship answer: the adult in Name, the Other contact in its columns', () => {
+    const gp = mealsWard();
+    gp.gpOnRequestSubmit(formSubmitEvent(mealForm(gp), HARDSHIP_ANSWERS));
+    expect(mealRows(gp)[0]).toMatchObject({
+      Name: 'Carla Example',
+      'Phone or email': '555-0102',
+      'Meals for': 'A member in hardship',
+      'Adult email': 'carla.example@example.test',
+      'Coordinate with': 'Me, Other',
+      'Other contact name': 'Dana Helper',
+      'Other contact phone': '555-0104',
+      "Mom's name": '',
+    });
+  });
+
+  it('readers are unchanged (bishopric, Relief Society leaders, coordinators); notices go to the coordinators', () => {
+    const gp = mealsWard();
+    const cat = gp.serviceTab_('Categories').find('Id', 'meal-request');
+    const readers = plain(gp.requestReaders(cat, gp.leaders_()));
+    expect(readers).toEqual(expect.arrayContaining(['bishop.example@example.test', 'sister.example@example.test', 'sister.meals1@example.test', 'sister.meals2@example.test']));
+    expect(readers).not.toContain('brother.sample@example.test'); // Elders Quorum
+    expect(plain(gp.requestNotifyList(cat, gp.leaders_())).to.sort()).toEqual(['sister.meals1@example.test', 'sister.meals2@example.test']);
   });
 });

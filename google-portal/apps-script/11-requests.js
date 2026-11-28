@@ -27,6 +27,94 @@ var REQ_MAP = [
   ['Note', 'Note', 200],
 ];
 
+/**
+ * The meals form (2.6, decision 28): one form, two doors. The first question picks the path
+ * (Google Forms section branching): the baby section or the hardship section, then the shared
+ * section. Both paths ask "Who should the sisters coordinate with?" under the same title (and the
+ * Other contact's name and phone), so each answer lands in one sheet column.
+ */
+var MEAL_FOR = ['A new baby', 'A member in hardship'];
+var MEAL_DROPOFF = ['Regular drop-off (knock or doorbell)', 'Quiet drop-off (text on arrival)'];
+var MEAL_OFTEN = ['Daily', 'Every other day', 'Specific dates'];
+var MEAL_COORD_BABY = ['Mom', 'Dad', 'Other'];
+var MEAL_COORD_HARDSHIP = ['Me', 'The second adult', 'Other'];
+var MEAL_Q = {
+  forWhat: 'What are the meals for?',
+  momName: "Mom's name",
+  momPhone: "Mom's phone",
+  momEmail: "Mom's email",
+  dadName: "Dad's name",
+  dadPhone: "Dad's phone",
+  dadEmail: "Dad's email",
+  due: 'Due date',
+  induction: 'Induction date (if planned)',
+  gender: 'Boy, girl or surprise?',
+  yourName: 'Your name',
+  yourPhone: 'Your phone',
+  yourEmail: 'Your email',
+  secondName: "Second adult's name",
+  secondPhone: "Second adult's phone",
+  secondEmail: "Second adult's email",
+  coordinate: 'Who should the sisters coordinate with?',
+  otherName: 'Other contact: name',
+  otherPhone: 'Other contact: phone',
+  address: 'Address',
+  start: 'When should meals start?',
+  often: 'How often?',
+  dates: 'Which dates? (only for specific dates)',
+  window: 'Best drop-off time window',
+  dropoff: 'Drop-off',
+  adults: 'How many adults should the meals feed?',
+  kids: 'How many kids?',
+  allergies: 'Allergies, restrictions or dislikes',
+  likes: 'Favorite foods or cuisines',
+};
+var MEAL_TEXT = {
+  opening:
+    'Congratulations on your new baby! Or, if times are hard right now, we are so sorry, and glad to help. The Relief Society service committee would love to bring your family some meals. Meals for a new baby usually start at least 3 days after baby arrives. Best guesses are fine: we will check in with you before anything is scheduled.',
+  babySection: 'About the baby and parents',
+  babyHelp: 'Congratulations! Best guesses are fine.',
+  hardshipSection: 'About you',
+  hardshipHelp: 'We are sorry things are hard. Thank you for letting us help.',
+  sharedSection: 'The meals',
+  sharedHelp: 'This helps the sisters who sign up bring the right meal at the right time.',
+  confirmation:
+    'Thank you. A meal coordinator will contact you soon.\n\nNew baby? After baby comes, we\'ll check back with you: if you\'re comfortable, we\'d love to share a photo, name, gender and birth date with the Relief Society presidency.',
+};
+
+/** Question title → request sheet column (meals), with the longest answer kept. */
+var MEAL_MAP = [
+  [MEAL_Q.forWhat, 'Meals for', 40],
+  [MEAL_Q.momName, "Mom's name", 80],
+  [MEAL_Q.momPhone, "Mom's phone", 40],
+  [MEAL_Q.momEmail, "Mom's email", 100],
+  [MEAL_Q.dadName, "Dad's name", 80],
+  [MEAL_Q.dadPhone, "Dad's phone", 40],
+  [MEAL_Q.dadEmail, "Dad's email", 100],
+  [MEAL_Q.due, 'Due date', 10],
+  [MEAL_Q.induction, 'Induction date', 10],
+  [MEAL_Q.gender, 'Boy, girl or surprise', 20],
+  [MEAL_Q.yourName, 'Adult name', 80],
+  [MEAL_Q.yourPhone, 'Adult phone', 40],
+  [MEAL_Q.yourEmail, 'Adult email', 100],
+  [MEAL_Q.secondName, 'Second adult name', 80],
+  [MEAL_Q.secondPhone, 'Second adult phone', 40],
+  [MEAL_Q.secondEmail, 'Second adult email', 100],
+  [MEAL_Q.coordinate, 'Coordinate with', 60],
+  [MEAL_Q.otherName, 'Other contact name', 80],
+  [MEAL_Q.otherPhone, 'Other contact phone', 40],
+  [MEAL_Q.address, 'Address', 200],
+  [MEAL_Q.start, 'Meals start', 100],
+  [MEAL_Q.often, 'How often', 40],
+  [MEAL_Q.dates, 'Specific dates', 200],
+  [MEAL_Q.window, 'Drop-off window', 60],
+  [MEAL_Q.dropoff, 'Drop-off', 60],
+  [MEAL_Q.adults, 'Adults', 10],
+  [MEAL_Q.kids, 'Kids', 10],
+  [MEAL_Q.allergies, 'Allergies', 300],
+  [MEAL_Q.likes, 'Favorite foods', 300],
+];
+
 /** The giving offer form's own words (decision 16). */
 var GIVING_TEXT = {
   intro:
@@ -48,6 +136,7 @@ function joinNames_(list) {
 }
 
 function requestFormDescription_(s, c) {
+  var opening = c.Id === MEAL_REQUEST_ID ? [MEAL_TEXT.opening, ''] : [];
   if (c.Id === GIVING_ID) {
     return [GIVING_TEXT.intro, '', FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : '')].join('\n');
   }
@@ -56,18 +145,123 @@ function requestFormDescription_(s, c) {
     : splitList(c['Owning organizations']).length
     ? 'Only the bishopric, the ' + joinNames_(splitList(c['Owning organizations'])) + ' leaders and the people they name see this request.'
     : 'Only the bishopric and the people it names see this request.';
-  return [
-    who,
-    'Nothing is emailed back to you; a leader will contact you.',
-    '',
-    FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : ''),
-  ].join('\n');
+  return opening
+    .concat([who, 'Nothing is emailed back to you; a leader will contact you.', '', FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : '')])
+    .join('\n');
+}
+
+function shortText_(n) {
+  return FormApp.createTextValidation().setHelpText('Up to ' + n + ' characters.').requireTextLengthLessThanOrEqualTo(n).build();
+}
+
+/**
+ * The meals form's questions (spec section 2): the first question branches to the baby section or
+ * the hardship section; both continue to the shared section (the baby section skips the hardship
+ * one through the hardship page break's goToPage).
+ */
+function addMealQuestions_(form) {
+  var text = function (title, n, required, help) {
+    var it = form.addTextItem().setTitle(title).setRequired(!!required).setValidation(shortText_(n));
+    if (help) it.setHelpText(help);
+    return it;
+  };
+  var email = function (title, required) {
+    return form
+      .addTextItem()
+      .setTitle(title)
+      .setRequired(!!required)
+      .setValidation(FormApp.createTextValidation().setHelpText('An email address.').requireTextIsEmail().build());
+  };
+  var coordinate = function (choices) {
+    form.addCheckboxItem().setTitle(MEAL_Q.coordinate).setChoiceValues(choices).setRequired(false).setHelpText('The sisters bringing meals will reach out to the people you tick.');
+    text(MEAL_Q.otherName, 80, false, 'Only if you ticked Other.');
+    text(MEAL_Q.otherPhone, 40, false, 'Only if you ticked Other.');
+  };
+  var first = form.addMultipleChoiceItem().setTitle(MEAL_Q.forWhat).setRequired(true);
+
+  var baby = form.addPageBreakItem().setTitle(MEAL_TEXT.babySection).setHelpText(MEAL_TEXT.babyHelp);
+  text(MEAL_Q.momName, 80, true);
+  text(MEAL_Q.momPhone, 40, true);
+  email(MEAL_Q.momEmail, false);
+  text(MEAL_Q.dadName, 80, false);
+  text(MEAL_Q.dadPhone, 40, false);
+  email(MEAL_Q.dadEmail, false);
+  form.addDateItem().setTitle(MEAL_Q.due).setRequired(true).setHelpText('Your best guess is fine.');
+  form.addDateItem().setTitle(MEAL_Q.induction).setRequired(false);
+  form.addMultipleChoiceItem().setTitle(MEAL_Q.gender).setChoiceValues(['Boy', 'Girl', 'Surprise']).setRequired(false);
+  coordinate(MEAL_COORD_BABY);
+
+  var hardship = form.addPageBreakItem().setTitle(MEAL_TEXT.hardshipSection).setHelpText(MEAL_TEXT.hardshipHelp);
+  text(MEAL_Q.yourName, 80, true);
+  text(MEAL_Q.yourPhone, 40, true);
+  email(MEAL_Q.yourEmail, false);
+  text(MEAL_Q.secondName, 80, false, 'Optional: another adult in your home the sisters may contact.');
+  text(MEAL_Q.secondPhone, 40, false);
+  email(MEAL_Q.secondEmail, false);
+  coordinate(MEAL_COORD_HARDSHIP);
+
+  var shared = form.addPageBreakItem().setTitle(MEAL_TEXT.sharedSection).setHelpText(MEAL_TEXT.sharedHelp);
+  // After the baby section, skip the hardship section.
+  hardship.setGoToPage(shared);
+  form
+    .addParagraphTextItem()
+    .setTitle(MEAL_Q.address)
+    .setRequired(true)
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(200).build());
+  text(MEAL_Q.start, 100, false, 'For example: 3 days after baby comes.');
+  form.addMultipleChoiceItem().setTitle(MEAL_Q.often).setChoiceValues(MEAL_OFTEN).setRequired(true);
+  text(MEAL_Q.dates, 200, false);
+  text(MEAL_Q.window, 60, false, 'For example: 5:30–6:30 pm.');
+  form.addMultipleChoiceItem().setTitle(MEAL_Q.dropoff).setChoiceValues(MEAL_DROPOFF).setRequired(true);
+  text(MEAL_Q.adults, 10, false, 'Including any extra help staying with you.');
+  text(MEAL_Q.kids, 10, false);
+  form
+    .addParagraphTextItem()
+    .setTitle(MEAL_Q.allergies)
+    .setRequired(false)
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(300).build());
+  form
+    .addParagraphTextItem()
+    .setTitle(MEAL_Q.likes)
+    .setRequired(false)
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(300).build());
+  form
+    .addParagraphTextItem()
+    .setTitle(REQ_Q.note)
+    .setRequired(false)
+    .setHelpText('Optional, up to 200 characters.')
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(200).build());
+  // The first question's choices jump to their section (set once the page breaks exist).
+  first.setChoices([first.createChoice(MEAL_FOR[0], baby), first.createChoice(MEAL_FOR[1], hardship)]);
+}
+
+/**
+ * The two prefilled links for the meals form's Help tiles: {baby, hardship}, each the form with
+ * the first question already answered. Falls back to the plain link when the form has no such
+ * question (an older form) or the prefill fails.
+ */
+function mealPrefilledUrls_(form) {
+  var plain = form.getPublishedUrl();
+  try {
+    var item = null;
+    form.getItems().forEach(function (it) {
+      if (!item && it.getTitle() === MEAL_Q.forWhat) item = it;
+    });
+    if (!item) return { baby: plain, hardship: plain };
+    var mc = item.asMultipleChoiceItem();
+    return {
+      baby: form.createResponse().withItemResponse(mc.createResponse(MEAL_FOR[0])).toPrefilledUrl(),
+      hardship: form.createResponse().withItemResponse(mc.createResponse(MEAL_FOR[1])).toPrefilledUrl(),
+    };
+  } catch (e) {
+    log_('meals prefill failed', clip(e && e.message ? e.message : e, 200));
+    return { baby: plain, hardship: plain };
+  }
 }
 
 function addRequestQuestions_(form, c) {
-  var short = function (n) {
-    return FormApp.createTextValidation().setHelpText('Up to ' + n + ' characters.').requireTextLengthLessThanOrEqualTo(n).build();
-  };
+  if (c.Id === MEAL_REQUEST_ID) return addMealQuestions_(form);
+  var short = shortText_;
   form.addTextItem().setTitle(REQ_Q.name).setRequired(true).setValidation(short(80));
   form.addTextItem().setTitle(REQ_Q.contact).setRequired(true).setValidation(short(100));
   if (c.Id === 'moving') {
@@ -98,6 +292,7 @@ function addRequestQuestions_(form, c) {
 }
 
 function requestFormConfirmation_(c) {
+  if (c.Id === MEAL_REQUEST_ID) return MEAL_TEXT.confirmation;
   return c.Id === GIVING_ID ? GIVING_TEXT.confirmation : 'Thank you. A leader will contact you.';
 }
 
@@ -105,23 +300,29 @@ function requestFormConfirmation_(c) {
  * The request tab of a request sheet, with any header this version needs added at the end (a
  * sheet made before a header existed, e.g. Offer, keeps working).
  */
-function requestTable_(ss, row) {
+function requestTable_(ss, row, categoryId) {
   var t = tabOf_(ss, REQUEST_TAB);
   var missing = Object.keys(row || {}).filter(function (k) {
     return t.headers.indexOf(k) < 0;
   });
   if (!missing.length) return t;
-  ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(requestHeadersFor_(categoryId)).concat(Object.keys(row))));
   return tabOf_(ss, REQUEST_TAB);
 }
 
+/** The request sheet's headers for a kind: the standard ones, then the meals ones (2.6). */
+function requestHeadersFor_(categoryId) {
+  return categoryId === MEAL_REQUEST_ID ? REQUEST_HEADERS.concat(MEAL_REQUEST_HEADERS) : REQUEST_HEADERS;
+}
+
 /** Adds any request-sheet column this version needs (e.g. Make opportunity) to an older sheet. */
-function ensureRequestColumns_(ss) {
+function ensureRequestColumns_(ss, categoryId) {
   var t = tabOf_(ss, REQUEST_TAB);
-  var missing = REQUEST_HEADERS.filter(function (h) {
+  var want = requestHeadersFor_(categoryId);
+  var missing = want.filter(function (h) {
     return t.headers.indexOf(h) < 0;
   });
-  if (missing.length) ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  if (missing.length) ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(want)));
   else writeHeaderNotes_(ss.getSheetByName(REQUEST_TAB), REQUEST_TAB, t.headers); // 2.5.3: Set up refreshes the notes
 }
 
@@ -433,7 +634,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
         if (problems) problems.push('Could not open the ' + c.Name + ' form to refresh its wording (' + clip(e && e.message ? e.message : e, 120) + ').');
       }
       try {
-        if (rec['Sheet id']) ensureRequestColumns_(SpreadsheetApp.openById(rec['Sheet id']));
+        if (rec['Sheet id']) ensureRequestColumns_(SpreadsheetApp.openById(rec['Sheet id']), c.Id);
       } catch (e) {
         if (problems) problems.push('Could not open the ' + c.Name + ' request sheet to add its new columns (' + clip(e && e.message ? e.message : e, 120) + ').');
       }
@@ -442,7 +643,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
     var folderName = 'Requests – ' + c.Name;
     var existing = portal.getFoldersByName(folderName);
     var folder = existing.hasNext() ? existing.next() : portal.createFolder(folderName);
-    var ss = newRequestSheet_(folder, c.Name, month);
+    var ss = newRequestSheet_(folder, c.Name, month, requestHeadersFor_(c.Id));
     var form = newRequestForm_(s, c, portal, problems);
     form
       .setDescription(requestFormDescription_(s, c))
@@ -485,6 +686,22 @@ function alertAdmins_(lines) {
   admins.forEach(function (to) {
     sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
   });
+}
+
+/**
+ * Meals (2.6): every answer into its own column (MEAL_MAP), plus the standard Name and Phone or
+ * email (the mother, or the person asking), so the sheet reads like the other request sheets.
+ */
+function mealRequestRow_(answers, row) {
+  MEAL_MAP.forEach(function (m) {
+    if (m[0] in answers) row[m[1]] = clip(String(answers[m[0]]).trim(), m[2]);
+  });
+  var baby = row['Meals for'] !== MEAL_FOR[1];
+  var name = baby ? row["Mom's name"] || row["Dad's name"] : row['Adult name'];
+  var phone = baby ? row["Mom's phone"] || row["Dad's phone"] : row['Adult phone'];
+  if (name) row.Name = clip(name, 80);
+  if (phone) row['Phone or email'] = clip(phone, 100);
+  return row;
 }
 
 /** Removes every answer string from a message, so logs never carry request text. */
@@ -545,7 +762,8 @@ function gpOnRequestSubmit(e) {
       REQ_MAP.forEach(function (m) {
         if (m[0] in answers) row[m[1]] = clip(answers[m[0]].trim(), m[2]);
       });
-      requestTable_(SpreadsheetApp.openById(file['Sheet id']), row).append(row);
+      if (cat.Id === MEAL_REQUEST_ID) mealRequestRow_(answers, row);
+      requestTable_(SpreadsheetApp.openById(file['Sheet id']), row, cat.Id).append(row);
       return { file: file, cat: cat };
     });
     step = 'unform';
@@ -603,7 +821,7 @@ function dailyRequests_() {
 function rotateRequestFile_(f, filesT, oldTable, cat, today, trashed) {
   var month = today.slice(0, 7);
   var name = cat ? cat.Name : f['Category id'];
-  var headers = uniq_(oldTable.headers.filter(String).concat(REQUEST_HEADERS));
+  var headers = uniq_(oldTable.headers.filter(String).concat(requestHeadersFor_(f['Category id'])));
   var folder = DriveApp.getFolderById(f['Folder id']);
   var fresh = newRequestSheet_(folder, name, month, headers);
   var carry = oldTable.rows();

@@ -172,10 +172,19 @@ function apiHelp_() {
       var f = files[c.Id];
       if (!f || !f['Form id']) return;
       var url = '';
+      var form = null;
       try {
-        url = FormApp.openById(f['Form id']).getPublishedUrl();
+        form = FormApp.openById(f['Form id']);
+        url = form.getPublishedUrl();
       } catch (e) {
         log_('help form missing', c.Id + ' | ' + e);
+        return;
+      }
+      // Meals (2.6, decision 28): two tiles open the same form, its first question answered.
+      if (c.Id === MEAL_REQUEST_ID) {
+        var pre = mealPrefilledUrls_(form);
+        tiles.push({ id: MEAL_REQUEST_ID + '-baby', name: 'Meals for New Moms & Dads', icon: c.Icon, url: pre.baby });
+        tiles.push({ id: MEAL_REQUEST_ID + '-hardship', name: 'Meals for Members in Hardship', icon: c.Icon, url: pre.hardship });
         return;
       }
       tiles.push({ id: c.Id, name: c.Name, icon: c.Icon, url: url });

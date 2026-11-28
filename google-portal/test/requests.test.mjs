@@ -567,7 +567,7 @@ describe('Christmas giving offers (decision 16)', () => {
   it('is not on the Help page; the other request kinds are', () => {
     const gp = wardWithCouple();
     const ids = plain(gp.apiHelp_()).tiles.map((t) => t.id);
-    expect(ids).toEqual(['moving', 'christmas', 'other', 'meal-request']);
+    expect(ids).toEqual(['moving', 'christmas', 'other', 'meal-request-baby', 'meal-request-hardship']);
   });
 
   it('Set up names the giving form link, since it is not on the Help page', () => {
@@ -711,7 +711,7 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
     gp.gpMenuSetUp(); // clears the Help page cache
     gp.gpBegin_();
     const help = plain(gp.apiHelp_());
-    expect(help.tiles.map((t) => t.id)).toEqual(['moving', 'christmas', 'other', 'meal-request']);
+    expect(help.tiles.map((t) => t.id)).toEqual(['moving', 'christmas', 'other', 'meal-request-baby', 'meal-request-hardship']);
     expect(JSON.stringify(help)).not.toContain('christmas-giving');
     expect(JSON.stringify(help)).not.toContain(giveUrl(gp));
   });

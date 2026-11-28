@@ -145,6 +145,17 @@ var SYSTEM_HEADERS = {
 var REQUEST_TAB = 'Requests';
 var REQUEST_HEADERS = ['Request id', 'Received', 'Kind', 'Name', 'Phone or email', 'Moving', 'Moving date', 'For', 'Note', 'Offer', 'Status', 'Assigned to', 'Leader note', 'Closed on', 'Make opportunity', 'Copy contact to private details', 'Posted as'];
 var REQUEST_STATUS = ['New', 'In progress', 'Done', 'Declined'];
+/**
+ * The meals request sheet's own columns (2.6, decision 28), after the standard ones: one per form
+ * answer, then the columns the coordinators fill in by hand after the birth.
+ */
+var MEAL_REQUEST_HEADERS = [
+  'Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Due date', 'Induction date', 'Boy, girl or surprise',
+  'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email',
+  'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone',
+  'Adults', 'Kids', 'Allergies', 'Favorite foods',
+  "Baby's name", 'Gender', 'Birth date', 'Photo link', 'Shared with RS',
+];
 
 /** Tabs only the script writes; Sync sharing protects them (owner only). */
 var PROTECTED_TABS = ['Posts', 'Slots', 'Sign-ups', 'Volunteers', 'Needs help soon'];
@@ -165,13 +176,13 @@ var VOLUNTEER_STATUS = { pending: 'Pending', approved: 'Approved', declined: 'De
 var CATEGORY_KIND = { opportunity: 'Opportunity', request: 'Request' };
 
 /** Column types, by header name (any tab). Read back as text; written with format '@'. */
-var DATE_COLS = ['Date', 'Moving date', 'Closed on', 'Day'];
+var DATE_COLS = ['Date', 'Moving date', 'Closed on', 'Day', 'Due date', 'Induction date', 'Birth date'];
 var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received', 'Added at'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
-var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details'];
+var TEXT_COLS = ['Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Boy, girl or surprise', 'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email', 'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone', 'Adults', 'Kids', 'Allergies', 'Favorite foods', "Baby's name", 'Gender', 'Photo link', 'Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
+var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details', 'Shared with RS'];
 
 /** Settings rows: [key, default, help]. */
 var SETTINGS_ROWS = [
@@ -401,6 +412,41 @@ var FIELD_NOTES = {
     'Make opportunity': ['Tick to make a Draft opportunity from this request within the hour (only for kinds with an Opportunity category).', 'The box unticks itself.', 'Example: ticked'],
     'Copy contact to private details': ['Tick with Make opportunity to put the name and phone or email in the draft\'s private details.', 'Unticked: not copied.', 'Example: ticked'],
     'Posted as': ['What Make opportunity did. Written by the script: Draft made <date> — finish and publish it on the leader page (<title>, <post id>), or Not made: <why>.', 'Example: Draft made 2026-12-01 — finish and publish it on the leader page (Moving help, p1a2b3)'],
+    // Meals request sheet (2.6, decision 28): one column per form answer, then the hand columns.
+    'Meals for': ['Meals: the first answer, A new baby or A member in hardship. Make opportunity picks the category from it.', 'Example: A new baby'],
+    "Mom's name": ['Meals (new baby): the mother\'s name.', 'Blank: not given.', 'Example: Anna Sample'],
+    "Mom's phone": ['Meals (new baby): the mother\'s phone. Private: only in the draft\'s private details when she is ticked to coordinate.', 'Example: 555-0100'],
+    "Mom's email": ['Meals (new baby): the mother\'s email. Goes to the post\'s Family emails when she is ticked to coordinate.', 'Blank: not given.', 'Example: anna.sample@example.test'],
+    "Dad's name": ['Meals (new baby): the father\'s name.', 'Blank: not given.', 'Example: Ben Sample'],
+    "Dad's phone": ['Meals (new baby): the father\'s phone. Private, like Mom\'s phone.', 'Blank: not given.', 'Example: 555-0101'],
+    "Dad's email": ['Meals (new baby): the father\'s email. Goes to Family emails when he is ticked to coordinate.', 'Blank: not given.', 'Example: ben.sample@example.test'],
+    'Due date': ['Meals (new baby): the due date, YYYY-MM-DD (a best guess is fine).', 'Example: 2027-01-15'],
+    'Induction date': ['Meals (new baby): a planned induction date, YYYY-MM-DD.', 'Blank: none planned.', 'Example: 2027-01-10'],
+    'Boy, girl or surprise': ['Meals (new baby): Boy, Girl or Surprise.', 'Blank: not answered.', 'Example: Surprise'],
+    'Adult name': ['Meals (hardship): the name of the person asking.', 'Blank: a new-baby request.', 'Example: Sister Sample'],
+    'Adult phone': ['Meals (hardship): their phone. Private: only in the draft\'s private details.', 'Example: 555-0102'],
+    'Adult email': ['Meals (hardship): their email. Goes to Family emails when they are ticked to coordinate.', 'Blank: not given.', 'Example: sister.sample@example.test'],
+    'Second adult name': ['Meals (hardship): an optional second adult in the home.', 'Blank: none.', 'Example: Brother Sample'],
+    'Second adult phone': ['Meals (hardship): the second adult\'s phone. Private.', 'Blank: none.', 'Example: 555-0103'],
+    'Second adult email': ['Meals (hardship): the second adult\'s email.', 'Blank: none.', 'Example: brother.sample@example.test'],
+    Address: ['Meals: where meals go. Private: only in the draft\'s private details.', 'Example: 123 Example Lane'],
+    'Meals start': ['Meals: when meals should start, as they wrote it.', 'Blank: not answered.', 'Example: 3 days after baby comes'],
+    'How often': ['Meals: Daily, Every other day or Specific dates.', 'Example: Every other day'],
+    'Specific dates': ['Meals: the dates they asked for, when How often is Specific dates.', 'Blank: not specific dates.', 'Example: Jan 18, 20 and 22'],
+    'Drop-off window': ['Meals: the best time to drop meals off. Public on the post.', 'Blank: not answered.', 'Example: 5:30-6:30 pm'],
+    'Drop-off': ['Meals: Regular drop-off (knock or doorbell) or Quiet drop-off (text on arrival). Public on the post.', 'Example: Quiet drop-off (text on arrival)'],
+    'Coordinate with': ['Meals: who the sisters should coordinate with: Mom, Dad, Other (new baby) or Me, The second adult, Other (hardship).', 'Blank: nobody ticked.', 'Example: Mom, Dad'],
+    'Other contact name': ['Meals: the Other person to coordinate with. Private.', 'Blank: Other not ticked.', 'Example: Sister Helper'],
+    'Other contact phone': ['Meals: the Other person\'s phone. Private.', 'Blank: Other not ticked.', 'Example: 555-0104'],
+    Adults: ['Meals: how many adults the meals should feed, including extra help.', 'Blank: not answered.', 'Example: 2'],
+    Kids: ['Meals: how many kids the meals should feed.', 'Blank: not answered.', 'Example: 3'],
+    Allergies: ['Meals: allergies, restrictions or dislikes. Public on the post, shown first.', 'Blank: none given.', 'Example: No peanuts'],
+    'Favorite foods': ['Meals: favorite foods or cuisines. Public on the post.', 'Blank: none given.', 'Example: Mexican, soups'],
+    "Baby's name": ['Meals (new baby): filled in by hand after the birth.', 'Blank: not yet.', 'Example: Ella'],
+    Gender: ['Meals (new baby): filled in by hand after the birth.', 'Blank: not yet.', 'Example: Girl'],
+    'Birth date': ['Meals (new baby): filled in by hand after the birth, YYYY-MM-DD.', 'Blank: not yet.', 'Example: 2027-01-12'],
+    'Photo link': ['Meals (new baby): a link to a photo the family shared, filled in by hand.', 'Blank: none.', 'Example: https://photos.example.test/ella'],
+    'Shared with RS': ['Tick this when baby is here, this row is complete, and the Relief Society presidency has been told they can open and review it.', 'Unticked: not shared yet.', 'Example: ticked'],
   },
 };
 
@@ -3216,10 +3262,19 @@ function apiHelp_() {
       var f = files[c.Id];
       if (!f || !f['Form id']) return;
       var url = '';
+      var form = null;
       try {
-        url = FormApp.openById(f['Form id']).getPublishedUrl();
+        form = FormApp.openById(f['Form id']);
+        url = form.getPublishedUrl();
       } catch (e) {
         log_('help form missing', c.Id + ' | ' + e);
+        return;
+      }
+      // Meals (2.6, decision 28): two tiles open the same form, its first question answered.
+      if (c.Id === MEAL_REQUEST_ID) {
+        var pre = mealPrefilledUrls_(form);
+        tiles.push({ id: MEAL_REQUEST_ID + '-baby', name: 'Meals for New Moms & Dads', icon: c.Icon, url: pre.baby });
+        tiles.push({ id: MEAL_REQUEST_ID + '-hardship', name: 'Meals for Members in Hardship', icon: c.Icon, url: pre.hardship });
         return;
       }
       tiles.push({ id: c.Id, name: c.Name, icon: c.Icon, url: url });
@@ -5440,6 +5495,94 @@ var REQ_MAP = [
   ['Note', 'Note', 200],
 ];
 
+/**
+ * The meals form (2.6, decision 28): one form, two doors. The first question picks the path
+ * (Google Forms section branching): the baby section or the hardship section, then the shared
+ * section. Both paths ask "Who should the sisters coordinate with?" under the same title (and the
+ * Other contact's name and phone), so each answer lands in one sheet column.
+ */
+var MEAL_FOR = ['A new baby', 'A member in hardship'];
+var MEAL_DROPOFF = ['Regular drop-off (knock or doorbell)', 'Quiet drop-off (text on arrival)'];
+var MEAL_OFTEN = ['Daily', 'Every other day', 'Specific dates'];
+var MEAL_COORD_BABY = ['Mom', 'Dad', 'Other'];
+var MEAL_COORD_HARDSHIP = ['Me', 'The second adult', 'Other'];
+var MEAL_Q = {
+  forWhat: 'What are the meals for?',
+  momName: "Mom's name",
+  momPhone: "Mom's phone",
+  momEmail: "Mom's email",
+  dadName: "Dad's name",
+  dadPhone: "Dad's phone",
+  dadEmail: "Dad's email",
+  due: 'Due date',
+  induction: 'Induction date (if planned)',
+  gender: 'Boy, girl or surprise?',
+  yourName: 'Your name',
+  yourPhone: 'Your phone',
+  yourEmail: 'Your email',
+  secondName: "Second adult's name",
+  secondPhone: "Second adult's phone",
+  secondEmail: "Second adult's email",
+  coordinate: 'Who should the sisters coordinate with?',
+  otherName: 'Other contact: name',
+  otherPhone: 'Other contact: phone',
+  address: 'Address',
+  start: 'When should meals start?',
+  often: 'How often?',
+  dates: 'Which dates? (only for specific dates)',
+  window: 'Best drop-off time window',
+  dropoff: 'Drop-off',
+  adults: 'How many adults should the meals feed?',
+  kids: 'How many kids?',
+  allergies: 'Allergies, restrictions or dislikes',
+  likes: 'Favorite foods or cuisines',
+};
+var MEAL_TEXT = {
+  opening:
+    'Congratulations on your new baby! Or, if times are hard right now, we are so sorry, and glad to help. The Relief Society service committee would love to bring your family some meals. Meals for a new baby usually start at least 3 days after baby arrives. Best guesses are fine: we will check in with you before anything is scheduled.',
+  babySection: 'About the baby and parents',
+  babyHelp: 'Congratulations! Best guesses are fine.',
+  hardshipSection: 'About you',
+  hardshipHelp: 'We are sorry things are hard. Thank you for letting us help.',
+  sharedSection: 'The meals',
+  sharedHelp: 'This helps the sisters who sign up bring the right meal at the right time.',
+  confirmation:
+    'Thank you. A meal coordinator will contact you soon.\n\nNew baby? After baby comes, we\'ll check back with you: if you\'re comfortable, we\'d love to share a photo, name, gender and birth date with the Relief Society presidency.',
+};
+
+/** Question title → request sheet column (meals), with the longest answer kept. */
+var MEAL_MAP = [
+  [MEAL_Q.forWhat, 'Meals for', 40],
+  [MEAL_Q.momName, "Mom's name", 80],
+  [MEAL_Q.momPhone, "Mom's phone", 40],
+  [MEAL_Q.momEmail, "Mom's email", 100],
+  [MEAL_Q.dadName, "Dad's name", 80],
+  [MEAL_Q.dadPhone, "Dad's phone", 40],
+  [MEAL_Q.dadEmail, "Dad's email", 100],
+  [MEAL_Q.due, 'Due date', 10],
+  [MEAL_Q.induction, 'Induction date', 10],
+  [MEAL_Q.gender, 'Boy, girl or surprise', 20],
+  [MEAL_Q.yourName, 'Adult name', 80],
+  [MEAL_Q.yourPhone, 'Adult phone', 40],
+  [MEAL_Q.yourEmail, 'Adult email', 100],
+  [MEAL_Q.secondName, 'Second adult name', 80],
+  [MEAL_Q.secondPhone, 'Second adult phone', 40],
+  [MEAL_Q.secondEmail, 'Second adult email', 100],
+  [MEAL_Q.coordinate, 'Coordinate with', 60],
+  [MEAL_Q.otherName, 'Other contact name', 80],
+  [MEAL_Q.otherPhone, 'Other contact phone', 40],
+  [MEAL_Q.address, 'Address', 200],
+  [MEAL_Q.start, 'Meals start', 100],
+  [MEAL_Q.often, 'How often', 40],
+  [MEAL_Q.dates, 'Specific dates', 200],
+  [MEAL_Q.window, 'Drop-off window', 60],
+  [MEAL_Q.dropoff, 'Drop-off', 60],
+  [MEAL_Q.adults, 'Adults', 10],
+  [MEAL_Q.kids, 'Kids', 10],
+  [MEAL_Q.allergies, 'Allergies', 300],
+  [MEAL_Q.likes, 'Favorite foods', 300],
+];
+
 /** The giving offer form's own words (decision 16). */
 var GIVING_TEXT = {
   intro:
@@ -5461,6 +5604,7 @@ function joinNames_(list) {
 }
 
 function requestFormDescription_(s, c) {
+  var opening = c.Id === MEAL_REQUEST_ID ? [MEAL_TEXT.opening, ''] : [];
   if (c.Id === GIVING_ID) {
     return [GIVING_TEXT.intro, '', FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : '')].join('\n');
   }
@@ -5469,18 +5613,123 @@ function requestFormDescription_(s, c) {
     : splitList(c['Owning organizations']).length
     ? 'Only the bishopric, the ' + joinNames_(splitList(c['Owning organizations'])) + ' leaders and the people they name see this request.'
     : 'Only the bishopric and the people it names see this request.';
-  return [
-    who,
-    'Nothing is emailed back to you; a leader will contact you.',
-    '',
-    FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : ''),
-  ].join('\n');
+  return opening
+    .concat([who, 'Nothing is emailed back to you; a leader will contact you.', '', FORM_FOOTER + (s.contact_email ? '\nContact: ' + s.contact_email : '')])
+    .join('\n');
+}
+
+function shortText_(n) {
+  return FormApp.createTextValidation().setHelpText('Up to ' + n + ' characters.').requireTextLengthLessThanOrEqualTo(n).build();
+}
+
+/**
+ * The meals form's questions (spec section 2): the first question branches to the baby section or
+ * the hardship section; both continue to the shared section (the baby section skips the hardship
+ * one through the hardship page break's goToPage).
+ */
+function addMealQuestions_(form) {
+  var text = function (title, n, required, help) {
+    var it = form.addTextItem().setTitle(title).setRequired(!!required).setValidation(shortText_(n));
+    if (help) it.setHelpText(help);
+    return it;
+  };
+  var email = function (title, required) {
+    return form
+      .addTextItem()
+      .setTitle(title)
+      .setRequired(!!required)
+      .setValidation(FormApp.createTextValidation().setHelpText('An email address.').requireTextIsEmail().build());
+  };
+  var coordinate = function (choices) {
+    form.addCheckboxItem().setTitle(MEAL_Q.coordinate).setChoiceValues(choices).setRequired(false).setHelpText('The sisters bringing meals will reach out to the people you tick.');
+    text(MEAL_Q.otherName, 80, false, 'Only if you ticked Other.');
+    text(MEAL_Q.otherPhone, 40, false, 'Only if you ticked Other.');
+  };
+  var first = form.addMultipleChoiceItem().setTitle(MEAL_Q.forWhat).setRequired(true);
+
+  var baby = form.addPageBreakItem().setTitle(MEAL_TEXT.babySection).setHelpText(MEAL_TEXT.babyHelp);
+  text(MEAL_Q.momName, 80, true);
+  text(MEAL_Q.momPhone, 40, true);
+  email(MEAL_Q.momEmail, false);
+  text(MEAL_Q.dadName, 80, false);
+  text(MEAL_Q.dadPhone, 40, false);
+  email(MEAL_Q.dadEmail, false);
+  form.addDateItem().setTitle(MEAL_Q.due).setRequired(true).setHelpText('Your best guess is fine.');
+  form.addDateItem().setTitle(MEAL_Q.induction).setRequired(false);
+  form.addMultipleChoiceItem().setTitle(MEAL_Q.gender).setChoiceValues(['Boy', 'Girl', 'Surprise']).setRequired(false);
+  coordinate(MEAL_COORD_BABY);
+
+  var hardship = form.addPageBreakItem().setTitle(MEAL_TEXT.hardshipSection).setHelpText(MEAL_TEXT.hardshipHelp);
+  text(MEAL_Q.yourName, 80, true);
+  text(MEAL_Q.yourPhone, 40, true);
+  email(MEAL_Q.yourEmail, false);
+  text(MEAL_Q.secondName, 80, false, 'Optional: another adult in your home the sisters may contact.');
+  text(MEAL_Q.secondPhone, 40, false);
+  email(MEAL_Q.secondEmail, false);
+  coordinate(MEAL_COORD_HARDSHIP);
+
+  var shared = form.addPageBreakItem().setTitle(MEAL_TEXT.sharedSection).setHelpText(MEAL_TEXT.sharedHelp);
+  // After the baby section, skip the hardship section.
+  hardship.setGoToPage(shared);
+  form
+    .addParagraphTextItem()
+    .setTitle(MEAL_Q.address)
+    .setRequired(true)
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(200).build());
+  text(MEAL_Q.start, 100, false, 'For example: 3 days after baby comes.');
+  form.addMultipleChoiceItem().setTitle(MEAL_Q.often).setChoiceValues(MEAL_OFTEN).setRequired(true);
+  text(MEAL_Q.dates, 200, false);
+  text(MEAL_Q.window, 60, false, 'For example: 5:30–6:30 pm.');
+  form.addMultipleChoiceItem().setTitle(MEAL_Q.dropoff).setChoiceValues(MEAL_DROPOFF).setRequired(true);
+  text(MEAL_Q.adults, 10, false, 'Including any extra help staying with you.');
+  text(MEAL_Q.kids, 10, false);
+  form
+    .addParagraphTextItem()
+    .setTitle(MEAL_Q.allergies)
+    .setRequired(false)
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(300).build());
+  form
+    .addParagraphTextItem()
+    .setTitle(MEAL_Q.likes)
+    .setRequired(false)
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(300).build());
+  form
+    .addParagraphTextItem()
+    .setTitle(REQ_Q.note)
+    .setRequired(false)
+    .setHelpText('Optional, up to 200 characters.')
+    .setValidation(FormApp.createParagraphTextValidation().requireTextLengthLessThanOrEqualTo(200).build());
+  // The first question's choices jump to their section (set once the page breaks exist).
+  first.setChoices([first.createChoice(MEAL_FOR[0], baby), first.createChoice(MEAL_FOR[1], hardship)]);
+}
+
+/**
+ * The two prefilled links for the meals form's Help tiles: {baby, hardship}, each the form with
+ * the first question already answered. Falls back to the plain link when the form has no such
+ * question (an older form) or the prefill fails.
+ */
+function mealPrefilledUrls_(form) {
+  var plain = form.getPublishedUrl();
+  try {
+    var item = null;
+    form.getItems().forEach(function (it) {
+      if (!item && it.getTitle() === MEAL_Q.forWhat) item = it;
+    });
+    if (!item) return { baby: plain, hardship: plain };
+    var mc = item.asMultipleChoiceItem();
+    return {
+      baby: form.createResponse().withItemResponse(mc.createResponse(MEAL_FOR[0])).toPrefilledUrl(),
+      hardship: form.createResponse().withItemResponse(mc.createResponse(MEAL_FOR[1])).toPrefilledUrl(),
+    };
+  } catch (e) {
+    log_('meals prefill failed', clip(e && e.message ? e.message : e, 200));
+    return { baby: plain, hardship: plain };
+  }
 }
 
 function addRequestQuestions_(form, c) {
-  var short = function (n) {
-    return FormApp.createTextValidation().setHelpText('Up to ' + n + ' characters.').requireTextLengthLessThanOrEqualTo(n).build();
-  };
+  if (c.Id === MEAL_REQUEST_ID) return addMealQuestions_(form);
+  var short = shortText_;
   form.addTextItem().setTitle(REQ_Q.name).setRequired(true).setValidation(short(80));
   form.addTextItem().setTitle(REQ_Q.contact).setRequired(true).setValidation(short(100));
   if (c.Id === 'moving') {
@@ -5511,6 +5760,7 @@ function addRequestQuestions_(form, c) {
 }
 
 function requestFormConfirmation_(c) {
+  if (c.Id === MEAL_REQUEST_ID) return MEAL_TEXT.confirmation;
   return c.Id === GIVING_ID ? GIVING_TEXT.confirmation : 'Thank you. A leader will contact you.';
 }
 
@@ -5518,23 +5768,29 @@ function requestFormConfirmation_(c) {
  * The request tab of a request sheet, with any header this version needs added at the end (a
  * sheet made before a header existed, e.g. Offer, keeps working).
  */
-function requestTable_(ss, row) {
+function requestTable_(ss, row, categoryId) {
   var t = tabOf_(ss, REQUEST_TAB);
   var missing = Object.keys(row || {}).filter(function (k) {
     return t.headers.indexOf(k) < 0;
   });
   if (!missing.length) return t;
-  ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(requestHeadersFor_(categoryId)).concat(Object.keys(row))));
   return tabOf_(ss, REQUEST_TAB);
 }
 
+/** The request sheet's headers for a kind: the standard ones, then the meals ones (2.6). */
+function requestHeadersFor_(categoryId) {
+  return categoryId === MEAL_REQUEST_ID ? REQUEST_HEADERS.concat(MEAL_REQUEST_HEADERS) : REQUEST_HEADERS;
+}
+
 /** Adds any request-sheet column this version needs (e.g. Make opportunity) to an older sheet. */
-function ensureRequestColumns_(ss) {
+function ensureRequestColumns_(ss, categoryId) {
   var t = tabOf_(ss, REQUEST_TAB);
-  var missing = REQUEST_HEADERS.filter(function (h) {
+  var want = requestHeadersFor_(categoryId);
+  var missing = want.filter(function (h) {
     return t.headers.indexOf(h) < 0;
   });
-  if (missing.length) ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  if (missing.length) ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(want)));
   else writeHeaderNotes_(ss.getSheetByName(REQUEST_TAB), REQUEST_TAB, t.headers); // 2.5.3: Set up refreshes the notes
 }
 
@@ -5846,7 +6102,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
         if (problems) problems.push('Could not open the ' + c.Name + ' form to refresh its wording (' + clip(e && e.message ? e.message : e, 120) + ').');
       }
       try {
-        if (rec['Sheet id']) ensureRequestColumns_(SpreadsheetApp.openById(rec['Sheet id']));
+        if (rec['Sheet id']) ensureRequestColumns_(SpreadsheetApp.openById(rec['Sheet id']), c.Id);
       } catch (e) {
         if (problems) problems.push('Could not open the ' + c.Name + ' request sheet to add its new columns (' + clip(e && e.message ? e.message : e, 120) + ').');
       }
@@ -5855,7 +6111,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
     var folderName = 'Requests – ' + c.Name;
     var existing = portal.getFoldersByName(folderName);
     var folder = existing.hasNext() ? existing.next() : portal.createFolder(folderName);
-    var ss = newRequestSheet_(folder, c.Name, month);
+    var ss = newRequestSheet_(folder, c.Name, month, requestHeadersFor_(c.Id));
     var form = newRequestForm_(s, c, portal, problems);
     form
       .setDescription(requestFormDescription_(s, c))
@@ -5898,6 +6154,22 @@ function alertAdmins_(lines) {
   admins.forEach(function (to) {
     sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
   });
+}
+
+/**
+ * Meals (2.6): every answer into its own column (MEAL_MAP), plus the standard Name and Phone or
+ * email (the mother, or the person asking), so the sheet reads like the other request sheets.
+ */
+function mealRequestRow_(answers, row) {
+  MEAL_MAP.forEach(function (m) {
+    if (m[0] in answers) row[m[1]] = clip(String(answers[m[0]]).trim(), m[2]);
+  });
+  var baby = row['Meals for'] !== MEAL_FOR[1];
+  var name = baby ? row["Mom's name"] || row["Dad's name"] : row['Adult name'];
+  var phone = baby ? row["Mom's phone"] || row["Dad's phone"] : row['Adult phone'];
+  if (name) row.Name = clip(name, 80);
+  if (phone) row['Phone or email'] = clip(phone, 100);
+  return row;
 }
 
 /** Removes every answer string from a message, so logs never carry request text. */
@@ -5958,7 +6230,8 @@ function gpOnRequestSubmit(e) {
       REQ_MAP.forEach(function (m) {
         if (m[0] in answers) row[m[1]] = clip(answers[m[0]].trim(), m[2]);
       });
-      requestTable_(SpreadsheetApp.openById(file['Sheet id']), row).append(row);
+      if (cat.Id === MEAL_REQUEST_ID) mealRequestRow_(answers, row);
+      requestTable_(SpreadsheetApp.openById(file['Sheet id']), row, cat.Id).append(row);
       return { file: file, cat: cat };
     });
     step = 'unform';
@@ -6016,7 +6289,7 @@ function dailyRequests_() {
 function rotateRequestFile_(f, filesT, oldTable, cat, today, trashed) {
   var month = today.slice(0, 7);
   var name = cat ? cat.Name : f['Category id'];
-  var headers = uniq_(oldTable.headers.filter(String).concat(REQUEST_HEADERS));
+  var headers = uniq_(oldTable.headers.filter(String).concat(requestHeadersFor_(f['Category id'])));
   var folder = DriveApp.getFolderById(f['Folder id']);
   var fresh = newRequestSheet_(folder, name, month, headers);
   var carry = oldTable.rows();
@@ -7051,4 +7324,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: each card's \"Show QR Code\" button opens the hub's existing QR pop-up, the same\n  function the hub's other cards call (openQR(title, link) here; if the hub's function has\n  another name, use that name in both buttons). No QR image files are needed. A hub without a\n  QR pop-up can leave each button out (from <button to </button>). A card whose short link is\n  not set yet has no button; add the short link in Settings and make the hub files again.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */\n  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }\n  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }\n  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }\n  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }\n  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }\n  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }\n  .gp-hub-top { display: flex; align-items: stretch; }\n  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }\n  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }\n  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }\n  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }\n  .gp-hub-qr:hover { background: #f4f7fc; }\n  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }\n  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }\n  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }\n</style>\n<div class=\"gp-hub-cols\">\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n    <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"serve.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Ways to serve in {{WARD_NAME}}</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{SERVE_SHORT_LINK}}</div>\n    </div>\n  </section>\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n    <h2 id=\"gp-hub-help\">Service Requests</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"help.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Request help or service</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Requests','https://{{HELP_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{HELP_SHORT_LINK}}</div>\n    </div>\n  </section>\n</div>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "914d6175ec5a";
+var GP_BUILD = "a5099d529e36";

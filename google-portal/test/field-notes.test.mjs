@@ -27,14 +27,14 @@ describe('the FIELD_NOTES table', () => {
     for (const [key] of gp.SETTINGS_ROWS) ok(N.settings[key]);
     for (const [tab, headers] of Object.entries(gp.SERVICE_HEADERS)) for (const h of headers) ok(N.tabs[tab]?.[h]);
     for (const [tab, headers] of Object.entries(gp.SYSTEM_HEADERS)) for (const h of headers) ok(N.system[tab]?.[h]);
-    for (const h of gp.REQUEST_HEADERS) ok(N.requestSheet[h]);
+    for (const h of [...gp.REQUEST_HEADERS, ...gp.MEAL_REQUEST_HEADERS]) ok(N.requestSheet[h]);
   });
 
   it('has no entry for a key or header that does not exist (no stale notes)', () => {
     expect(Object.keys(N.settings).sort()).toEqual(gp.SETTINGS_ROWS.map((r) => r[0]).sort());
     for (const [tab, t] of Object.entries(N.tabs)) expect(Object.keys(t).sort()).toEqual([...gp.SERVICE_HEADERS[tab]].sort());
     for (const [tab, t] of Object.entries(N.system)) expect(Object.keys(t).sort()).toEqual([...gp.SYSTEM_HEADERS[tab]].sort());
-    expect(Object.keys(N.requestSheet).sort()).toEqual([...gp.REQUEST_HEADERS].sort());
+    expect(Object.keys(N.requestSheet).sort()).toEqual([...gp.REQUEST_HEADERS, ...gp.MEAL_REQUEST_HEADERS].sort());
   });
 
   it('uses only invented addresses and hosts', () => {

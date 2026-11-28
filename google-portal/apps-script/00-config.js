@@ -137,6 +137,17 @@ var SYSTEM_HEADERS = {
 var REQUEST_TAB = 'Requests';
 var REQUEST_HEADERS = ['Request id', 'Received', 'Kind', 'Name', 'Phone or email', 'Moving', 'Moving date', 'For', 'Note', 'Offer', 'Status', 'Assigned to', 'Leader note', 'Closed on', 'Make opportunity', 'Copy contact to private details', 'Posted as'];
 var REQUEST_STATUS = ['New', 'In progress', 'Done', 'Declined'];
+/**
+ * The meals request sheet's own columns (2.6, decision 28), after the standard ones: one per form
+ * answer, then the columns the coordinators fill in by hand after the birth.
+ */
+var MEAL_REQUEST_HEADERS = [
+  'Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Due date', 'Induction date', 'Boy, girl or surprise',
+  'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email',
+  'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone',
+  'Adults', 'Kids', 'Allergies', 'Favorite foods',
+  "Baby's name", 'Gender', 'Birth date', 'Photo link', 'Shared with RS',
+];
 
 /** Tabs only the script writes; Sync sharing protects them (owner only). */
 var PROTECTED_TABS = ['Posts', 'Slots', 'Sign-ups', 'Volunteers', 'Needs help soon'];
@@ -157,13 +168,13 @@ var VOLUNTEER_STATUS = { pending: 'Pending', approved: 'Approved', declined: 'De
 var CATEGORY_KIND = { opportunity: 'Opportunity', request: 'Request' };
 
 /** Column types, by header name (any tab). Read back as text; written with format '@'. */
-var DATE_COLS = ['Date', 'Moving date', 'Closed on', 'Day'];
+var DATE_COLS = ['Date', 'Moving date', 'Closed on', 'Day', 'Due date', 'Induction date', 'Birth date'];
 var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received', 'Added at'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
-var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details'];
+var TEXT_COLS = ['Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Boy, girl or surprise', 'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email', 'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone', 'Adults', 'Kids', 'Allergies', 'Favorite foods', "Baby's name", 'Gender', 'Photo link', 'Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
+var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details', 'Shared with RS'];
 
 /** Settings rows: [key, default, help]. */
 var SETTINGS_ROWS = [
@@ -393,6 +404,41 @@ var FIELD_NOTES = {
     'Make opportunity': ['Tick to make a Draft opportunity from this request within the hour (only for kinds with an Opportunity category).', 'The box unticks itself.', 'Example: ticked'],
     'Copy contact to private details': ['Tick with Make opportunity to put the name and phone or email in the draft\'s private details.', 'Unticked: not copied.', 'Example: ticked'],
     'Posted as': ['What Make opportunity did. Written by the script: Draft made <date> — finish and publish it on the leader page (<title>, <post id>), or Not made: <why>.', 'Example: Draft made 2026-12-01 — finish and publish it on the leader page (Moving help, p1a2b3)'],
+    // Meals request sheet (2.6, decision 28): one column per form answer, then the hand columns.
+    'Meals for': ['Meals: the first answer, A new baby or A member in hardship. Make opportunity picks the category from it.', 'Example: A new baby'],
+    "Mom's name": ['Meals (new baby): the mother\'s name.', 'Blank: not given.', 'Example: Anna Sample'],
+    "Mom's phone": ['Meals (new baby): the mother\'s phone. Private: only in the draft\'s private details when she is ticked to coordinate.', 'Example: 555-0100'],
+    "Mom's email": ['Meals (new baby): the mother\'s email. Goes to the post\'s Family emails when she is ticked to coordinate.', 'Blank: not given.', 'Example: anna.sample@example.test'],
+    "Dad's name": ['Meals (new baby): the father\'s name.', 'Blank: not given.', 'Example: Ben Sample'],
+    "Dad's phone": ['Meals (new baby): the father\'s phone. Private, like Mom\'s phone.', 'Blank: not given.', 'Example: 555-0101'],
+    "Dad's email": ['Meals (new baby): the father\'s email. Goes to Family emails when he is ticked to coordinate.', 'Blank: not given.', 'Example: ben.sample@example.test'],
+    'Due date': ['Meals (new baby): the due date, YYYY-MM-DD (a best guess is fine).', 'Example: 2027-01-15'],
+    'Induction date': ['Meals (new baby): a planned induction date, YYYY-MM-DD.', 'Blank: none planned.', 'Example: 2027-01-10'],
+    'Boy, girl or surprise': ['Meals (new baby): Boy, Girl or Surprise.', 'Blank: not answered.', 'Example: Surprise'],
+    'Adult name': ['Meals (hardship): the name of the person asking.', 'Blank: a new-baby request.', 'Example: Sister Sample'],
+    'Adult phone': ['Meals (hardship): their phone. Private: only in the draft\'s private details.', 'Example: 555-0102'],
+    'Adult email': ['Meals (hardship): their email. Goes to Family emails when they are ticked to coordinate.', 'Blank: not given.', 'Example: sister.sample@example.test'],
+    'Second adult name': ['Meals (hardship): an optional second adult in the home.', 'Blank: none.', 'Example: Brother Sample'],
+    'Second adult phone': ['Meals (hardship): the second adult\'s phone. Private.', 'Blank: none.', 'Example: 555-0103'],
+    'Second adult email': ['Meals (hardship): the second adult\'s email.', 'Blank: none.', 'Example: brother.sample@example.test'],
+    Address: ['Meals: where meals go. Private: only in the draft\'s private details.', 'Example: 123 Example Lane'],
+    'Meals start': ['Meals: when meals should start, as they wrote it.', 'Blank: not answered.', 'Example: 3 days after baby comes'],
+    'How often': ['Meals: Daily, Every other day or Specific dates.', 'Example: Every other day'],
+    'Specific dates': ['Meals: the dates they asked for, when How often is Specific dates.', 'Blank: not specific dates.', 'Example: Jan 18, 20 and 22'],
+    'Drop-off window': ['Meals: the best time to drop meals off. Public on the post.', 'Blank: not answered.', 'Example: 5:30-6:30 pm'],
+    'Drop-off': ['Meals: Regular drop-off (knock or doorbell) or Quiet drop-off (text on arrival). Public on the post.', 'Example: Quiet drop-off (text on arrival)'],
+    'Coordinate with': ['Meals: who the sisters should coordinate with: Mom, Dad, Other (new baby) or Me, The second adult, Other (hardship).', 'Blank: nobody ticked.', 'Example: Mom, Dad'],
+    'Other contact name': ['Meals: the Other person to coordinate with. Private.', 'Blank: Other not ticked.', 'Example: Sister Helper'],
+    'Other contact phone': ['Meals: the Other person\'s phone. Private.', 'Blank: Other not ticked.', 'Example: 555-0104'],
+    Adults: ['Meals: how many adults the meals should feed, including extra help.', 'Blank: not answered.', 'Example: 2'],
+    Kids: ['Meals: how many kids the meals should feed.', 'Blank: not answered.', 'Example: 3'],
+    Allergies: ['Meals: allergies, restrictions or dislikes. Public on the post, shown first.', 'Blank: none given.', 'Example: No peanuts'],
+    'Favorite foods': ['Meals: favorite foods or cuisines. Public on the post.', 'Blank: none given.', 'Example: Mexican, soups'],
+    "Baby's name": ['Meals (new baby): filled in by hand after the birth.', 'Blank: not yet.', 'Example: Ella'],
+    Gender: ['Meals (new baby): filled in by hand after the birth.', 'Blank: not yet.', 'Example: Girl'],
+    'Birth date': ['Meals (new baby): filled in by hand after the birth, YYYY-MM-DD.', 'Blank: not yet.', 'Example: 2027-01-12'],
+    'Photo link': ['Meals (new baby): a link to a photo the family shared, filled in by hand.', 'Blank: none.', 'Example: https://photos.example.test/ella'],
+    'Shared with RS': ['Tick this when baby is here, this row is complete, and the Relief Society presidency has been told they can open and review it.', 'Unticked: not shared yet.', 'Example: ticked'],
   },
 };
 

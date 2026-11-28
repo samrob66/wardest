@@ -489,6 +489,42 @@ class FakeItem {
     this.includesYear = b;
     return this;
   }
+  // 2.6: sections and branching (PageBreakItem, choice navigation) and prefilled links.
+  createChoice(value, navigation) {
+    return { value, navigation: navigation || null };
+  }
+  setChoices(choices) {
+    this.choices = choices.map((c) => c.value);
+    this.navigation = choices.map((c) => c.navigation);
+    return this;
+  }
+  setGoToPage(page) {
+    this.goToPage = page;
+    return this;
+  }
+  asMultipleChoiceItem() {
+    if (this.type !== 'MULTIPLE_CHOICE') throw new Error('Item is not a multiple choice item');
+    return this;
+  }
+  createResponse(value) {
+    if (this.type === 'MULTIPLE_CHOICE' && !this.choices.includes(value)) throw new Error(`Not a choice: ${value}`);
+    return { item: this, value };
+  }
+}
+
+class FakeFormResponse {
+  constructor(form) {
+    this.form = form;
+    this.itemResponses = [];
+  }
+  withItemResponse(r) {
+    this.itemResponses.push(r);
+    return this;
+  }
+  toPrefilledUrl() {
+    const q = this.itemResponses.map((r) => `entry.${r.item.id}=${encodeURIComponent(r.value)}`).join('&');
+    return `${this.form.getPublishedUrl()}?usp=pp_url&${q}`;
+  }
 }
 
 export class FakeForm {
@@ -595,6 +631,51 @@ export class FakeForm {
     const i = new FakeItem(this, 'DATE');
     this.items.push(i);
     return i;
+  }
+  addCheckboxItem() {
+    const i = new FakeItem(this, 'CHECKBOX');
+    this.items.push(i);
+    return i;
+  }
+  addPageBreakItem() {
+    const i = new FakeItem(this, 'PAGE_BREAK');
+    this.items.push(i);
+    return i;
+  }
+  createResponse() {
+    return new FakeFormResponse(this);
+  }
+  /**
+   * The questions a person sees when they answer the first multiple choice with `choice`
+   * (sections: page breaks; a choice's navigation jumps to its page; a page break's goToPage is
+   * where the section before it continues). Returns the titles in order.
+   */
+  pathFor(choice) {
+    const pages = [[]];
+    const breaks = [null];
+    for (const it of this.items) {
+      if (it.type === 'PAGE_BREAK') {
+        pages.push([]);
+        breaks.push(it);
+      } else pages[pages.length - 1].push(it);
+    }
+    const seen = [];
+    let p = 0;
+    let guard = 0;
+    while (p < pages.length && guard++ < 50) {
+      let jump = null;
+      for (const it of pages[p]) {
+        seen.push(it.title);
+        if (it.type === 'MULTIPLE_CHOICE' && it.navigation && it.choices.includes(choice)) {
+          const nav = it.navigation[it.choices.indexOf(choice)];
+          if (nav) jump = breaks.indexOf(nav);
+        }
+      }
+      if (jump !== null && jump > 0) p = jump;
+      else if (p + 1 < pages.length && breaks[p + 1].goToPage) p = breaks.indexOf(breaks[p + 1].goToPage);
+      else p++;
+    }
+    return seen;
   }
   getItems() {
     return this.items.slice();
