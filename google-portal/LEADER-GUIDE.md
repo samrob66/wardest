@@ -82,10 +82,11 @@ need with **Remove**; they get an email.
 their confirmation email, their reminder the day before and their **My sign-ups** page, and
 only until the date is over. Never on a public page.
 
-**What volunteers' emails offer.** The one button is **See all your sign-ups** (the
-day-before reminder has no button); cancelling, or withdrawing an offer that came in after a
-role filled, is a small text link, *Can't make it? Cancel my sign-up*, so the email doesn't
-invite people to cancel.
+**What volunteers' emails offer.** The one button is **See all your sign-ups**, in the
+*You're signed up* email and in the day-before reminder; cancelling, or withdrawing an offer
+that came in after a role filled, is a small text link under it, *Can't make it? Cancel my
+sign-up*, so the email doesn't invite people to cancel. The newest email's My sign-ups link is
+the one that works.
 
 **Needs help soon** (ward council and bishopric). Every open role still short in the next 14
 days, soonest first, with a link to share. The same list is the Service Sheet's **Needs help

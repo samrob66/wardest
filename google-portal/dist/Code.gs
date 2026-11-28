@@ -6577,7 +6577,9 @@ function writeNeedsHelpTab_() {
  * volunteer is approved (or on the Leaders tab) now: a revoked volunteer's sign-up stays but gets
  * no details. Due sign-ups are claimed (Reminded at stamped) under the lock from a fresh read, so
  * someone who cancels or is removed before the claim gets nothing; the emails go out after the
- * lock is released. Details sent at records when details went out.
+ * lock is released. Details sent at records when details went out. 2.4.1: each reminded address
+ * gets ONE new My sign-ups link per run (made with the claim; it replaces the older link, since the
+ * reminder is the newest email), shared by all its reminders in that run.
  */
 function sendReminders_() {
   var s = settings_();
@@ -6590,6 +6592,7 @@ function sendReminders_() {
     var signupsT = serviceTab_(TAB.signups);
     var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
     var leaderList = leaderEmails_();
+    var meByEmail = {};
     return remindersDue(d.signups, slotsById, postsById, now, s.reminder_hour).map(function (id) {
       var su = byId[id];
       var post = postsById[su['Post id']];
@@ -6601,7 +6604,10 @@ function sendReminders_() {
       var slot = slotsById[su['Slot id']];
       // The cancel link is made with the claim, so a stamped reminder always has its email.
       var token = issueToken_('cancel', su['Sign-up id'], addDays(slot.Date, 1) + ' 23:59');
-      return mailMsg_(normEmail(su.Email), tplReminder_(s, post, slot, su, pageUrl_(s, 'confirm', { t: token }), details), 'high');
+      var e = normEmail(su.Email);
+      if (!meByEmail[e]) meByEmail[e] = issueMeToken_(e, d.signups, slotsById);
+      var meUrl = pageUrl_(s, 'me', { t: meByEmail[e] });
+      return mailMsg_(e, tplReminder_(s, post, slot, su, pageUrl_(s, 'confirm', { t: token }), details, meUrl), 'high');
     });
   });
   sendAll_('reminder', claimed);
@@ -6705,4 +6711,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "e99932fbaad3";
+var GP_BUILD = "828cee8a85f0";

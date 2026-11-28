@@ -241,7 +241,9 @@ function writeNeedsHelpTab_() {
  * volunteer is approved (or on the Leaders tab) now: a revoked volunteer's sign-up stays but gets
  * no details. Due sign-ups are claimed (Reminded at stamped) under the lock from a fresh read, so
  * someone who cancels or is removed before the claim gets nothing; the emails go out after the
- * lock is released. Details sent at records when details went out.
+ * lock is released. Details sent at records when details went out. 2.4.1: each reminded address
+ * gets ONE new My sign-ups link per run (made with the claim; it replaces the older link, since the
+ * reminder is the newest email), shared by all its reminders in that run.
  */
 function sendReminders_() {
   var s = settings_();
@@ -254,6 +256,7 @@ function sendReminders_() {
     var signupsT = serviceTab_(TAB.signups);
     var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
     var leaderList = leaderEmails_();
+    var meByEmail = {};
     return remindersDue(d.signups, slotsById, postsById, now, s.reminder_hour).map(function (id) {
       var su = byId[id];
       var post = postsById[su['Post id']];
@@ -265,7 +268,10 @@ function sendReminders_() {
       var slot = slotsById[su['Slot id']];
       // The cancel link is made with the claim, so a stamped reminder always has its email.
       var token = issueToken_('cancel', su['Sign-up id'], addDays(slot.Date, 1) + ' 23:59');
-      return mailMsg_(normEmail(su.Email), tplReminder_(s, post, slot, su, pageUrl_(s, 'confirm', { t: token }), details), 'high');
+      var e = normEmail(su.Email);
+      if (!meByEmail[e]) meByEmail[e] = issueMeToken_(e, d.signups, slotsById);
+      var meUrl = pageUrl_(s, 'me', { t: meByEmail[e] });
+      return mailMsg_(e, tplReminder_(s, post, slot, su, pageUrl_(s, 'confirm', { t: token }), details, meUrl), 'high');
     });
   });
   sendAll_('reminder', claimed);

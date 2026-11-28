@@ -3,7 +3,9 @@ import { loadPortal, seedPost, setSetting, addLeader, MORE_BISHOPRIC } from './h
 import { OWNER_EMAIL } from './fakes.mjs';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
-const tokenFrom = (text) => /#t=([0-9a-f]{64})/.exec(text)[1];
+// The cancel link (2.4.1: the reminder's My sign-ups link comes first).
+const tokenFrom = (text) => /confirm[^\s"]*#t=([0-9a-f]{64})/.exec(text)[1];
+const meTokens = (text) => [...text.matchAll(/me(?:\.html|\?page=me)?#t=([0-9a-f]{64})/g)].map((x) => x[1]);
 /** The System Sheet in use (Set up makes a new one). */
 const sys = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'));
 
@@ -45,6 +47,37 @@ describe('gpHourly', () => {
     const info = plain(gp.apiTokenInfo_({ t: tokenFrom(m.body) }));
     expect(info).toMatchObject({ ok: true, status: 'Confirmed', date: '2026-12-02' });
     expect(plain(gp.apiCancel_({ t: tokenFrom(m.body) })).ok).toBe(true);
+  });
+
+  it('2.4.1: the reminder has the See all your sign-ups button, then the cancel text link; the link opens My sign-ups', () => {
+    const gp = withSignup();
+    gp.fakes.setNow('2026-12-01 18:00');
+    gp.gpHourly();
+    const m = gp.fakes.mail.sent[0];
+    const me = meTokens(m.body);
+    expect(me).toHaveLength(1);
+    expect(m.body.indexOf('See all your sign-ups')).toBeLessThan(m.body.indexOf('Cancel my sign-up'));
+    expect(m.htmlBody.indexOf('See all your sign-ups')).toBeGreaterThan(-1);
+    expect(m.htmlBody.indexOf('See all your sign-ups')).toBeLessThan(m.htmlBody.indexOf('Cancel my sign-up'));
+    expect(m.htmlBody.match(/background:#1d3557/g)).toHaveLength(1);
+    const r = plain(gp.apiMe_({ t: me[0] }));
+    expect(r.ok).toBe(true);
+    expect(JSON.stringify(r)).toContain('Meals for the Sample family');
+  });
+
+  it('2.4.1: two reminders to one address in one run share one working My sign-ups link', () => {
+    const gp = loadPortal({ seed: true });
+    seedPost(gp, {}, [{ 'Slot id': 'm1', Date: '2026-12-02', Start: '17:00', Needed: 3 }, { 'Slot id': 'm2', Date: '2026-12-02', Start: '19:00', Needed: 3 }]);
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm1', name: 'Brother Volunteer', email: 'brother.volunteer@example.test' });
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Brother Volunteer', email: 'brother.volunteer@example.test' });
+    gp.fakes.mail.sent.length = 0;
+    gp.fakes.setNow('2026-12-01 18:00');
+    gp.gpHourly();
+    const reminders = gp.fakes.mail.sent.filter((m) => m.subject.startsWith('Reminder'));
+    expect(reminders).toHaveLength(2);
+    const links = reminders.map((m) => meTokens(m.body)[0]);
+    expect(links[0]).toBe(links[1]);
+    expect(plain(gp.apiMe_({ t: links[0] })).ok).toBe(true);
   });
 
   it('marks a post Past after its last date and it leaves serve', () => {
