@@ -85,9 +85,13 @@ GP.footer();
         type: 'button',
         class: 'gp-light gp-sm',
         'aria-pressed': String(filter === f),
+        'data-focus': 'f-' + f.toLowerCase(),
         onclick: function () {
           filter = f;
           render();
+          // Re-drawing replaces the buttons: give focus back to the one just pressed.
+          var again = typeof main.querySelector === 'function' ? main.querySelector('[data-focus="f-' + f.toLowerCase() + '"]') : null;
+          if (again && typeof again.focus === 'function') again.focus();
         },
       }, label(f));
     }));

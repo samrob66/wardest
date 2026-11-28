@@ -263,23 +263,51 @@ GP.footer();
     }, function () {});
   }
 
+  /**
+   * The bottom sheet: focus moves into it, Escape closes it, and closing it without choosing gives
+   * focus back to the button that opened it.
+   */
   function openSheet(title, options) {
-    var close = function () {
+    var opener = document.activeElement || null;
+    var close = function (back) {
       GP.clear(sheetHost);
+      if (back && opener && typeof opener.focus === 'function') opener.focus();
     };
+    var buttons = options.map(function (o) {
+      return el('button', {
+        type: 'button',
+        class: 'gp-opt' + (o.red ? ' gp-red' : ''),
+        onclick: function () {
+          close(false);
+          o.run();
+        },
+      }, [GP.icon(o.icon), o.label]);
+    }).concat([el('button', { type: 'button', class: 'gp-opt', onclick: function () { close(true); } }, [GP.icon('x'), 'Close this menu'])]);
     GP.show(sheetHost, [
-      el('div', { class: 'gp-scrim', onclick: close }),
-      el('div', { class: 'gp-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, [el('div', { class: 'gp-grab' }), el('h2', {}, title)].concat(options.map(function (o) {
-        return el('button', {
-          type: 'button',
-          class: 'gp-opt' + (o.red ? ' gp-red' : ''),
-          onclick: function () {
-            close();
-            o.run();
-          },
-        }, [GP.icon(o.icon), o.label]);
-      })).concat([el('button', { type: 'button', class: 'gp-opt', onclick: close }, [GP.icon('x'), 'Close this menu'])])),
+      el('div', { class: 'gp-scrim', onclick: function () { close(true); } }),
+      el('div', {
+        class: 'gp-sheet',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': title,
+        onkeydown: function (e) {
+          if (e.key === 'Escape') close(true);
+        },
+      }, [el('div', { class: 'gp-grab' }), el('h2', {}, title)].concat(buttons)),
     ]);
+    if (typeof buttons[0].focus === 'function') buttons[0].focus();
+  }
+
+  /** The data-focus key of the control that has focus, so a re-render can give it focus back. */
+  function focusKey() {
+    var a = document.activeElement;
+    return a && typeof a.getAttribute === 'function' ? a.getAttribute('data-focus') : null;
+  }
+
+  function refocus(key) {
+    if (!key || typeof main.querySelector !== 'function') return;
+    var n = main.querySelector('[data-focus="' + key + '"]');
+    if (n && typeof n.focus === 'function') n.focus();
   }
 
   /** The page-level ••• (who is signed in, Sign out everywhere). */
@@ -301,6 +329,7 @@ GP.footer();
   var TITLES = { opps: 'Opportunities', waiting: 'Waiting for approval', needs: 'Needs help soon', volunteers: 'Volunteers' };
 
   function render() {
+    var key = focusKey();
     var head = GP.$('gp-head');
     if (head) head.className = 'gp-head gp-signin gp-hidden';
     GP.clear(sheetHost);
@@ -312,6 +341,7 @@ GP.footer();
       parts.push(formScreen(note));
       parts.push(sheetHost);
       GP.show(main, parts);
+      refocus(key);
       return;
     }
     var body = el('div', { class: 'gp-pad' });
@@ -863,7 +893,7 @@ GP.footer();
     items.push(state.cancelBox);
     if (multiDate) {
       // The day strip: one date at a time (or all of them).
-      var strip = [el('button', { type: 'button', class: 'gp-all', 'aria-pressed': String(!state.day), onclick: function () { state.day = ''; drawPost(body, p); } }, 'All ' + dates.length)];
+      var strip = [el('button', { type: 'button', class: 'gp-all', 'data-focus': 'strip-all', 'aria-pressed': String(!state.day), onclick: function () { state.day = ''; drawPost(body, p); refocus('strip-all'); } }, 'All ' + dates.length)];
       dates.forEach(function (d) {
         var full = p.slots.filter(function (s) {
           return s.date === d;
@@ -875,9 +905,11 @@ GP.footer();
           type: 'button',
           'aria-pressed': String(state.day === d),
           'aria-label': GP.fmtLong(d) + (full ? ', filled' : ', still short'),
+          'data-focus': 'strip-' + d,
           onclick: function () {
             state.day = d;
             drawPost(body, p);
+            refocus('strip-' + d);
           },
         }, [
           el('span', { class: 'gp-sw-w' }, t.dow),
@@ -1242,7 +1274,7 @@ GP.footer();
     var childNote = el('p', { class: 'gp-meta' + (f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0 ? '' : ' gp-hidden') },
       'Who is serving: the sign-up form asks "Me / My child" and takes a child\'s first name. Every email goes to the parent; you see "Ana (signed up by …)".');
     var title = bindText(el('input', { type: 'text', id: 'gp-title-in', maxlength: '100', value: f.title, placeholder: 'e.g. Meals for a family with a new baby' }), f, 'title');
-    var audiences = el('div', { class: 'gp-aud', role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {
+    var audiences = el('div', { class: 'gp-aud-pick', role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {
       var box = el('input', {
         type: 'checkbox',
         checked: f.audiences.indexOf(a) >= 0,
@@ -1286,6 +1318,7 @@ GP.footer();
         type: 'button',
         role: 'radio',
         'aria-checked': String(f.how === x[0]),
+        'data-focus': 'how-' + x[0],
         onclick: function () {
           if (f.how === x[0]) return;
           // Carry the dates across where it makes sense.
@@ -1357,6 +1390,7 @@ GP.footer();
         'aria-label': GP.fmtLong(d) + (n ? ', ' + n + (n === 1 ? ' other opportunity' : ' other opportunities') : ''),
         disabled: past && !on ? 'disabled' : null,
         'data-d': d,
+        'data-focus': 'day-' + d,
         onclick: function () {
           var k = f.picked.indexOf(d);
           if (k >= 0) f.picked.splice(k, 1);
@@ -1367,9 +1401,9 @@ GP.footer();
     });
     var cal = el('div', { class: 'gp-cal' }, [
       el('div', { class: 'gp-cal-head' }, [
-        el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Previous month', onclick: function () { f.month = GP.addMonths(f.month, -1); render(); } }, [GP.icon('chevL')]),
+        el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Previous month', 'data-focus': 'cal-prev', onclick: function () { f.month = GP.addMonths(f.month, -1); render(); } }, [GP.icon('chevL')]),
         el('strong', {}, month.title),
-        el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Next month', onclick: function () { f.month = GP.addMonths(f.month, 1); render(); } }, [GP.icon('chevR')]),
+        el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Next month', 'data-focus': 'cal-next', onclick: function () { f.month = GP.addMonths(f.month, 1); render(); } }, [GP.icon('chevR')]),
       ]),
       el('div', { class: 'gp-cal-grid' }, grid),
     ]);
@@ -1385,6 +1419,7 @@ GP.footer();
       return el('button', {
         type: 'button',
         'aria-pressed': String(f.days.indexOf(i) >= 0),
+        'data-focus': 'wd-' + i,
         onclick: function () {
           var k = f.days.indexOf(i);
           if (k >= 0) f.days.splice(k, 1);
@@ -1437,10 +1472,11 @@ GP.footer();
             type: 'button',
             class: 'gp-linkish',
             'aria-expanded': String(!!f.own[d]),
+            'data-focus': 'chg-' + d,
             onclick: function () {
               if (f.own[d]) {
                 if (!window.confirm('Use the same roles as the other dates for ' + GP.fmtDate(d) + '?')) return;
-                delete f.own[d];
+                backToShared(f, d);
               } else {
                 // This date gets its own copy of the roles, keeping the slots it already has.
                 f.own[d] = f.roles.map(function (r) {
@@ -1458,6 +1494,7 @@ GP.footer();
             type: 'button',
             class: 'gp-sw',
             role: 'switch',
+            'data-focus': 'sw-' + d,
             'aria-checked': String(!off),
             'aria-label': GP.fmtLong(d),
             onclick: function () {
@@ -1487,6 +1524,30 @@ GP.footer();
       parts.push(el('div', { class: 'gp-wk' }, rows));
     });
     return el('div', { class: 'gp-weeks' }, parts);
+  }
+
+  /**
+   * "Same as the others": the date goes back to the shared roles. Its slots keep their ids (and
+   * their sign-ups): each shared role takes the id of the date's own role with the same name, else
+   * the one in the same place.
+   */
+  function backToShared(f, d) {
+    var own = f.own[d] || [];
+    var used = {};
+    var ids = {};
+    f.roles.forEach(function (r, i) {
+      var hit = -1;
+      own.forEach(function (o, j) {
+        if (hit < 0 && !used[j] && o.slotId && o.role === r.role) hit = j;
+      });
+      if (hit < 0 && own[i] && !used[i] && own[i].slotId) hit = i;
+      if (hit >= 0) {
+        used[hit] = true;
+        ids[r.rk] = own[hit].slotId;
+      }
+    });
+    f.ids[d] = ids;
+    delete f.own[d];
   }
 
   /** Server errors on slots ('slots[3].role'), named by date and role. */

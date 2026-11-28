@@ -46,8 +46,18 @@ GP.footer();
     var input = el('input', { type: 'radio', name: 'gp-slot', value: s.slotId, disabled: open ? null : 'disabled' });
     input.disabled = !open;
     var label = el('label', { class: 'gp-choice' + (open ? '' : ' gp-choice-off') }, []);
+    // A tap (mouse, finger, pen) on the row also takes them to the name field; choosing with the
+    // arrow keys only selects, so the keyboard can still move through the rows.
+    var tapped = false;
+    label.addEventListener('pointerdown', function () {
+      tapped = true;
+    });
+    label.addEventListener('keydown', function () {
+      tapped = false;
+    });
     input.addEventListener('change', function () {
-      if (open) onPick(s, label);
+      if (open) onPick(s, label, !tapped);
+      tapped = false;
     });
     var when = GP.fmtTimes(s.start, s.end);
     var wd = GP.weekday(s.date);

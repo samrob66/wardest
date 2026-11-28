@@ -38,8 +38,13 @@ class FakeNode {
   addEventListener(type, fn) {
     (this.listeners[type] = this.listeners[type] || []).push(fn);
   }
-  querySelector() {
-    return null;
+  /** Only what the page asks for: [data-focus="key"]. */
+  querySelector(sel) {
+    const m = /^\[data-focus="(.+)"\]$/.exec(sel);
+    return m ? this.all().find((n) => n.attrs['data-focus'] === m[1]) || null : null;
+  }
+  focus() {
+    FakeNode.active = this;
   }
   set innerHTML(v) {
     if (v === '') this.children = [];
@@ -117,7 +122,11 @@ async function openLeader(answers, opts = {}) {
     getElementById: (id) => nodes[id] || null,
     addEventListener: (t, fn) => (docListeners[t] = docListeners[t] || []).push(fn),
     visibilityState: 'visible',
+    get activeElement() {
+      return FakeNode.active || null;
+    },
   };
+  FakeNode.active = null;
   const window = {
     location: { hash: opts.hash || '#k=leaderlink' },
     confirm: () => true,
@@ -324,6 +333,18 @@ describe('leader page: the Meadow layout', () => {
     expect(page.main.textContent).not.toContain('no longer on your list');
   });
 
+  it('••• moves focus into the sheet, Escape closes it and gives focus back to •••', async () => {
+    const page = await openLeader({ whoami: WHOAMI, listPosts: { ok: true, posts: [post()] } });
+    await page.openPost();
+    const more = page.find((n) => n.attrs['aria-label'] === 'More actions');
+    more.focus();
+    await page.click(more);
+    expect(FakeNode.active.textContent).toBe('Edit');
+    page.find((n) => n.className === 'gp-sheet').fire('keydown', { key: 'Escape' });
+    expect(page.findAll((n) => /^gp-opt/.test(n.className))).toEqual([]);
+    expect(FakeNode.active).toBe(more);
+  });
+
   it('the page-level ••• has Sign out everywhere', async () => {
     const page = await openLeader({ whoami: WHOAMI, listPosts: { ok: true, posts: [] }, signOutEverywhere: { ok: true, message: 'Signed out. A new link is on its way.' } });
     await page.click(page.find((n) => n.attrs['aria-label'] === 'More actions'));
@@ -388,6 +409,23 @@ describe('leader page: the scheduler', () => {
       ['2027-03-10', 'Bring dinner', ''],
       ['2027-03-12', 'Bring dinner', ''],
     ]);
+  });
+
+  it('a weekday, a skip switch or a calendar day keeps focus after the form redraws', async () => {
+    const page = await openLeader(base());
+    await newForm(page);
+    await everyMonWedFri(page);
+    const tue = page.find((n) => n.className === 'gp-days').children.find((b) => b.textContent === 'Tue');
+    tue.focus();
+    await page.click(tue);
+    expect(FakeNode.active).not.toBe(tue); // the form was redrawn...
+    expect(FakeNode.active.attrs['data-focus']).toBe('wd-2'); // ...and focus is back on Tue
+    expect(FakeNode.active.attrs['aria-pressed']).toBe('true');
+    const sw = page.find((n) => n.attrs.role === 'switch' && n.attrs['aria-label'] === 'Wednesday, March 3');
+    sw.focus();
+    await page.click(sw);
+    expect(FakeNode.active.attrs['data-focus']).toBe('sw-2027-03-03');
+    expect(FakeNode.active.attrs['aria-checked']).toBe('false');
   });
 
   it('skip one date: it stays listed (struck through) but is not saved', async () => {
@@ -502,6 +540,21 @@ describe('leader page: the scheduler', () => {
         ['a1', '2027-03-01', 'Bring dinner', '3'],
         ['a3', '2027-03-05', 'Bring dinner', '1'],
         ['a4', '2027-03-05', 'Clean up', '2'],
+      ]);
+    });
+
+    it('"Same as the others" on a date with its own roles keeps the matching slot id', async () => {
+      const slots = slotsOf();
+      const page = await openEdit(slots);
+      const row = page.findAll((n) => /^gp-drow( |$)/.test(n.className)).find((r) => r.textContent.includes('Mar 5'));
+      const back = inside(row, (n) => n.tagName === 'button' && n.textContent === 'Same as the others');
+      expect(back).toBeTruthy();
+      await page.click(back);
+      await page.click(page.button('Save changes'));
+      expect(saved(page).post.slots.map((x) => [x.slotId, x.date, x.role])).toEqual([
+        ['a1', '2027-03-01', 'Bring dinner'],
+        ['a2', '2027-03-03', 'Bring dinner'],
+        ['a3', '2027-03-05', 'Bring dinner'],
       ]);
     });
 

@@ -344,16 +344,17 @@ button.gp-pcard:hover { background: rgba(29, 53, 87, 0.03); }
 .gp-drow-r { display: inline-flex; align-items: center; gap: 0.5rem; }
 .gp-drow-own { flex-basis: 100%; margin: 0 0 0.6rem; padding: 0.4rem 0 0 0.75rem; border-left: 2px solid var(--gp-accent); }
 .gp-linkish { background: none; border: 0; padding: 0 0.25rem; margin: 0; min-height: 44px; font-size: 0.88rem; color: var(--gp-link); text-decoration: underline; text-underline-offset: 0.18em; }
-.gp-sw { position: relative; width: 50px; height: 30px; min-height: 30px; padding: 0; margin: 7px 0; border-radius: 999px; background: var(--gp-line-strong); border: 0; flex: none; }
-.gp-sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 999px; background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 0.2s; }
-.gp-sw[aria-checked='true'] { background: var(--gp-good); }
+.gp-sw { position: relative; width: 50px; height: 44px; min-height: 44px; padding: 0; margin: 0; border-radius: 0; background: transparent; border: 0; flex: none; }
+.gp-sw::before { content: ''; position: absolute; top: 7px; left: 0; width: 50px; height: 30px; border-radius: 999px; background: var(--gp-line-strong); transition: background 0.2s; }
+.gp-sw::after { content: ''; position: absolute; top: 10px; left: 3px; width: 24px; height: 24px; border-radius: 999px; background: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 0.2s; }
+.gp-sw[aria-checked='true']::before { background: var(--gp-good); }
 .gp-sw[aria-checked='true']::after { transform: translateX(20px); }
 .gp-cal { max-width: 360px; user-select: none; }
 .gp-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
 .gp-cal-head strong { color: var(--gp-heading); font-weight: normal; }
 .gp-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
 .gp-cal-dow { font-size: 0.74rem; text-align: center; color: var(--gp-muted); padding: 0.2rem 0; }
-.gp-cal-day { position: relative; aspect-ratio: 1 / 1; min-height: 40px; margin: 0; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; font-size: 0.92rem; color: var(--gp-ink); font-variant-numeric: tabular-nums; }
+.gp-cal-day { position: relative; aspect-ratio: 1 / 1; min-height: 44px; margin: 0; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; font-size: 0.92rem; color: var(--gp-ink); font-variant-numeric: tabular-nums; }
 .gp-cal-day:hover { background: var(--gp-soft); border-color: var(--gp-line); }
 .gp-cal-day.gp-past { color: #a3acb8; text-decoration: line-through; }
 .gp-cal-day.gp-today { border-color: var(--gp-accent); }
@@ -366,9 +367,9 @@ button.gp-pcard:hover { background: rgba(29, 53, 87, 0.03); }
 .gp-stepper { display: inline-flex; align-items: center; border: 1px solid var(--gp-line-strong); border-radius: 4px; overflow: hidden; }
 .gp-stepper button { width: 44px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 0; background: #ffffff; color: var(--gp-heading); font-size: 1.2rem; }
 .gp-stepper input[type='number'] { width: 3.4rem; border: 0; border-radius: 0; text-align: center; padding: 0.3rem; }
-.gp-aud { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.gp-aud label { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0; padding: 0.35rem 0.75rem 0.35rem 0.5rem; border: 1px solid var(--gp-line-strong); border-radius: 4px; min-height: 44px; cursor: pointer; background: #ffffff; }
-.gp-aud input { width: 20px; height: 20px; accent-color: var(--gp-heading); }
+.gp-aud-pick { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.gp-aud-pick label { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0; padding: 0.35rem 0.75rem 0.35rem 0.5rem; border: 1px solid var(--gp-line-strong); border-radius: 4px; min-height: 44px; cursor: pointer; background: #ffffff; }
+.gp-aud-pick input { width: 20px; height: 20px; accent-color: var(--gp-heading); }
 .gp-savebar { position: sticky; bottom: 0; z-index: 12; display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.7rem 1rem calc(0.7rem + env(safe-area-inset-bottom)); background: rgba(252, 252, 250, 0.98); border-top: 1px solid var(--gp-heading); }
 .gp-savebar button { flex: 1 1 8rem; margin: 0; }
 .gp-errlist { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--gp-warn); font-size: 0.88rem; }

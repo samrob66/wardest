@@ -285,13 +285,33 @@ describe('post.html: one row per date and role (2.5)', () => {
     name.scrollIntoView = (o) => seen.push(['scroll', o.block]);
     name.focus = () => seen.push(['focus']);
     const [filled, open] = rows(main);
-    filled.children[0].listeners.change[0]();
+    const tap = (label) => {
+      for (const fn of label.listeners.pointerdown || []) fn({});
+      label.children[0].listeners.change[0]();
+    };
+    tap(filled);
     expect(seen).toEqual([]);
     expect(filled.className).toBe('gp-choice gp-choice-off');
     expect(rows(main).some((r) => r.className === 'gp-choice gp-choice-on')).toBe(false);
-    open.children[0].listeners.change[0]();
+    tap(open);
     expect(open.className).toBe('gp-choice gp-choice-on');
     expect(seen).toEqual([['scroll', 'center'], ['focus']]);
+  });
+
+  it('choosing a row with the arrow keys selects it without moving focus to the name field', async () => {
+    const doc = await renderPage('post', '#p=pubkids', {
+      post: { ok: true, ward: WARD, post: post({ audiences: ['Sisters'], slots: [slot({ slotId: 'o1' }), slot({ slotId: 'o2', date: '2026-12-04' })] }) },
+    });
+    const main = doc.ids['gp-main'];
+    const name = doc.ids['gp-name'];
+    const seen = [];
+    name.scrollIntoView = () => seen.push('scroll');
+    name.focus = () => seen.push('focus');
+    const [, second] = rows(main);
+    for (const fn of second.listeners.keydown || []) fn({ key: 'ArrowDown' });
+    second.children[0].listeners.change[0]();
+    expect(second.className).toBe('gp-choice gp-choice-on');
+    expect(seen).toEqual([]);
   });
 
   it('a link to one date (#d=) arrives with the first open row on that date chosen, without jumping', async () => {

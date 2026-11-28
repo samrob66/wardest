@@ -144,6 +144,14 @@ describe('theme settings', () => {
     expect(css).toMatch(/@media print\s*\{[^]*body::before/);
   });
 
+  it('touch targets: the skip switch and calendar days are 44px tall; the form\'s audience picker has its own class', () => {
+    const css = readFileSync(join(GP_DIR, 'pages', 'gp.css'), 'utf8');
+    expect(css).toMatch(/\.gp-sw \{[^}]*height: 44px[^}]*min-height: 44px/);
+    expect(css).toMatch(/\.gp-cal-day \{[^}]*min-height: 44px/);
+    expect(css).toMatch(/\.gp-aud-pick \{/);
+    expect(css).not.toMatch(/\.gp-aud label/);
+  });
+
   it('nothing from a real ward is in the portal sources', () => {
     for (const f of ['gp.css', ...PAGE_NAMES.map((n) => n + '.html')]) {
       // The real ward's short name, town and background picture, spelled indirectly so this
