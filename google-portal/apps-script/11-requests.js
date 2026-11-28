@@ -406,8 +406,8 @@ function familyName_(names) {
  * A meals draft (2.6, decision 28; changes decision 19 for meals only, by Sam's choice: "Go ahead
  * and include their names"). Public: the title "Meals for the <family> family", allergies, food
  * likes, how many it feeds, the drop-off window and kind, and the first names to coordinate
- * with. Private: the address, the phones of the people ticked to coordinate with, the Other
- * contact and the schedule asked for. Family emails: the addresses of the people ticked (or all
+ * with, and the schedule they asked for in the Public note (editable). Private: the address, the
+ * phones of the people ticked to coordinate with and the Other contact. Family emails: the addresses of the people ticked (or all
  * given, when nobody is ticked). No dates (the coordinator adds them once baby is here) and
  * Show on Serve = No (ministering sisters first). Never anything about ministering assignments.
  */
@@ -449,8 +449,15 @@ function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
   if (ticks.indexOf('Other') >= 0 && (v('Other contact name') || v('Other contact phone'))) {
     lines.push('Other contact: ' + [v('Other contact name'), v('Other contact phone')].filter(String).join(', '));
   }
-  var schedule = [v('Meals start') ? 'start ' + v('Meals start') : '', v('How often') + (v('Specific dates') ? ': ' + v('Specific dates') : '')].filter(String);
-  if (schedule.length) lines.push('Asked for: ' + schedule.join('; '));
+  // The schedule they asked for goes in the Public note, plain and editable (2.6 contract):
+  // "Meals start: 3 days after baby comes. How often: Every other day."
+  var bare = function (t) {
+    return String(t).replace(/[.\s]+$/, '');
+  };
+  var hint = [];
+  if (v('Meals start')) hint.push('Meals start: ' + bare(v('Meals start')) + '.');
+  if (v('How often')) hint.push('How often: ' + bare(v('How often')) + (v('Specific dates') ? ' (' + bare(v('Specific dates')) + ')' : '') + '.');
+  else if (v('Specific dates')) hint.push('Dates: ' + bare(v('Specific dates')) + '.');
   var postId = newId_('p');
   return {
     post: {
@@ -460,7 +467,7 @@ function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
       Category: String(oc.Id),
       Title: clip(family ? 'Meals for the ' + family + ' family' : 'Meals for a family', 100),
       Audiences: (audiencesOf_(oc['Default audiences']).length ? audiencesOf_(oc['Default audiences']) : ['Sisters']).join(', '),
-      'Public note': '',
+      'Public note': clip(hint.join(' '), 2000),
       'Private details': clip(lines.join('\n'), 1000),
       'Cancel cutoff hours': s.default_cancel_cutoff_hours,
       Status: POST_STATUS.draft,

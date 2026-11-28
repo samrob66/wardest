@@ -287,7 +287,7 @@ describe('task 4: Make opportunity makes a meal draft', () => {
       Audiences: 'Sisters',
       Status: 'Draft',
       Title: 'Meals for the Sample family',
-      'Public note': '',
+      'Public note': 'Meals start: 3 days after baby comes. How often: Every other day.',
       'Show on Serve': 'No',
       Allergies: 'No peanuts',
       'Food likes': 'Soups, Mexican',
@@ -298,7 +298,7 @@ describe('task 4: Make opportunity makes a meal draft', () => {
       'Family emails': 'anna.sample@example.test, ben.sample@example.test',
       Progress: '',
     });
-    expect(p['Private details']).toBe('Address: 123 Example Lane\nAnna: 555-0100\nBen: 555-0101\nAsked for: start 3 days after baby comes; Every other day');
+    expect(p['Private details']).toBe('Address: 123 Example Lane\nAnna: 555-0100\nBen: 555-0101');
     // No dates yet: the coordinator adds them once baby is here.
     expect(gp.fakes.spreadsheet.rowsOf('Slots').filter((s) => s['Post id'] === p['Post id'])).toEqual([]);
     // Public fields never carry the address, phones or emails.
@@ -323,7 +323,8 @@ describe('task 4: Make opportunity makes a meal draft', () => {
       Allergies: 'Vegetarian',
       'Show on Serve': 'No',
     });
-    expect(p['Private details']).toBe('Address: 9 Sample Court\nCarla: 555-0102\nOther contact: Dana Helper, 555-0104\nAsked for: Daily');
+    expect(p['Private details']).toBe('Address: 9 Sample Court\nCarla: 555-0102\nOther contact: Dana Helper, 555-0104');
+    expect(p['Public note']).toBe('How often: Daily.');
   });
 
   it('title: different last names give the first names; only Mom ticked gives only her email and phone', () => {
@@ -343,6 +344,8 @@ describe('task 4: Make opportunity makes a meal draft', () => {
     expect(p['Family emails']).toBe('anna.sample@example.test, ben.sample@example.test');
     const q = draftFrom(gp, { ...HARDSHIP_ANSWERS, 'Your name': '' });
     expect(q.Title).toBe('Meals for a family');
+    const r = draftFrom(gp, { ...BABY_ANSWERS, 'When should meals start?': 'Right away.', 'How often?': 'Specific dates', 'Which dates? (only for specific dates)': 'Jan 18, 20 and 22' });
+    expect(r['Public note']).toBe('Meals start: Right away. How often: Specific dates (Jan 18, 20 and 22).');
   });
 
   it('decision 19 is unchanged for other request kinds (Moving keeps a blank public draft with one date)', () => {
