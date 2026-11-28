@@ -47,7 +47,9 @@ GP.footer();
   function card(p) {
     var dates = p.firstDate === p.lastDate ? GP.fmtDate(p.firstDate) : GP.fmtDate(p.firstDate) + ' – ' + GP.fmtDate(p.lastDate);
     var aud = p.audiences || [];
-    return el('a', { class: 'gp-card gp-opp' + (p.full ? ' gp-full' : ''), href: GP.pageUrl('post', { p: p.publicId }) }, [
+    // 2.6: the category's picture as a thumbnail at the card's end (https only; none, layout unchanged).
+    var thumb = GP.picture(p.picture, 'gp-pic-thumb');
+    return el('a', { class: 'gp-card gp-opp' + (thumb ? ' gp-has-pic' : '') + (p.full ? ' gp-full' : ''), href: GP.pageUrl('post', { p: p.publicId }) }, [
       dateTile(p.firstDate),
       el('span', { class: 'gp-opp-body' }, [
         p.categoryName ? el('p', { class: 'gp-cat' }, [p.categoryIcon ? el('span', { class: 'gp-cat-icon', 'aria-hidden': 'true' }, p.categoryIcon) : null, p.categoryName]) : null,
@@ -63,6 +65,7 @@ GP.footer();
           ? el('p', { class: 'gp-filled' }, [GP.icon('check'), 'Filled'])
           : el('div', { class: 'gp-fill' }, [GP.fillBar(p.filled, p.needed), el('span', { class: 'gp-count' }, p.filled + ' of ' + p.needed + ' filled')]),
       ]),
+      thumb,
     ]);
   }
 

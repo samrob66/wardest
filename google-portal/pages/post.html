@@ -14,6 +14,7 @@
 <body>
 <main class="gp-wrap">
   <header class="gp-head">
+    <div id="gp-pic" class="gp-hidden"></div>
     <p class="gp-ward">{{WARD_NAME}}</p>
     <h1 id="gp-title">{{PAGE_TITLE}}</h1>
   </header>
@@ -244,9 +245,17 @@ GP.footer();
   function render(post, doneMessage) {
     GP.$('gp-title').textContent = post.title;
     document.title = post.title + ' · ' + GP.config().wardName;
+    // 2.6: the category's picture above the title (https only), and the meal details (allergies first).
+    var picBox = GP.$('gp-pic');
+    if (picBox) {
+      var pic = GP.picture(post.picture, 'gp-pic-top');
+      GP.show(picBox, pic ? [pic] : []);
+      picBox.className = pic ? '' : 'gp-hidden';
+    }
     var parts = [
       el('div', { class: 'gp-card gp-intro' }, [
         el('p', { class: 'gp-meta' }, [post.organization, post.audiences.length ? ' · For ' + post.audiences.join(', ') : ''].join('')),
+        GP.mealBlock(post.meal),
         post.publicNote ? el('p', { class: 'gp-note' }, post.publicNote) : null,
       ]),
     ];

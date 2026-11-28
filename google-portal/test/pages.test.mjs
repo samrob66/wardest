@@ -201,7 +201,7 @@ async function renderPage(name, hash, answers) {
     return n;
   };
   doc.getElementById = (id) => doc.ids[id] || null;
-  for (const id of ['gp-main', 'gp-title', 'gp-back', 'gp-footer']) doc.createElement('div').setAttribute('id', id);
+  for (const id of ['gp-main', 'gp-title', 'gp-back', 'gp-footer', 'gp-pic', 'gp-serve']) doc.createElement('div').setAttribute('id', id);
   const fetch = async (url, opts) => {
     const action = opts && opts.body ? JSON.parse(opts.body).action : /[?&]api=([a-z]+)/.exec(url)[1];
     const body = answers[action];
@@ -645,5 +645,84 @@ describe('serve.html: 1.1.1 offer card with the phase 2 layout', () => {
     expect(main.children[2].className).toBe('gp-pair');
     expect(main.textContent).toContain('🍲');
     expect(main.textContent).not.toContain('Nothing to sign up for');
+  });
+});
+
+// ---------- 2.6 (decision 28): meals on the member pages ----------
+
+const MEAL = { allergies: 'Peanuts', likes: 'Soups', serves: 'Feeds 2 adults, 3 kids', dropoffWindow: '5:30–6:30 pm', dropoff: 'Quiet', coordinateWith: 'Anna and Ben' };
+const PIC = 'https://img.example.test/welcome-baby.jpg';
+const imgs = (root) => root.all().filter((n) => n.tagName === 'img');
+
+describe('help.html: the two meal tiles (2.6)', () => {
+  it('both meal-request items are ordinary tiles linking to their own urls, with the server names', async () => {
+    const tiles = [
+      { id: 'moving', name: 'Help with a move', icon: '📦', url: 'https://docs.example.test/forms/d/e/move/viewform' },
+      { id: 'meal-request-baby', name: 'Meals for New Moms & Dads', icon: '🍼', url: 'https://docs.example.test/forms/d/e/meal/viewform?entry.1=A+new+baby' },
+      { id: 'meal-request-hardship', name: 'Meals for Members in Hardship', icon: '🍲', url: 'https://docs.example.test/forms/d/e/meal/viewform?entry.1=A+member+in+hardship' },
+    ];
+    const doc = await renderPage('help', '', { help: { ok: true, tiles } });
+    const links = doc.ids['gp-main'].all().filter((n) => n.tagName === 'a');
+    expect(links.map((a) => [a.textContent, a.attrs.href])).toEqual(tiles.map((t) => [t.icon + t.name, t.url]));
+    expect(links.every((a) => a.className === 'gp-htile')).toBe(true);
+  });
+});
+
+describe('post.html: picture and meal block (2.6)', () => {
+  it('the picture goes above the title; the meal block sits after the organization line, before the note and the rows', async () => {
+    const doc = await renderPage('post', '#p=pubmeal', {
+      post: { ok: true, ward: WARD, post: post({ title: 'Meals for the Example family', organization: 'Relief Society', audiences: ['Sisters'], publicNote: 'Thank you!', picture: PIC, meal: MEAL }) },
+    });
+    const pic = doc.ids['gp-pic'];
+    expect(imgs(pic).map((i) => [i.attrs.src, i.attrs.alt, i.attrs.loading])).toEqual([[PIC, '', 'lazy']]);
+    expect(pic.className).not.toContain('gp-hidden');
+    const main = doc.ids['gp-main'];
+    const intro = main.children[0];
+    expect(intro.children.map((c) => c.className)).toEqual(['gp-meta', 'gp-meal', 'gp-note']);
+    const rows = intro.children[1].children;
+    expect(rows[0].className).toBe('gp-meal-row gp-allergy');
+    expect(rows[0].textContent).toBe('AllergiesPeanuts');
+    expect(intro.textContent).toContain('Quiet drop-off — text on arrival');
+    expect(main.children[1].children[0].className).toBe('gp-signup');
+  });
+
+  it('an answer without picture or meal renders as on main: no image, no meal block, the picture box stays hidden', async () => {
+    const doc = await renderPage('post', '#p=pubkids', { post: { ok: true, ward: WARD, post: post({ audiences: ['Sisters'] }) } });
+    expect(imgs(doc.ids['gp-pic'])).toEqual([]);
+    expect(doc.ids['gp-pic'].className).toBe('gp-hidden');
+    const intro = doc.ids['gp-main'].children[0];
+    expect(intro.children.map((c) => c.className)).toEqual(['gp-meta', 'gp-note']);
+    expect(doc.ids['gp-main'].all().some((n) => /gp-meal/.test(n.className))).toBe(false);
+  });
+
+  it('an http: or javascript: picture draws nothing; markup in meal fields stays text', async () => {
+    for (const bad of ['http://img.example.test/x.jpg', 'javascript:alert(1)']) {
+      const doc = await renderPage('post', '#p=pubkids', { post: { ok: true, ward: WARD, post: post({ picture: bad, meal: { allergies: '<script>x</script>' } }) } });
+      expect(imgs(doc.ids['gp-pic'])).toEqual([]);
+      const main = doc.ids['gp-main'];
+      expect(main.textContent).toContain('<script>x</script>');
+      expect(main.all().some((n) => n.tagName === 'script')).toBe(false);
+    }
+  });
+
+  it('a hidden post with zero slots (a draft link) shows no rows and no crash', async () => {
+    const doc = await renderPage('post', '#p=pubmeal', { post: { ok: true, ward: WARD, post: post({ status: 'Draft', slots: [], meal: MEAL }) } });
+    const main = doc.ids['gp-main'];
+    expect(main.textContent).toContain('Allergies');
+    expect(main.textContent).toContain('closed to new sign-ups');
+  });
+});
+
+describe('serve.html: picture thumbnails (2.6)', () => {
+  const card = (id, over = {}) => ({ publicId: id, title: 'Post ' + id, organization: 'Relief Society', audiences: ['Sisters'], firstDate: '2026-12-02', lastDate: '2026-12-02', needed: 4, filled: 1, full: false, status: 'Open', ...over });
+  it('a thumbnail beside the card only when picture is https; other cards keep their layout', async () => {
+    const doc = await renderPage('serve', '', { serve: { ok: true, posts: [card('a', { picture: PIC }), card('b', { picture: 'http://img.example.test/x.jpg' }), card('c', { picture: '' }), card('d')] } });
+    const cards = doc.ids['gp-main'].all().filter((n) => n.tagName === 'a' && /gp-opp/.test(n.className));
+    expect(cards.map((c) => c.className)).toEqual(['gp-card gp-opp gp-has-pic', 'gp-card gp-opp', 'gp-card gp-opp', 'gp-card gp-opp']);
+    expect(cards.map((c) => imgs(c).length)).toEqual([1, 0, 0, 0]);
+    const thumb = cards[0].children[cards[0].children.length - 1];
+    expect(thumb.className).toBe('gp-pic gp-pic-thumb');
+    expect(cards[0].children[0].className).toBe('gp-tile');
+    expect(cards[3].children.map((c) => c.className)).toEqual(['gp-tile', 'gp-opp-body']);
   });
 });
