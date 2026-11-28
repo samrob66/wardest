@@ -207,7 +207,7 @@ describe('Set up', () => {
     const systems = [...gp.fakes.spreadsheets.values()].filter((s) => s.getName() === 'Riverbend 1st Ward (example) – Service System (private)');
     expect(systems.map((s) => s.getId())).toContain(sysId);
     expect(systems.filter((s) => s.getId() !== gp.fakes.system.getId())).toHaveLength(1);
-    expect(gp.fakes.forms.size).toBe(4);
+    expect(gp.fakes.forms.size).toBe(5); // 2.6: Meals
     const portals = [...gp.fakes.drive.folders.values()].filter((f) => f.name === 'Service Portal');
     expect(portals).toHaveLength(1);
     const service = gp.fakes.drive.files.get(gp.fakes.spreadsheet.getId());
@@ -336,7 +336,7 @@ describe('Install triggers, hub files, leader links, health', () => {
     gp.gpMenuInstallTriggers();
     gp.gpMenuInstallTriggers();
     const t = gp.fakes.triggers.map((x) => [x.handler, x.kind]);
-    expect(t.filter((x) => x[0] === 'gpOnRequestSubmit')).toHaveLength(4);
+    expect(t.filter((x) => x[0] === 'gpOnRequestSubmit')).toHaveLength(5);
     expect(t.filter((x) => x[0] !== 'gpOnRequestSubmit')).toEqual([['gpTenMinute', 'CLOCK'], ['gpHourly', 'CLOCK'], ['gpDaily', 'CLOCK']]);
     expect(gp.fakes.triggers.find((x) => x.handler === 'gpTenMinute').detail.everyMinutes).toBe(10);
     expect(gp.fakes.triggers.find((x) => x.handler === 'gpDaily').detail).toMatchObject({ everyDays: 1, atHour: 2 });

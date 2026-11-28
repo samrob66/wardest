@@ -109,7 +109,7 @@ describe('Set up writes the notes', () => {
     leaders.notes.clear();
     gp.fakes.props.set('SCHEMA_VERSION', 'phase-2.5.2');
     gp.ensureUpgraded_();
-    expect(gp.GP_VERSION).toBe('phase-2.5.3');
+    expect(gp.GP_VERSION >= 'phase-2.5.3').toBe(true); // later phases bump it again
     expect(leaders.getRange(1, 2).getNote()).toBe(text(gp.FIELD_NOTES.tabs.Leaders.Email));
   });
 

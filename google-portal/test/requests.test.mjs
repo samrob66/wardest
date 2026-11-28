@@ -129,10 +129,10 @@ const filesOf = (gp) => gp.fakes.spreadsheets.get(gp.fakes.props.get('SYSTEM_ID'
 describe('buildRequestForms_', () => {
   it('makes one form, folder and month sheet per request category, once', () => {
     const { gp } = setupForms();
-    expect(filesOf(gp).map((f) => f['Category id'])).toEqual(['moving', 'christmas', 'other', 'christmas-giving']);
+    expect(filesOf(gp).map((f) => f['Category id'])).toEqual(['moving', 'christmas', 'other', 'christmas-giving', 'meal-request']);
     gp.buildRequestForms_(gp.settings_(), gp.serviceTab_('Categories').rows());
-    expect(filesOf(gp)).toHaveLength(4);
-    expect(gp.fakes.forms.size).toBe(4);
+    expect(filesOf(gp)).toHaveLength(5);
+    expect(gp.fakes.forms.size).toBe(5);
     const f = filesOf(gp)[0];
     expect(f.Month).toBe('2026-12');
     expect(gp.fakes.drive.folders.get(f['Folder id']).name).toBe('Requests – Moving help');
@@ -177,8 +177,8 @@ describe('Set up refreshes request forms', () => {
     forms()[0].setTitle('Moving help — Old Ward Name');
     gp.gpMenuSetUp();
     gp.gpMenuSetUp();
-    expect(gp.fakes.forms.size).toBe(4);
-    expect(filesOf(gp)).toHaveLength(4);
+    expect(gp.fakes.forms.size).toBe(5);
+    expect(filesOf(gp)).toHaveLength(5);
     const [moving, christmas, other] = forms();
     expect(christmas.description).toContain('Only the bishopric and the Christmas gift coordinators see this request.');
     expect(other.description).toContain('Only the bishopric and the people they name see this request.');
@@ -285,7 +285,7 @@ describe('dailyRequests_', () => {
     expect(now.Month).toBe('2027-01');
     expect(now['Sheet id']).not.toBe(f['Sheet id']);
     // Every request file rotates; the old Moving file is among those permanently deleted.
-    expect(gp.fakes.drive.removed).toHaveLength(4);
+    expect(gp.fakes.drive.removed).toHaveLength(5);
     expect(gp.fakes.drive.removed).toContain(f['Sheet id']);
     const ss = gp.fakes.spreadsheets.get(now['Sheet id']);
     expect(ss.getName()).toBe('Requests – Moving help – 2027-01');
@@ -567,7 +567,7 @@ describe('Christmas giving offers (decision 16)', () => {
   it('is not on the Help page; the other request kinds are', () => {
     const gp = wardWithCouple();
     const ids = plain(gp.apiHelp_()).tiles.map((t) => t.id);
-    expect(ids).toEqual(['moving', 'christmas', 'other']);
+    expect(ids).toEqual(['moving', 'christmas', 'other', 'meal-request']);
   });
 
   it('Set up names the giving form link, since it is not on the Help page', () => {
@@ -711,7 +711,7 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
     gp.gpMenuSetUp(); // clears the Help page cache
     gp.gpBegin_();
     const help = plain(gp.apiHelp_());
-    expect(help.tiles.map((t) => t.id)).toEqual(['moving', 'christmas', 'other']);
+    expect(help.tiles.map((t) => t.id)).toEqual(['moving', 'christmas', 'other', 'meal-request']);
     expect(JSON.stringify(help)).not.toContain('christmas-giving');
     expect(JSON.stringify(help)).not.toContain(giveUrl(gp));
   });
@@ -770,7 +770,7 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
     const before = gp.fakes.spreadsheet.rowsOf('Categories').map(({ '': gone, ...rest }) => rest);
     gp.gpEnsureTabs_(gp.fakes.spreadsheet);
     const after = gp.fakes.spreadsheet.rowsOf('Categories');
-    expect(after.map(({ 'On Serve page': x, 'Opportunity category': y, Approvers: z, ...rest }) => rest)).toEqual(before);
+    expect(after.map(({ 'On Serve page': x, 'Opportunity category': y, Approvers: z, Picture: pic, 'Sign-up notices to': sn, ...rest }) => rest)).toEqual(before);
     for (const r of after) expect(r['On Serve page']).toBe(false);
   });
 });

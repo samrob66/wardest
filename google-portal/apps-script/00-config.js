@@ -7,7 +7,7 @@
  */
 
 /** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
-var GP_VERSION = 'phase-2.5.3';
+var GP_VERSION = 'phase-2.6';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -116,7 +116,7 @@ var SERVICE_HEADERS = {
   'Read me': [],
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
-  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category', 'Approvers'],
+  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category', 'Approvers', 'Picture', 'Sign-up notices to'],
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
@@ -162,7 +162,7 @@ var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received', 'Added at'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
+var TEXT_COLS = ['Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details'];
 
 /** Settings rows: [key, default, help]. */
@@ -265,6 +265,8 @@ var FIELD_NOTES = {
       'On Serve page': ['Christmas giving offers row only: ticked shows the "Offer to give at Christmas" card on Service Opportunities.', 'Unticked: on no public page.', 'Example: ticked'],
       'Opportunity category': ['Request rows: the Id of the opportunity category a request can be turned into (Make opportunity).', 'Blank: never turned into an opportunity.', 'Example: moving-help'],
       Approvers: ['Opportunity rows: who gets the "Waiting for approval" emails and may approve. Emails, commas; each needs a Leaders row.', 'Blank: Settings default_approvers, else the organization\'s leaders and the bishopric.', 'Example: sister.example@example.test'],
+      Picture: ['Opportunity rows: a picture shown at the top of this category\'s posts (post page, Serve card, leader page). A full https address of an image.', 'Blank: no picture.', 'Example: https://rb1.example.test/links/meals-baby.jpg'],
+      'Sign-up notices to': ['Opportunity rows: who gets an email for every sign-up and every cancellation (first name, date and role only). Emails or a Google Group, commas; no Leaders row needed.', 'Blank: nobody beyond the usual notices.', 'Example: rb1-meals@example.test'],
     },
     Posts: {
       'Post id': ['The opportunity\'s internal id. The script writes this tab: edit opportunities on the leader page.', 'Example: p1a2b3'],
@@ -426,6 +428,21 @@ var DEFAULT_CATEGORIES = [
   { Id: 'youth', Name: 'Youth activity help', Icon: '🧭', Kind: 'Opportunity' },
   { Id: 'children', Name: 'Primary help', Icon: '🧸', Kind: 'Opportunity' },
   { Id: 'other-service', Name: 'Other service', Icon: '🤝', Kind: 'Opportunity' },
+];
+
+/**
+ * Meals (2.6, decision 28): one request kind with one form (two Help tiles open it prefilled)
+ * whose drafts go into one of two opportunity categories, by the form's first answer. Seeded
+ * once by Id (seedMeals_); rows Sam typed are never overwritten. The old `meals` row stays.
+ */
+var MEAL_REQUEST_ID = 'meal-request';
+var MEAL_BABY_ID = 'meals-new-moms';
+var MEAL_HARDSHIP_ID = 'meals-hardship';
+var MEAL_CATEGORY_IDS = [MEAL_BABY_ID, MEAL_HARDSHIP_ID];
+var MEAL_CATEGORIES = [
+  { Id: MEAL_REQUEST_ID, Name: 'Meals', Icon: '🍲', Kind: 'Request', 'Owning organizations': 'Relief Society', Notify: 'Coordinators', 'On Help page': true, 'Opportunity category': MEAL_BABY_ID + ', ' + MEAL_HARDSHIP_ID },
+  { Id: MEAL_BABY_ID, Name: 'Meals for New Moms', Icon: '🍼', Kind: 'Opportunity', 'Owning organizations': 'Relief Society', 'Default audiences': 'Sisters' },
+  { Id: MEAL_HARDSHIP_ID, Name: 'Meals for Members in Hardship', Icon: '🍲', Kind: 'Opportunity', 'Owning organizations': 'Relief Society', 'Default audiences': 'Sisters' },
 ];
 
 /**

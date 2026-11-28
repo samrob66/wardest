@@ -293,7 +293,7 @@ describe('round 2', () => {
     // The owner is not locked out by that attempt.
     gp.fakes.state.effectiveUser = 'ward.account@example.test';
     gp.gpMenuSetUp();
-    expect(gp.fakes.forms.size).toBe(4);
+    expect(gp.fakes.forms.size).toBe(5); // 2.6: Meals
   });
 
   it('jobs stamp when they last ran, and Check health flags a job that has stopped', () => {

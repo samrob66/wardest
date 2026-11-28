@@ -4,7 +4,7 @@ import { loadPortal, setSetting } from './harness.mjs';
 const SERVICE_HEADERS = {
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
-  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category', 'Approvers'],
+  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category', 'Approvers', 'Picture', 'Sign-up notices to'],
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
@@ -76,6 +76,7 @@ describe('gpEnsureTabs_', () => {
     const cats = gp.serviceTab_('Categories').rows();
     expect(cats.map((c) => c.Id)).toEqual([
       'moving', 'christmas', 'other', 'christmas-giving', 'meals', 'moving-help', 'service-project', 'activity', 'temple', 'youth', 'children', 'other-service',
+      'meal-request', 'meals-new-moms', 'meals-hardship', // 2.6 (decision 28)
     ]);
     const christmas = cats.find((c) => c.Id === 'christmas');
     expect(christmas.Kind).toBe('Request');
@@ -85,7 +86,7 @@ describe('gpEnsureTabs_', () => {
     t.remove(t.find('Id', 'activity'));
     gp.gpEnsureTabs_(ss);
     expect(gp.serviceTab_('Categories').rows().map((c) => c.Id)).not.toContain('activity');
-    expect(gp.serviceTab_('Categories').rows()).toHaveLength(11);
+    expect(gp.serviceTab_('Categories').rows()).toHaveLength(14);
   });
 });
 

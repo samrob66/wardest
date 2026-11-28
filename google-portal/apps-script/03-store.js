@@ -270,6 +270,7 @@ function gpEnsureTabs_(ss) {
   seedMovingNotify_(ss);
   seedMovingOpportunity_(ss);
   seedHelpPage_(ss);
+  seedMeals_(ss);
   addDropdowns_(ss);
   writeReadMe_(ss);
 }
@@ -357,6 +358,22 @@ function ensureSettingsRows_(ss) {
   });
   t.appendMany(add);
   writeSettingsNotes_(ss);
+}
+
+/**
+ * Once per project (2.6, decision 28): the meals request kind and its two opportunity categories,
+ * each added only when no row has its Id. Never re-added after someone deletes it; a row Sam typed
+ * is never changed.
+ */
+function seedMeals_(ss) {
+  var p = props_();
+  if (p.getProperty('MEALS_SEEDED')) return;
+  var t = table_(ss.getSheetByName(TAB.categories));
+  var add = MEAL_CATEGORIES.filter(function (c) {
+    return !t.find('Id', c.Id);
+  });
+  if (add.length) t.appendMany(add);
+  p.setProperty('MEALS_SEEDED', 'yes');
 }
 
 /** Seeds the default categories once: only while the tab has never been seeded. */

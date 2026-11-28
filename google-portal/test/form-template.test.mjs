@@ -29,7 +29,7 @@ describe('form_template_url', () => {
   it('new request forms are copies of the template: themed, no leftover items, exactly the portal questions', () => {
     const { gp, t } = setUpWith((tpl) => `https://docs.google.com/forms/d/${tpl.getId()}/edit`);
     const files = filesOf(gp);
-    expect(files).toHaveLength(4);
+    expect(files).toHaveLength(5); // 2.6: Meals is the fifth request kind
     const copies = gp.fakes.drive.copies.filter((c) => c.from === t.getId());
     expect(copies.map((c) => c.to).sort()).toEqual(files.map((f) => f['Form id']).sort());
     const moving = gp.fakes.forms.get(files.find((f) => f['Category id'] === 'moving')['Form id']);
@@ -50,13 +50,13 @@ describe('form_template_url', () => {
 
   it('accepts a bare form id too', () => {
     const { gp, t } = setUpWith((tpl) => tpl.getId());
-    expect(gp.fakes.drive.copies.filter((c) => c.from === t.getId())).toHaveLength(4);
+    expect(gp.fakes.drive.copies.filter((c) => c.from === t.getId())).toHaveLength(5);
   });
 
   it('a published viewform link is refused with a clear message, and plain forms are made', () => {
     const { gp } = setUpWith('https://docs.google.com/forms/d/e/1FAIpQLSexampleexampleexample/viewform');
     expect(gp.fakes.drive.copies).toEqual([]);
-    expect(filesOf(gp)).toHaveLength(4);
+    expect(filesOf(gp)).toHaveLength(5);
     expect(gp.fakes.alerts.at(-1)).toContain("paste the form's edit link (from the form editor's address bar), not its viewform link");
     expect(gp.gpMenuCheckHealth().find((l) => l.includes('form_template_url'))).toMatch(/^PROBLEM .*viewform/);
   });
@@ -64,7 +64,7 @@ describe('form_template_url', () => {
   it('an unreadable template falls back to a plain form and Set up reports it, without stopping', () => {
     const { gp } = setUpWith('https://docs.google.com/forms/d/missingtemplate123/edit');
     expect(gp.fakes.drive.copies).toEqual([]);
-    expect(filesOf(gp)).toHaveLength(4);
+    expect(filesOf(gp)).toHaveLength(5);
     for (const f of filesOf(gp)) expect(gp.fakes.forms.get(f['Form id']).items.length).toBeGreaterThan(2);
     const alert = gp.fakes.alerts.at(-1);
     expect(alert).toContain('Set up is done.');
