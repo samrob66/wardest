@@ -301,18 +301,13 @@ function themeOf_(s) {
 /** The <link> and <style> that put the theme on a page ('' when nothing is set). */
 function themeHead_(t) {
   var vars = [];
-  if (t.bg) {
-    vars.push('--gp-bg: linear-gradient(rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.42)), url("' + t.bg + '")');
-    vars.push('--gp-panel: rgba(255, 255, 255, 0.92)');
-    vars.push('--gp-panel-radius: 14px');
-    vars.push('--gp-panel-pad: 1rem');
-    vars.push('--gp-panel-top: 1.5rem');
-  }
+  // 2.5 (Hymnal): the picture is the band across the top of every page; text sits on paper below it.
+  if (t.bg) vars.push('--gp-band: url("' + t.bg + '")');
   if (t.accent) {
     vars.push('--gp-accent: ' + t.accent);
     vars.push('--gp-bar: ' + t.accent);
-    // Text colours only when the accent reads on white: 4.5:1, or 5.3:1 over a picture (the panel
-    // lets a little of the picture through); a lighter accent stays decoration.
+    // Text colours only when the accent reads on white: 4.5:1, or 5.3:1 when the ward has a picture
+    // (the rule from 2.3, kept as it was); a lighter accent stays decoration.
     if (contrastWithWhite_(t.accent) >= (t.bg ? 5.3 : 4.5)) {
       vars.push('--gp-link: ' + t.accent);
       vars.push('--gp-button: ' + t.accent);

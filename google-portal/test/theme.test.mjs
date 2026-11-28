@@ -53,7 +53,10 @@ describe('theme settings', () => {
       const html = gp.renderPage_(name, gp.settings_(), name === 'leader');
       expect(html).toContain('<style id="gp-theme">');
       expect(html).not.toContain('url(&quot;'); // CSS is not HTML-escaped inside <style>
-      expect(html).toContain(`--gp-bg: linear-gradient(rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.42)), url("${BG}")`);
+      // 2.5: the picture is the band across the top; text sits on plain paper below it.
+      expect(html).toContain(`--gp-band: url("${BG}")`);
+      expect(html).not.toContain('--gp-bg:');
+      expect(html).not.toContain('--gp-panel');
       expect(html).toContain('--gp-accent: #2f5d50');
       expect(html).toContain("--gp-font: 'Lora', Georgia, 'Times New Roman', serif");
       expect(html).toContain("--gp-heading-font: 'Playfair Display', Georgia, 'Times New Roman', serif");
@@ -82,7 +85,7 @@ describe('theme settings', () => {
     setSetting(gp, 'theme_accent', '#2f5d50');
     const html = gp.renderPage_('help', gp.settings_(), false);
     expect(html).toContain('--gp-accent: #2f5d50');
-    expect(html).not.toContain('--gp-bg:');
+    expect(html).not.toContain('--gp-band: url("http'); // gp.css's own drawn band only
     expect(html).not.toContain('fonts.googleapis.com');
   });
 
@@ -109,7 +112,8 @@ describe('theme settings', () => {
     for (const u of ['javascript:alert(1)', 'data:image/png;base64,AAAA', 'http://example.test/a.png', 'https://exa mple.test/a.png', "https://example.test/a'.png", 'https://example.test/a\\b.png']) {
       const gp = themed({ theme_background_url: u });
       const html = gp.renderPage_('serve', gp.settings_(), false);
-      expect(html).not.toContain('--gp-bg:');
+      expect(html).not.toContain('--gp-band: url("' + u);
+      expect(html.match(/--gp-band:/g)).toHaveLength(1); // gp.css's own drawn band only
       expect(gp.gpMenuCheckHealth().some((l) => l.startsWith('PROBLEM') && l.includes('theme_background_url'))).toBe(true);
     }
   });
@@ -129,23 +133,15 @@ describe('theme settings', () => {
     expect(serve).toContain(BG);
   });
 
-  it('gp.css uses the theme variables, panels behind text, and scrolls the picture on phones', () => {
+  it('gp.css draws the band from --gp-band (a drawn stand-in by default) and uses the theme variables', () => {
     const css = readFileSync(join(GP_DIR, 'pages', 'gp.css'), 'utf8');
-    expect(css).toMatch(/background-image:\s*var\(--gp-bg, none\)/);
-    expect(css).toMatch(/background-attachment:\s*fixed/);
-    expect(css).toMatch(/@media \(max-width: 760px\)[^}]*\{[^}]*background-attachment:\s*scroll/);
-    expect(css).toMatch(/\.gp-wrap,\s*\.gp-footer\s*\{[^}]*background:\s*var\(--gp-panel, transparent\)/);
+    expect(css).toMatch(/--gp-band:\s*url\("data:image\/svg\+xml,/);
+    expect(css).toMatch(/body::before\s*\{[^}]*height:\s*300px/);
+    expect(css).toMatch(/body::before\s*\{[^}]*background-image:\s*var\(--gp-band\)/);
+    expect(css).toMatch(/@media \(min-width: 900px\)\s*\{\s*body::before\s*\{\s*height:\s*380px/);
     expect(css).toMatch(/var\(--gp-button, var\(--gp-heading\)\)/);
     expect(css).toMatch(/var\(--gp-heading-font, var\(--gp-font\)\)/);
-  });
-
-  it('the theme panel keeps text readable: panel white at 0.92 opacity is set with the picture', () => {
-    const gp = themed();
-    const html = gp.renderPage_('serve', gp.settings_(), false);
-    expect(html).toContain('--gp-panel: rgba(255, 255, 255, 0.92)');
-    const noPic = loadPortal({ seed: true });
-    setSetting(noPic, 'theme_font', 'Lora');
-    expect(noPic.renderPage_('serve', noPic.settings_(), false)).not.toContain('--gp-panel: rgba');
+    expect(css).toMatch(/@media print\s*\{[^]*body::before/);
   });
 
   it('nothing from a real ward is in the portal sources', () => {
