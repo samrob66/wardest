@@ -42,6 +42,8 @@ Never put a family's name, address or situation in a post's public note — post
 Opportunities page. Open the post from **Opportunities**: its public link is at the top with a
 **Copy** button (also **•••** > **Copy the link**). Paste it into a ward email (addresses in
 **Bcc**) or a message.
+A draft may be saved with no dates yet (a meal post waiting for the baby); **Publish** needs at
+least one date and says *Add at least one date before publishing.* until there is one.
 
 **Approve first-timers.** Someone signing up for the first time gets an email asking them to
 confirm their address. Once they click it, they appear under **Waiting for approval** for the
@@ -215,17 +217,34 @@ email and the request is a row in your **Requests – Meals** sheet, one column 
    details (only signed-up, approved volunteers and leaders see them). The schedule they asked
    for (*Meals start … How often …*) is in the public note: edit it as you like.
 3. Once baby is here, open the draft, add the dates (role *Bring a meal*) and **Publish**. It
-   stays off the Service Opportunities page (*Show on Serve* off), but its link works.
+   stays off the Service Opportunities page (**Show on Service Opportunities page** off), but its link works.
 4. Send the link to the parents, then to the mother's ministering sisters (copy their emails
    from the Church's Tools app into Gmail; the portal never stores them). Tick **Parents
    reviewed** and **Sent to ministering sisters** on the post's checklist.
-5. Turn **Show on Serve** on: the post appears on the Service Opportunities page and **Shown on
+5. Turn **Show on Service Opportunities page** on: the post appears on the Service Opportunities page and **Shown on
    portal** ticks itself. Then send the ward email (Gmail Bcc or the Google Group) and post on
    Discord, and tick **Ward email sent** and **Posted on Discord**. Each tick records who and
    when.
 The family (the post's **Family emails**) and your Google Group get an email for every sign-up
 and every cancellation, with the volunteer's first name, the date and the role, never their
 email. Other request kinds stay as above: their drafts carry nothing from the request.
+On the leader page (2.6):
+- **Meal details** (in the form, after What): **Allergies** first, then favourite foods, how many
+  it serves, the drop-off window, **Regular** or **Quiet** drop-off, and who to coordinate with
+  (first names). Everyone with the link sees them, allergies highlighted at the top. The
+  address and phone numbers go in **Private details**, never here.
+- **Add dates.** A draft with no dates says *No dates yet*; tap **Add dates** on the post (or
+  **•••** > **Edit**) and the form opens at **When**, with the post's note (the schedule the
+  family asked for) just above it. **Publish** needs at least one date.
+- **Show on Service Opportunities page** is a switch on the post and a box in the form, under
+  **Sharing**. Off: only people with the link see it; it stays off the Service Opportunities
+  page, Other ways to serve and Needs help soon. New meal posts start off; other new posts start
+  on.
+- **Progress** is open on meal posts and behind **Progress** on other posts. *Shown on portal*
+  can't be ticked by hand: it follows the switch. Leaders who can't edit the post see it
+  without boxes.
+- **Family emails** (in the form, under **Sharing**; comma-separated, up to 10). **Copy this
+  post** starts with none.
 
 **Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on the
 Christmas giving form, from a link the ward shares or, if the ward turned it on, from the
