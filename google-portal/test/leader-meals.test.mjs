@@ -442,6 +442,26 @@ describe('leader page 2.6: the form', () => {
     expect(page.find((n) => n.id === 'gp-show').checked).toBe(false);
   });
 
+  it('a refused Drop-off ("quiet" loaded) shows its message under Drop-off', async () => {
+    const page = await openLeader({ ...answers(), getPost: mealGetPost({ meal: { ...MEAL, dropoff: 'quiet' } }), savePost: { ok: false, error: 'Please fix the marked fields.', fields: { 'meal.dropoff': 'Pick Regular or Quiet.' } } });
+    await page.openPost();
+    await page.menu('Edit');
+    await page.click(page.button('Save draft'));
+    expect(saved(page).post.meal.dropoff).toBe('quiet');
+    const fs = page.find((n) => n.tagName === 'fieldset' && n.children[0].textContent === 'Drop-off');
+    expect(fs.all().filter((n) => n.attrs.type === 'radio').map((r) => r.checked)).toEqual([false, false]);
+    const msg = fs.all().find((n) => n.className === 'gp-error');
+    expect(msg && msg.textContent).toBe('Pick Regular or Quiet.');
+  });
+
+  it("meal fields' lengths match the script's MEAL_FIELDS (300, 300, 60, 60, 100)", async () => {
+    const page = await openLeader(answers());
+    await page.openPost();
+    await page.menu('Edit');
+    const len = (id) => page.find((n) => n.id === id).attrs.maxlength;
+    expect(['gp-m-allergies', 'gp-m-likes', 'gp-m-serves', 'gp-m-window', 'gp-m-coord'].map(len)).toEqual(['300', '300', '60', '60', '100']);
+  });
+
   it('Copy this post of a meal post clears the family emails and keeps the meal fields', async () => {
     const page = await openLeader({ ...answers(), savePost: { ok: true, postId: 'p2', publicUrl: 'x' } });
     await page.openPost();

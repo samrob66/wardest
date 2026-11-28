@@ -1499,17 +1499,20 @@ GP.footer();
     ]);
   }
 
+  /** The longest each meal field may be: the script's MEAL_FIELDS (00-config.js). */
+  var MEAL_MAX = { allergies: 300, likes: 300, serves: 60, dropoffWindow: 60, coordinateWith: 100 };
+
   /** 2.6: Meal details (public, allergies first). */
   function mealForm(f) {
     var m = f.meal;
     function text(id, key, label, attrs) {
-      var a = { type: 'text', id: id, maxlength: '300', value: m[key] };
+      var a = { type: 'text', id: id, maxlength: String(MEAL_MAX[key]), value: m[key] };
       Object.keys(attrs || {}).forEach(function (k) {
         a[k] = attrs[k];
       });
       return field(label, bindText(el('input', a), m, key), 'meal.' + key);
     }
-    var allergies = bindText(el('textarea', { id: 'gp-m-allergies', maxlength: '500', placeholder: 'Allergies, restrictions or dislikes' }), m, 'allergies');
+    var allergies = bindText(el('textarea', { id: 'gp-m-allergies', maxlength: String(MEAL_MAX.allergies), placeholder: 'Allergies, restrictions or dislikes' }), m, 'allergies');
     allergies.value = m.allergies;
     var radios = [['Regular', 'Regular drop-off (knock or ring)'], ['Quiet', 'Quiet drop-off (text on arrival)']].map(function (x) {
       var input = el('input', {
@@ -1530,7 +1533,7 @@ GP.footer();
       text('gp-m-likes', 'likes', 'Favourite foods'),
       text('gp-m-serves', 'serves', 'Serves', { placeholder: 'e.g. Feeds 2 adults, 3 kids' }),
       text('gp-m-window', 'dropoffWindow', 'Drop-off window', { placeholder: 'e.g. 5:30–6:30 pm' }),
-      el('fieldset', {}, [el('legend', {}, 'Drop-off')].concat(radios)),
+      el('fieldset', {}, [el('legend', {}, 'Drop-off')].concat(radios, [err('meal.dropoff')])),
       text('gp-m-coord', 'coordinateWith', 'Coordinate with (first names)', { placeholder: 'e.g. Anna and Ben' }),
     ]);
   }
