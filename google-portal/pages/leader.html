@@ -738,10 +738,13 @@ GP.footer();
             t.dates.length > 1 ? el('span', { class: 'gp-muted' }, ' · ' + t.dates.length + ' dates') : null,
           ]))])
         : null,
-      el('div', { class: 'gp-fill' }, [
-        el('span', { class: 'gp-bar' }, [el('span', { style: 'width:' + pct + '%' })]),
-        el('span', { class: 'gp-count' }, t.have + ' of ' + t.need + (t.waiting ? ' · ' + t.waiting + ' waiting' : '')),
-      ]),
+      // 2.6: a draft may have no dates yet (a meal post waits for the baby).
+      !p.slots.length
+        ? el('div', { class: 'gp-next' }, [GP.icon('cal'), el('span', { class: 'gp-muted' }, 'No dates yet')])
+        : el('div', { class: 'gp-fill' }, [
+            el('span', { class: 'gp-bar' }, [el('span', { style: 'width:' + pct + '%' })]),
+            el('span', { class: 'gp-count' }, t.have + ' of ' + t.need + (t.waiting ? ' · ' + t.waiting + ' waiting' : '')),
+          ]),
       p.fromRequest ? el('p', { style: 'margin:0.45rem 0 0' }, [el('span', { class: 'gp-tag' }, 'From a request')]) : null,
     ]);
   }
@@ -876,21 +879,34 @@ GP.footer();
     state.flashBox = el('div');
     var items = [
       state.flashBox,
+      // 2.6: the category picture and the meal details (allergies first) under the title.
+      GP.picture(p.picture, 'gp-pic-top'),
       el('div', { class: 'gp-sum' }, [
         el('span', { class: 'gp-tag' }, p.status),
         p.organization ? el('span', { class: 'gp-tag' }, p.organization) : null,
         p.audiences.length ? el('span', { class: 'gp-tag' }, GP.audienceLine(p)) : null,
         p.fromRequest ? el('span', { class: 'gp-tag' }, 'From a request') : null,
       ]),
+      GP.mealBlock(p.meal),
     ];
     if (p.status === 'Open' && p.publicUrl) {
       var copyBtn = el('button', { type: 'button', class: 'gp-sm', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');
       items.push(el('div', { class: 'gp-linkrow' }, [GP.icon('link'), el('a', { href: p.publicUrl, target: '_blank', rel: 'noopener' }, p.publicUrl), copyBtn]));
     }
+    // 2.6: Show on Service Opportunities page (editors) and the progress checklist.
+    var progress = Array.isArray(p.progress) && p.progress.length ? progressBlock(p) : null;
+    if (p.canEdit && typeof p.showOnServe === 'boolean') items.push(showSwitch(p, progress));
+    if (progress) items.push(progress.node);
     if (p.status === 'Closed' || p.status === 'Draft') {
       items.push(el('p', { class: 'gp-meta' }, 'No one new can sign up. People already signed up keep their place and still get their reminder.'));
     }
     items.push(state.cancelBox);
+    if (!p.slots.length) {
+      items.push(el('div', { class: 'gp-nodates' }, [
+        el('p', { style: 'margin:0' }, 'No dates yet. Add dates before publishing.'),
+        p.canEdit && live ? el('button', { type: 'button', onclick: function () { openForEdit(p.postId, false, true); } }, [GP.icon('cal'), 'Add dates']) : null,
+      ]));
+    }
     if (multiDate) {
       // The day strip: one date at a time (or all of them).
       var strip = [el('button', { type: 'button', class: 'gp-all', 'data-focus': 'strip-all', 'aria-pressed': String(!state.day), onclick: function () { state.day = ''; drawPost(body, p); refocus('strip-all'); } }, 'All ' + dates.length)];
@@ -955,6 +971,132 @@ GP.footer();
     });
     items.push(out);
     GP.show(body, items);
+  }
+
+  // ---------- 2.6: Show on Service Opportunities and the progress checklist ----------
+
+  /** '2026-11-27 14:05' → 'Fri, Nov 27, 2:05 PM' (always with the weekday); anything else as given. */
+  function whenAt(at) {
+    var m = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(String(at || ''));
+    if (!m || !GP.isDate(m[1])) return String(at || '');
+    return GP.fmtDate(m[1]) + (m[2] ? ', ' + GP.fmtTime(m[2]) : '');
+  }
+
+  function doneBy(it) {
+    if (!it.done) return '';
+    var when = whenAt(it.at);
+    if (it.by) return 'by ' + it.by + (when ? ', ' + when : '');
+    return when;
+  }
+
+  /**
+   * The switch: off keeps the post off the Service Opportunities page, Other ways to serve and
+   * Needs help soon (its own link still works). A refused or failed answer puts it back.
+   */
+  function showSwitch(p, progress) {
+    var msg = el('div');
+    var labId = nextId('gp-showlab-');
+    var sw = el('button', {
+      type: 'button',
+      class: 'gp-sw',
+      role: 'switch',
+      'aria-checked': String(!!p.showOnServe),
+      'aria-labelledby': labId,
+      'data-focus': 'show-sw',
+      onclick: function () {
+        if (sw.disabled) return;
+        var was = !!p.showOnServe;
+        var want = !was;
+        sw.setAttribute('aria-checked', String(want));
+        sw.disabled = true;
+        GP.clear(msg);
+        var back = function () {
+          sw.disabled = false;
+          sw.setAttribute('aria-checked', String(was));
+        };
+        call('setShowOnServe', { postId: p.postId, show: want }).then(function (res) {
+          if (!res || !res.ok) {
+            back();
+            return GP.show(msg, GP.message('alert', GP.errorText(res)));
+          }
+          sw.disabled = false;
+          p.showOnServe = typeof res.showOnServe === 'boolean' ? res.showOnServe : want;
+          sw.setAttribute('aria-checked', String(p.showOnServe));
+          if (Array.isArray(res.progress)) {
+            p.progress = res.progress;
+            if (progress) progress.redraw();
+          }
+        }, function (e) {
+          back();
+          failed(e, msg);
+        });
+      },
+    });
+    return el('div', {}, [
+      el('div', { class: 'gp-showrow' }, [el('span', { id: labId }, 'Show on Service Opportunities page'), sw]),
+      el('p', { class: 'gp-hint', style: 'margin:-0.4rem 0 0.6rem' }, 'Off: only people with the link see it. It stays off the Service Opportunities page, Other ways to serve and Needs help soon.'),
+      msg,
+    ]);
+  }
+
+  /**
+   * The checklist, in the server's order. Editors tick items (each records who and when); Shown on
+   * portal follows the switch. Others see it read-only. Open on meal posts, behind Progress otherwise.
+   */
+  function progressBlock(p) {
+    var rowsHost = el('div');
+    var msg = el('div');
+    function tickItem(it, box) {
+      var want = !!box.checked;
+      box.disabled = true;
+      GP.clear(msg);
+      var back = function () {
+        box.disabled = false;
+        box.checked = !want;
+      };
+      call('setProgress', { postId: p.postId, key: it.key, done: want }).then(function (res) {
+        if (!res || !res.ok) {
+          back();
+          return GP.show(msg, GP.message('alert', GP.errorText(res)));
+        }
+        if (Array.isArray(res.progress)) p.progress = res.progress;
+        draw();
+        refocus('prog-' + it.key);
+      }, function (e) {
+        back();
+        failed(e, msg);
+      });
+    }
+    function row(it) {
+      var by = doneBy(it);
+      var auto = it.key === 'shown_on_portal';
+      var text = el('span', {}, [
+        el('span', {}, String(it.label || it.key)),
+        auto && p.canEdit ? el('span', { class: 'gp-prow-by' }, 'Ticks itself when Show on Service Opportunities page is on') : null,
+        by ? el('span', { class: 'gp-prow-by' }, by) : null,
+      ]);
+      if (!p.canEdit) {
+        return el('div', { class: 'gp-prow' }, [
+          it.done ? GP.icon('check') : el('span', { class: 'gp-prow-box', 'aria-hidden': 'true' }),
+          text,
+          el('span', { class: 'gp-sr' }, it.done ? ' (done)' : ' (not done)'),
+        ]);
+      }
+      var box = el('input', { type: 'checkbox', checked: !!it.done, disabled: auto ? 'disabled' : null, 'data-focus': 'prog-' + it.key });
+      box.disabled = auto;
+      if (!auto) {
+        box.addEventListener('change', function () {
+          tickItem(it, box);
+        });
+      }
+      return el('label', { class: 'gp-prow' }, [box, text]);
+    }
+    function draw() {
+      GP.show(rowsHost, p.progress.map(row));
+    }
+    draw();
+    var node = el('details', { class: 'gp-progress', open: p.isMeal ? true : null }, [el('summary', {}, 'Progress'), rowsHost, msg]);
+    return { node: node, redraw: draw };
   }
 
   /**
@@ -1057,6 +1199,15 @@ GP.footer();
       ids: {},
       own: {},
       month: GP.today().slice(0, 7),
+      // 2.6: meal details, family emails, Show on Service Opportunities page.
+      meal: mealOf(null),
+      isMeal: false,
+      mealLoaded: false,
+      familyEmails: '',
+      hasFamily: true,
+      showOnServe: !MEAL_CATS[cat],
+      hasShow: true,
+      showTouched: false,
     };
     f.organization = orgsFor(f)[0] || '';
     var c = categoryById(cat);
@@ -1119,12 +1270,45 @@ GP.footer();
       ids: ids,
       own: own,
       month: (dates[0] || GP.today()).slice(0, 7),
+      // 2.6: only what the answer carries is shown and sent back (an older script sends none of it).
+      meal: mealOf(post.meal),
+      isMeal: !!post.isMeal,
+      mealLoaded: mealHas(post.meal),
+      familyEmails: Array.isArray(post.familyEmails) ? post.familyEmails.join(', ') : typeof post.familyEmails === 'string' ? post.familyEmails : '',
+      hasFamily: post.familyEmails !== undefined && post.familyEmails !== null,
+      showOnServe: post.showOnServe !== false,
+      hasShow: typeof post.showOnServe === 'boolean',
+      showTouched: true,
     };
+  }
+
+  // ---------- 2.6: meals ----------
+
+  var MEAL_CATS = { 'meals-new-moms': true, 'meals-hardship': true };
+  var MEAL_KEYS = ['allergies', 'likes', 'serves', 'dropoffWindow', 'dropoff', 'coordinateWith'];
+
+  function mealOf(m) {
+    var out = {};
+    MEAL_KEYS.forEach(function (k) {
+      out[k] = m && m[k] !== undefined && m[k] !== null ? String(m[k]) : '';
+    });
+    return out;
+  }
+
+  function mealHas(m) {
+    return MEAL_KEYS.some(function (k) {
+      return !!(m && String(m[k] || '').trim());
+    });
+  }
+
+  /** Meal details show for the meals categories, a post the script calls a meal, or one with meal details. */
+  function mealShown(f) {
+    return !!(MEAL_CATS[f.category] || f.isMeal || f.mealLoaded);
   }
 
   /** The dates the form stands for now (Every week: without the skipped ones). */
   function formDates(f) {
-    if (f.how === 'once') return [f.one];
+    if (f.how === 'once') return f.one ? [f.one] : [];
     if (f.how === 'days') return f.picked.slice().sort();
     return GP.sched.weekly(f.days, f.from, f.until, f.off).dates;
   }
@@ -1178,7 +1362,7 @@ GP.footer();
     checkLink(true);
   }
 
-  function openForEdit(postId, asCopy) {
+  function openForEdit(postId, asCopy, atWhen) {
     call('getPost', { postId: postId }).then(function (res) {
       if (!res.ok) {
         flash('alert', GP.errorText(res));
@@ -1196,6 +1380,13 @@ GP.footer();
         // A copy keeps its category when this leader may create in it; otherwise one must be picked.
         if (!categoryById(f.category)) f.category = '';
         if (orgsFor(f).indexOf(f.organization) < 0) f.organization = orgsFor(f)[0] || '';
+        // 2.6: a copy is a new post: no family emails (they would hear about every sign-up), and
+        // the switch box starts as for a new post.
+        f.familyEmails = '';
+        f.hasFamily = true;
+        f.hasShow = true;
+        f.showTouched = false;
+        f.showOnServe = !MEAL_CATS[f.category];
       }
       state.form = f;
       state.errors = {};
@@ -1203,6 +1394,12 @@ GP.footer();
       state.tab = 'form';
       render();
       window.scrollTo(0, 0);
+      // Add dates: straight to When.
+      if (atWhen) {
+        var how = typeof main.querySelector === 'function' ? main.querySelector('[data-focus="how-' + f.how + '"]') : null;
+        if (how && typeof how.scrollIntoView === 'function') how.scrollIntoView({ block: 'center' });
+        if (how && typeof how.focus === 'function') how.focus();
+      }
       checkLink(true);
     }, function (e) { failed(e); });
   }
@@ -1241,9 +1438,12 @@ GP.footer();
       bar,
       el('div', { class: 'gp-pad', style: 'padding-bottom:0' }, top),
       whatBlock(f, orgs),
+      mealShown(f) ? mealForm(f) : null,
+      requestNote(f),
       whenBlock(f),
       rolesBlock(f),
       notesBlock(f),
+      shareBlock(f),
       saveBar(f),
     ]);
   }
@@ -1267,6 +1467,8 @@ GP.footer();
         f.category = cat.value;
         var c = categoryById(f.category);
         if (c && c.audiences && c.audiences.length && !f.audiences.length) f.audiences = c.audiences.slice();
+        // 2.6: a new meal post starts hidden (ministering sisters first) unless the box was set by hand.
+        if (!f.postId && !f.showTouched) f.showOnServe = !MEAL_CATS[f.category];
         render();
       },
     }, catChoices);
@@ -1295,6 +1497,73 @@ GP.footer();
       field('Title (everyone sees this)', title, 'title'),
       el('div', {}, [el('label', {}, 'Who is it for?'), audiences, err('audiences'), childNote]),
     ]);
+  }
+
+  /** 2.6: Meal details (public, allergies first). */
+  function mealForm(f) {
+    var m = f.meal;
+    function text(id, key, label, attrs) {
+      var a = { type: 'text', id: id, maxlength: '300', value: m[key] };
+      Object.keys(attrs || {}).forEach(function (k) {
+        a[k] = attrs[k];
+      });
+      return field(label, bindText(el('input', a), m, key), 'meal.' + key);
+    }
+    var allergies = bindText(el('textarea', { id: 'gp-m-allergies', maxlength: '500', placeholder: 'Allergies, restrictions or dislikes' }), m, 'allergies');
+    allergies.value = m.allergies;
+    var radios = [['Regular', 'Regular drop-off (knock or ring)'], ['Quiet', 'Quiet drop-off (text on arrival)']].map(function (x) {
+      var input = el('input', {
+        type: 'radio',
+        name: 'gp-m-dropoff',
+        value: x[0],
+        checked: m.dropoff === x[0],
+        onchange: function () {
+          if (input.checked) m.dropoff = x[0];
+        },
+      });
+      return el('label', { class: 'gp-choice' }, [input, x[1]]);
+    });
+    return el('section', { class: 'gp-blk' }, [
+      el('h2', {}, 'Meal details'),
+      el('p', { class: 'gp-hint', style: 'margin:-0.4rem 0 0.6rem' }, 'Everyone with the link sees these. Never the address or phone numbers: those go in Private details.'),
+      field('Allergies (shown first)', allergies, 'meal.allergies'),
+      text('gp-m-likes', 'likes', 'Favourite foods'),
+      text('gp-m-serves', 'serves', 'Serves', { placeholder: 'e.g. Feeds 2 adults, 3 kids' }),
+      text('gp-m-window', 'dropoffWindow', 'Drop-off window', { placeholder: 'e.g. 5:30–6:30 pm' }),
+      el('fieldset', {}, [el('legend', {}, 'Drop-off')].concat(radios)),
+      text('gp-m-coord', 'coordinateWith', 'Coordinate with (first names)', { placeholder: 'e.g. Anna and Ben' }),
+    ]);
+  }
+
+  /** 2.6: a meal post's note (the request's scheduling hint) above When. */
+  function requestNote(f) {
+    if (!f.postId || !mealShown(f) || !String(f.publicNote || '').trim()) return null;
+    return el('div', { class: 'gp-reqnote' }, [el('strong', {}, 'Note on this post: '), el('span', { class: 'gp-note' }, f.publicNote)]);
+  }
+
+  /** 2.6: Family emails and Show on Service Opportunities page (only what the answer carries). */
+  function shareBlock(f) {
+    if (!f.hasFamily && !f.hasShow) return null;
+    var parts = [el('h2', {}, 'Sharing')];
+    if (f.hasShow) {
+      var show = el('input', {
+        type: 'checkbox',
+        id: 'gp-show',
+        checked: !!f.showOnServe,
+        onchange: function () {
+          f.showOnServe = !!show.checked;
+          f.showTouched = true;
+        },
+      });
+      parts.push(el('label', { class: 'gp-choice', for: 'gp-show' }, [show, 'Show on Service Opportunities page']));
+      parts.push(el('p', { class: 'gp-hint', style: 'margin:-0.2rem 0 0.8rem' }, 'Off: only people with the link see it.'));
+    }
+    if (f.hasFamily) {
+      var fam = bindText(el('input', { type: 'text', id: 'gp-family', maxlength: '500', value: f.familyEmails, placeholder: 'e.g. name@example.com, other@example.com', autocomplete: 'off' }), f, 'familyEmails');
+      parts.push(field('Family emails (comma-separated)', fam, 'familyEmails'));
+      parts.push(el('p', { class: 'gp-hint' }, "Each gets an email for every sign-up and cancellation (date, role, volunteer's first name)."));
+    }
+    return el('section', { class: 'gp-blk' }, parts);
   }
 
   /** Days that already have an opportunity (from the list already loaded), other than this post. */
@@ -1648,6 +1917,17 @@ GP.footer();
       cutoffHours: f.cutoffHours,
       slots: flatten(f).slots,
     };
+    // 2.6: sent only when the form has them, so an older script's posts save exactly as before.
+    if (mealShown(f)) post.meal = mealOf(f.meal);
+    if (f.hasFamily) post.familyEmails = f.familyEmails;
+    if (f.hasShow) post.showOnServe = !!f.showOnServe;
+    if (action === 'publish' && !post.slots.length) {
+      state.errors = {};
+      state.formError = 'Add at least one date before publishing.';
+      render();
+      window.scrollTo(0, 0);
+      return;
+    }
     call('savePost', { mode: action, post: post }).then(function (res) {
       if (!res.ok) {
         state.errors = res.fields || {};
