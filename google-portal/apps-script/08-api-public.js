@@ -8,6 +8,11 @@ function wardInfo_(s) {
   return { name: s.ward_name, contact: s.contact_email, serveLink: s.serve_short_link, helpLink: s.help_short_link };
 }
 
+/** A category's Picture for its posts (2.6 §7); filled in by task 9. */
+function categoryPicture_(category) {
+  return '';
+}
+
 function clearServeCache_() {
   try {
     cache_().remove('serve');
@@ -66,7 +71,8 @@ function apiServe_() {
   var cats = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
   var posts = d.posts
     .filter(function (p) {
-      return p.Status === POST_STATUS.open;
+      // Show on Serve = No (2.6): left off the page; the post's own link still works.
+      return p.Status === POST_STATUS.open && isShownOnServe_(p);
     })
     .map(function (p) {
       var sum = postSummary(p, slotsByPost[p['Post id']] || [], counts, today);
@@ -617,7 +623,7 @@ function otherWays_(s, d, except) {
   });
   return d.posts
     .filter(function (p) {
-      return p.Status === POST_STATUS.open && !skip[p['Post id']];
+      return p.Status === POST_STATUS.open && !skip[p['Post id']] && isShownOnServe_(p);
     })
     .map(function (p) {
       return postSummary(p, slotsByPost[p['Post id']] || [], counts, today);

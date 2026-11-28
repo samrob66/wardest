@@ -103,6 +103,7 @@ function apiListPosts_(data) {
     return canApprove(lc.access, lc.email, v, postsById[v['First post']] || null);
   };
   var wantPast = !!(data && data.past);
+  var catsById = indexBy_(lc.categories, 'Id');
   var posts = d.posts
     .filter(function (p) {
       var over = p.Status === POST_STATUS.past || p.Status === POST_STATUS.cancelled;
@@ -112,7 +113,7 @@ function apiListPosts_(data) {
     .map(function (p) {
       var canEdit = canEditPost(lc.access, lc.email, p);
       var slots = (slotsByPost[p['Post id']] || []).slice().sort(slotOrder_);
-      return {
+      return withPostExtras_({
         postId: p['Post id'],
         publicId: p['Public id'],
         publicUrl: pageUrl_(lc.s, 'post', { p: p['Public id'] }),
@@ -151,7 +152,7 @@ function apiListPosts_(data) {
             if (canEdit) o.email = su.Email;
             return o;
           }),
-      };
+      }, p, canEdit, catsById);
     })
     .sort(function (a, b) {
       return cmpLocal(a.firstDate, b.firstDate) || cmpLocal(a.title, b.title);
@@ -164,8 +165,23 @@ function isFromRequest_(p) {
   return /^request /.test(String(p['Created by'] == null ? '' : p['Created by']));
 }
 
-function postForEdit_(p, slots, counts) {
-  return {
+/**
+ * 2.6 (decision 28; contract 2-6): showOnServe, picture, meal (absent when the post has none),
+ * isMeal and progress on every post a leader sees; familyEmails only for those who may edit it.
+ */
+function withPostExtras_(o, p, canEdit, catsById) {
+  o.showOnServe = isShownOnServe_(p);
+  o.picture = categoryPicture_(catsById[p.Category]);
+  var meal = mealOf_(p);
+  if (meal) o.meal = meal;
+  o.isMeal = isMealPost_(p);
+  o.progress = progressOf_(p);
+  if (canEdit) o.familyEmails = familyEmailsOf_(p);
+  return o;
+}
+
+function postForEdit_(p, slots, counts, catsById) {
+  return withPostExtras_({
     postId: p['Post id'],
     publicId: p['Public id'],
     organization: p.Organization,
@@ -183,7 +199,7 @@ function postForEdit_(p, slots, counts) {
       .map(function (sl) {
         return slotOut_(sl, counts);
       }),
-  };
+  }, p, true, catsById || {});
 }
 
 function apiGetPost_(data) {
@@ -195,7 +211,7 @@ function apiGetPost_(data) {
   var slots = d.slots.filter(function (sl) {
     return sl['Post id'] === p['Post id'];
   });
-  return { ok: true, post: postForEdit_(p, slots, countsBySlot(d.signups)) };
+  return { ok: true, post: postForEdit_(p, slots, countsBySlot(d.signups), indexBy_(lc.categories, 'Id')) };
 }
 
 /**
@@ -260,6 +276,12 @@ function apiSavePost_(data) {
     });
     var errors = v.ok ? {} : v.errors;
     if (cat && !sameCat && !allowedOrgsFor_(lc.access, cat).length) errors.category = TEXT.categoryNotAllowed;
+    // 2.6: meal fields, family emails and Show on Serve (only what the call sends; an edit that
+    // leaves them out keeps them).
+    var extra = postExtrasFrom_(input, data, !existing);
+    Object.keys(extra.errors).forEach(function (k) {
+      errors[k] = extra.errors[k];
+    });
     if (Object.keys(errors).length) return { ok: false, error: 'Please fix the marked fields.', fields: errors };
 
     var counts = countsBySlot(d.signups);
@@ -304,6 +326,13 @@ function apiSavePost_(data) {
       'Cancel cutoff hours': p.cutoffHours === '' ? lc.s.default_cancel_cutoff_hours : p.cutoffHours,
       Status: action === 'publish' ? POST_STATUS.open : POST_STATUS.draft,
     };
+    Object.keys(extra.cols).forEach(function (k) {
+      row[k] = extra.cols[k];
+    });
+    if ('Show on Serve' in extra.cols) {
+      var prog = withShownProgress_(existing || {}, extra.cols['Show on Serve'] === 'Yes', lc.leader.Name, now);
+      if (prog !== null) row.Progress = prog;
+    }
     var postId;
     var publicId;
     if (existing) {
@@ -345,6 +374,118 @@ function apiSavePost_(data) {
   clearServeCache_();
   result.publicUrl = pageUrl_(lc.s, 'post', { p: result.publicId });
   return result;
+}
+
+/**
+ * The 2.6 fields a savePost call sends, checked: {cols: {Posts column: value}, errors}. Read from
+ * the post object, or from the call itself (either works). A new post with no showOnServe is
+ * shown; an edit without a field keeps the stored value.
+ */
+function postExtrasFrom_(input, data, isNew) {
+  var cols = {};
+  var errors = {};
+  var pick = function (k) {
+    if (input && Object.prototype.hasOwnProperty.call(input, k)) return { has: true, v: input[k] };
+    if (data && Object.prototype.hasOwnProperty.call(data, k)) return { has: true, v: data[k] };
+    return { has: false };
+  };
+  var show = pick('showOnServe');
+  if (show.has) cols['Show on Serve'] = show.v === false || String(show.v).toLowerCase() === 'false' || String(show.v).toLowerCase() === 'no' ? 'No' : 'Yes';
+  else if (isNew) cols['Show on Serve'] = 'Yes';
+  var fam = pick('familyEmails');
+  if (fam.has) {
+    var list = (Array.isArray(fam.v) ? fam.v : splitList(fam.v)).map(function (e) {
+      return String(e == null ? '' : e).trim();
+    }).filter(String);
+    var bad = list.filter(function (e) {
+      return !isEmail(e);
+    });
+    if (bad.length) errors.familyEmails = 'Use email addresses, separated by commas.';
+    else if (uniq_(list.map(normEmail)).length > FAMILY_EMAILS_MAX) errors.familyEmails = 'Use at most ' + FAMILY_EMAILS_MAX + ' addresses.';
+    else cols['Family emails'] = uniq_(list.map(normEmail)).join(', ');
+  }
+  var meal = pick('meal');
+  if (meal.has && meal.v && typeof meal.v === 'object') {
+    MEAL_FIELDS.forEach(function (f) {
+      if (!Object.prototype.hasOwnProperty.call(meal.v, f[0])) return;
+      var val = String(meal.v[f[0]] == null ? '' : meal.v[f[0]]).trim();
+      if (f[0] === 'dropoff') {
+        if (val && DROPOFF_KINDS.indexOf(val) < 0) {
+          errors['meal.dropoff'] = 'Pick Regular or Quiet.';
+          return;
+        }
+      } else if (val.length > f[2]) {
+        errors['meal.' + f[0]] = 'Keep it under ' + f[2] + ' characters.';
+        return;
+      }
+      cols[f[1]] = val;
+    });
+  } else if (meal.has && meal.v !== null && meal.v !== undefined && meal.v !== '') {
+    errors.meal = TEXT.badRequest;
+  }
+  return { cols: cols, errors: errors };
+}
+
+/**
+ * The Progress JSON after Show on Serve is set to `shown` (spec 5: Shown on portal ticks itself
+ * when the switch is turned on, and unticks when it is turned off). null when nothing changes.
+ */
+function withShownProgress_(post, shown, who, now) {
+  var m = progressMap_(post);
+  var has = !!(m[PROGRESS_AUTO_KEY] && typeof m[PROGRESS_AUTO_KEY] === 'object');
+  if (shown === has) return null;
+  if (shown) m[PROGRESS_AUTO_KEY] = { by: who, at: now };
+  else delete m[PROGRESS_AUTO_KEY];
+  return Object.keys(m).length ? JSON.stringify(m) : '';
+}
+
+/** data: {k, postId, key, done}. Ticks or unticks a checklist step (editors), recording who and when. */
+function apiSetProgress_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var key = String((data && data.key) == null ? '' : data.key);
+  var known = PROGRESS_STEPS.some(function (st) {
+    return st.key === key;
+  });
+  if (!known) return { ok: false, error: TEXT.progressUnknown };
+  if (key === PROGRESS_AUTO_KEY) return { ok: false, error: TEXT.progressAuto };
+  return withLock_(function () {
+    var postsT = serviceTab_(TAB.posts);
+    var p = postsT.find('Post id', String(data.postId));
+    if (!p) return { ok: false, error: TEXT.postNotFound };
+    if (!canEditPost(lc.access, lc.email, p)) return { ok: false, error: TEXT.notAllowed };
+    var m = progressMap_(p);
+    var done = data.done === true || String(data.done).toLowerCase() === 'true';
+    if (done) m[key] = { by: lc.leader.Name, at: nowLocal_() };
+    else delete m[key];
+    postsT.update(p, { Progress: Object.keys(m).length ? JSON.stringify(m) : '' });
+    return { ok: true, progress: progressOf_(p) };
+  });
+}
+
+/** data: {k, postId, show}. Shows or hides the post on the Service Opportunities page (editors). */
+function apiSetShowOnServe_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var show = !(data && (data.show === false || String(data.show).toLowerCase() === 'false'));
+  var res = withLock_(function () {
+    var postsT = serviceTab_(TAB.posts);
+    var p = postsT.find('Post id', String(data && data.postId));
+    if (!p) return { ok: false, error: TEXT.postNotFound };
+    if (!canEditPost(lc.access, lc.email, p)) return { ok: false, error: TEXT.notAllowed };
+    var now = nowLocal_();
+    var changes = { 'Show on Serve': show ? 'Yes' : 'No' };
+    var prog = withShownProgress_(p, show, lc.leader.Name, now);
+    if (prog !== null) changes.Progress = prog;
+    if (String(p['Show on Serve']) !== changes['Show on Serve'] || prog !== null) {
+      changes['Last changed by'] = lc.leader.Name;
+      changes['Last changed at'] = now;
+      postsT.update(p, changes);
+    }
+    return { ok: true, showOnServe: isShownOnServe_(p), progress: progressOf_(p) };
+  });
+  if (res.ok) clearServeCache_();
+  return res;
 }
 
 /** Sign-ups holding (Confirmed) or waiting for (Waiting-*) a place in the slot. */

@@ -70,6 +70,8 @@ var TEXT = {
   bishopricOnly: 'Only the bishopric can do this.',
   councilOnly: 'Needs help soon is for the ward council and the bishopric.',
   signOutDone: 'We emailed you a new leader link. The old one no longer works.',
+  progressUnknown: 'That checklist step was not found.',
+  progressAuto: 'Shown on portal ticks itself when the opportunity is shown on the Service Opportunities page.',
 };
 
 /** Limits (spec section 7.3). The total of confirm emails a day is Settings confirm_limit_per_day. */
@@ -117,7 +119,7 @@ var SERVICE_HEADERS = {
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
   Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category', 'Approvers', 'Picture', 'Sign-up notices to'],
-  Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
+  Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at', 'Show on Serve', 'Allergies', 'Food likes', 'Serves', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Family emails', 'Progress'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
   Volunteers: ['Email', 'Name', 'Status', 'Decided by', 'Decided at', 'First post', 'Email confirmed at'],
@@ -173,7 +175,7 @@ var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received', 'Added at'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Boy, girl or surprise', 'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email', 'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone', 'Adults', 'Kids', 'Allergies', 'Favorite foods', "Baby's name", 'Gender', 'Photo link', 'Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
+var TEXT_COLS = ['Show on Serve', 'Food likes', 'Serves', 'Family emails', 'Progress', 'Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Boy, girl or surprise', 'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email', 'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone', 'Adults', 'Kids', 'Allergies', 'Favorite foods', "Baby's name", 'Gender', 'Photo link', 'Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details', 'Shared with RS'];
 
 /** Settings rows: [key, default, help]. */
@@ -294,6 +296,15 @@ var FIELD_NOTES = {
       'Created at': ['When it was made (ward time).', 'Example: 2026-11-30 09:15'],
       'Last changed by': ['The leader who last changed it.', 'Example: Sister Example'],
       'Last changed at': ['When it was last changed (ward time).', 'Example: 2026-12-01 18:40'],
+      'Show on Serve': ['Yes: listed on the Service Opportunities page (and Other ways to serve, Needs help soon). No: hidden there; its own link still works.', 'Blank: shown. New meal posts start at No.', 'Example: No'],
+      Allergies: ['Meals: allergies, restrictions or dislikes, shown first on the post.', 'Blank: none.', 'Example: No peanuts'],
+      'Food likes': ['Meals: favorite foods or cuisines, public.', 'Blank: none.', 'Example: Soups, Mexican'],
+      Serves: ['Meals: how many the meals feed, public.', 'Blank: not given.', 'Example: 2 adults, 3 kids'],
+      'Drop-off window': ['Meals: the best time to drop meals off, public.', 'Blank: not given.', 'Example: 5:30-6:30 pm'],
+      'Drop-off': ['Meals: Regular (knock or doorbell) or Quiet (text on arrival), public.', 'Blank: not given.', 'Example: Quiet'],
+      'Coordinate with': ['Meals: first names of the family members to coordinate with, public. Their phones are in Private details.', 'Blank: nobody named.', 'Example: Anna and Ben'],
+      'Family emails': ['Meals: the family\'s addresses, commas. Each gets an email for every sign-up and cancellation (first name, date, role).', 'Blank: no family emails.', 'Example: anna.sample@example.test'],
+      Progress: ['The post\'s progress checklist (who ticked what, and when), kept by the script. Change it on the leader page.', 'Blank: nothing ticked yet.', 'Example: {"parents_reviewed":{"by":"Sister Example","at":"2026-12-01 10:00"}}'],
     },
     Slots: {
       'Slot id': ['One date and role of an opportunity. The script writes this tab.', 'Example: s1a2b3'],
@@ -485,6 +496,30 @@ var MEAL_REQUEST_ID = 'meal-request';
 var MEAL_BABY_ID = 'meals-new-moms';
 var MEAL_HARDSHIP_ID = 'meals-hardship';
 var MEAL_CATEGORY_IDS = [MEAL_BABY_ID, MEAL_HARDSHIP_ID];
+
+/**
+ * The progress checklist on each post (2.6, spec section 5), in order. shown_on_portal follows
+ * the post's Show on Serve switch and can't be ticked by hand.
+ */
+var PROGRESS_STEPS = [
+  { key: 'parents_reviewed', label: 'Parents reviewed' },
+  { key: 'sent_ministering', label: 'Sent to ministering sisters' },
+  { key: 'shown_on_portal', label: 'Shown on portal' },
+  { key: 'ward_email', label: 'Ward email sent' },
+  { key: 'discord', label: 'Posted on Discord' },
+];
+var PROGRESS_AUTO_KEY = 'shown_on_portal';
+/** The meal fields on a post: API key → Posts column, longest kept. */
+var MEAL_FIELDS = [
+  ['allergies', 'Allergies', 300],
+  ['likes', 'Food likes', 300],
+  ['serves', 'Serves', 60],
+  ['dropoffWindow', 'Drop-off window', 60],
+  ['dropoff', 'Drop-off', 10],
+  ['coordinateWith', 'Coordinate with', 100],
+];
+var DROPOFF_KINDS = ['Regular', 'Quiet'];
+var FAMILY_EMAILS_MAX = 10;
 var MEAL_CATEGORIES = [
   { Id: MEAL_REQUEST_ID, Name: 'Meals', Icon: '🍲', Kind: 'Request', 'Owning organizations': 'Relief Society', Notify: 'Coordinators', 'On Help page': true, 'Opportunity category': MEAL_BABY_ID + ', ' + MEAL_HARDSHIP_ID },
   { Id: MEAL_BABY_ID, Name: 'Meals for New Moms', Icon: '🍼', Kind: 'Opportunity', 'Owning organizations': 'Relief Society', 'Default audiences': 'Sisters' },

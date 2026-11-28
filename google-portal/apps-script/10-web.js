@@ -45,6 +45,8 @@ var POST_ACTIONS = [
   'preapproveCount',
   'preapproveAdd',
   'preapproveClear',
+  'setProgress',
+  'setShowOnServe',
 ];
 
 function jsonOut_(obj) {
@@ -186,6 +188,12 @@ function dispatch_(action, data) {
     },
     preapproveClear: function () {
       return apiPreapproveClear_(data);
+    },
+    setProgress: function () {
+      return apiSetProgress_(data);
+    },
+    setShowOnServe: function () {
+      return apiSetShowOnServe_(data);
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };

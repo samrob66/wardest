@@ -328,9 +328,14 @@ function ensureRequestColumns_(ss, categoryId) {
 
 // ---------- turning a request into a draft opportunity (2.2, decision 19) ----------
 
-/** The request kind's Opportunity category row, when it names a live Opportunity category. */
-function draftCategoryFor_(kind, catsById) {
-  var id = String(kind['Opportunity category'] == null ? '' : kind['Opportunity category']).trim();
+/**
+ * The request kind's Opportunity category row, when it names a live Opportunity category. The
+ * meals kind (2.6) names two, [new baby, hardship], and the row's Meals for answer picks one.
+ */
+function draftCategoryFor_(kind, catsById, r) {
+  var ids = splitList(kind['Opportunity category']);
+  var hardship = kind.Id === MEAL_REQUEST_ID && String((r && r['Meals for']) || '').trim() === MEAL_FOR[1];
+  var id = hardship && ids.length > 1 ? ids[1] : ids[0] || '';
   var oc = id ? catsById[id] : null;
   if (!oc || oc.Kind !== CATEGORY_KIND.opportunity || isTicked(oc.Archived)) return null;
   return oc;
@@ -368,6 +373,128 @@ function draftFromRequest_(s, kind, oc, r, todayLocal, nowLocal) {
       'Last changed at': nowLocal,
     },
     slot: { 'Slot id': newId_('t'), 'Post id': postId, Date: date, Start: '', End: '', Role: 'Help', Needed: 1, 'Role note': '', 'Bringing prompt': '', Filled: 0, Waiting: 0 },
+  };
+}
+
+/** The first word of a name ('' when blank). */
+function firstWord_(name) {
+  return String(name == null ? '' : name).trim().split(/\s+/)[0] || '';
+}
+
+/**
+ * "the Sample" when every named person shares a last name, else their first names joined with
+ * "and"; '' when nobody is named. A one-word name has no last name.
+ */
+function familyName_(names) {
+  var list = names
+    .map(function (n) {
+      return String(n == null ? '' : n).trim();
+    })
+    .filter(String);
+  if (!list.length) return '';
+  var lasts = list.map(function (n) {
+    var w = n.split(/\s+/);
+    return w.length > 1 ? w[w.length - 1] : '';
+  });
+  var same = lasts.every(function (l) {
+    return l && l.toLowerCase() === lasts[0].toLowerCase();
+  });
+  return same ? lasts[0] : joinNames_(list.map(firstWord_));
+}
+
+/**
+ * A meals draft (2.6, decision 28; changes decision 19 for meals only, by Sam's choice: "Go ahead
+ * and include their names"). Public: the title "Meals for the <family> family", allergies, food
+ * likes, how many it feeds, the drop-off window and kind, and the first names to coordinate
+ * with. Private: the address, the phones of the people ticked to coordinate with, the Other
+ * contact and the schedule asked for. Family emails: the addresses of the people ticked (or all
+ * given, when nobody is ticked). No dates (the coordinator adds them once baby is here) and
+ * Show on Serve = No (ministering sisters first). Never anything about ministering assignments.
+ */
+function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
+  var v = function (k) {
+    return String(r[k] == null ? '' : r[k]).trim();
+  };
+  var baby = v('Meals for') !== MEAL_FOR[1];
+  var people = baby
+    ? [
+        { tick: MEAL_COORD_BABY[0], name: v("Mom's name"), phone: v("Mom's phone"), email: v("Mom's email") },
+        { tick: MEAL_COORD_BABY[1], name: v("Dad's name"), phone: v("Dad's phone"), email: v("Dad's email") },
+      ]
+    : [
+        { tick: MEAL_COORD_HARDSHIP[0], name: v('Adult name'), phone: v('Adult phone'), email: v('Adult email') },
+        { tick: MEAL_COORD_HARDSHIP[1], name: v('Second adult name'), phone: v('Second adult phone'), email: v('Second adult email') },
+      ];
+  var ticks = splitList(v('Coordinate with'));
+  var ticked = people.filter(function (p) {
+    return ticks.indexOf(p.tick) >= 0;
+  });
+  var reach = ticked.length ? ticked : people;
+  var family = familyName_(
+    people.map(function (p) {
+      return p.name;
+    })
+  );
+  var serves = [];
+  var adults = v('Adults');
+  var kids = v('Kids');
+  if (adults) serves.push(adults + (adults === '1' ? ' adult' : ' adults'));
+  if (kids) serves.push(kids + (kids === '1' ? ' kid' : ' kids'));
+  var dropoff = /^quiet/i.test(v('Drop-off')) ? 'Quiet' : /^regular/i.test(v('Drop-off')) ? 'Regular' : '';
+  var lines = [];
+  if (v('Address')) lines.push('Address: ' + v('Address'));
+  reach.forEach(function (p) {
+    if (p.phone) lines.push((firstWord_(p.name) || p.tick) + ': ' + p.phone);
+  });
+  if (ticks.indexOf('Other') >= 0 && (v('Other contact name') || v('Other contact phone'))) {
+    lines.push('Other contact: ' + [v('Other contact name'), v('Other contact phone')].filter(String).join(', '));
+  }
+  var schedule = [v('Meals start') ? 'start ' + v('Meals start') : '', v('How often') + (v('Specific dates') ? ': ' + v('Specific dates') : '')].filter(String);
+  if (schedule.length) lines.push('Asked for: ' + schedule.join('; '));
+  var postId = newId_('p');
+  return {
+    post: {
+      'Post id': postId,
+      'Public id': newId_(''),
+      Organization: splitList(oc['Owning organizations'])[0] || splitList(kind['Owning organizations'])[0] || 'Relief Society',
+      Category: String(oc.Id),
+      Title: clip(family ? 'Meals for the ' + family + ' family' : 'Meals for a family', 100),
+      Audiences: (audiencesOf_(oc['Default audiences']).length ? audiencesOf_(oc['Default audiences']) : ['Sisters']).join(', '),
+      'Public note': '',
+      'Private details': clip(lines.join('\n'), 1000),
+      'Cancel cutoff hours': s.default_cancel_cutoff_hours,
+      Status: POST_STATUS.draft,
+      'Created by': 'request ' + r['Request id'],
+      'Created at': nowLocal,
+      'Last changed by': 'From a request',
+      'Last changed at': nowLocal,
+      'Show on Serve': 'No',
+      Allergies: clip(v('Allergies'), 300),
+      'Food likes': clip(v('Favorite foods'), 300),
+      Serves: clip(serves.join(', '), 60),
+      'Drop-off window': clip(v('Drop-off window'), 60),
+      'Drop-off': dropoff,
+      'Coordinate with': clip(
+        joinNames_(
+          ticked
+            .map(function (p) {
+              return firstWord_(p.name);
+            })
+            .filter(String)
+        ),
+        100
+      ),
+      'Family emails': uniq_(
+        reach
+          .map(function (p) {
+            return p.email;
+          })
+          .filter(isEmail)
+          .map(normEmail)
+      ).join(', '),
+      Progress: '',
+    },
+    slot: null,
   };
 }
 
@@ -415,7 +542,7 @@ function makeDraftsFromRequests_() {
               t.update(r, { 'Make opportunity': false });
               return;
             }
-            var oc = draftCategoryFor_(kind, catsById);
+            var oc = draftCategoryFor_(kind, catsById, r);
             if (!oc) {
               var set = String(kind['Opportunity category'] == null ? '' : kind['Opportunity category']).trim();
               t.update(r, {
@@ -430,9 +557,9 @@ function makeDraftsFromRequests_() {
             var key = 'request ' + String(r['Request id']).trim();
             var post = byCreator[key];
             if (!post) {
-              var d = draftFromRequest_(s, kind, oc, r, today, now);
+              var d = kind.Id === MEAL_REQUEST_ID ? mealDraftFromRequest_(s, kind, oc, r, now) : draftFromRequest_(s, kind, oc, r, today, now);
               postsT.append(d.post);
-              serviceTab_(TAB.slots).append(d.slot);
+              if (d.slot) serviceTab_(TAB.slots).append(d.slot);
               post = d.post;
               byCreator[key] = post;
               made.push({ kind: kind, post: post });

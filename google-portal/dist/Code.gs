@@ -78,6 +78,8 @@ var TEXT = {
   bishopricOnly: 'Only the bishopric can do this.',
   councilOnly: 'Needs help soon is for the ward council and the bishopric.',
   signOutDone: 'We emailed you a new leader link. The old one no longer works.',
+  progressUnknown: 'That checklist step was not found.',
+  progressAuto: 'Shown on portal ticks itself when the opportunity is shown on the Service Opportunities page.',
 };
 
 /** Limits (spec section 7.3). The total of confirm emails a day is Settings confirm_limit_per_day. */
@@ -125,7 +127,7 @@ var SERVICE_HEADERS = {
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
   Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category', 'Approvers', 'Picture', 'Sign-up notices to'],
-  Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
+  Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at', 'Show on Serve', 'Allergies', 'Food likes', 'Serves', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Family emails', 'Progress'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
   Volunteers: ['Email', 'Name', 'Status', 'Decided by', 'Decided at', 'First post', 'Email confirmed at'],
@@ -181,7 +183,7 @@ var TIME_COLS = ['Start', 'End'];
 var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received', 'Added at'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Boy, girl or surprise', 'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email', 'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone', 'Adults', 'Kids', 'Allergies', 'Favorite foods', "Baby's name", 'Gender', 'Photo link', 'Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
+var TEXT_COLS = ['Show on Serve', 'Food likes', 'Serves', 'Family emails', 'Progress', 'Meals for', "Mom's name", "Mom's phone", "Mom's email", "Dad's name", "Dad's phone", "Dad's email", 'Boy, girl or surprise', 'Adult name', 'Adult phone', 'Adult email', 'Second adult name', 'Second adult phone', 'Second adult email', 'Address', 'Meals start', 'How often', 'Specific dates', 'Drop-off window', 'Drop-off', 'Coordinate with', 'Other contact name', 'Other contact phone', 'Adults', 'Kids', 'Allergies', 'Favorite foods', "Baby's name", 'Gender', 'Photo link', 'Picture', 'Sign-up notices to', 'Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details', 'Shared with RS'];
 
 /** Settings rows: [key, default, help]. */
@@ -302,6 +304,15 @@ var FIELD_NOTES = {
       'Created at': ['When it was made (ward time).', 'Example: 2026-11-30 09:15'],
       'Last changed by': ['The leader who last changed it.', 'Example: Sister Example'],
       'Last changed at': ['When it was last changed (ward time).', 'Example: 2026-12-01 18:40'],
+      'Show on Serve': ['Yes: listed on the Service Opportunities page (and Other ways to serve, Needs help soon). No: hidden there; its own link still works.', 'Blank: shown. New meal posts start at No.', 'Example: No'],
+      Allergies: ['Meals: allergies, restrictions or dislikes, shown first on the post.', 'Blank: none.', 'Example: No peanuts'],
+      'Food likes': ['Meals: favorite foods or cuisines, public.', 'Blank: none.', 'Example: Soups, Mexican'],
+      Serves: ['Meals: how many the meals feed, public.', 'Blank: not given.', 'Example: 2 adults, 3 kids'],
+      'Drop-off window': ['Meals: the best time to drop meals off, public.', 'Blank: not given.', 'Example: 5:30-6:30 pm'],
+      'Drop-off': ['Meals: Regular (knock or doorbell) or Quiet (text on arrival), public.', 'Blank: not given.', 'Example: Quiet'],
+      'Coordinate with': ['Meals: first names of the family members to coordinate with, public. Their phones are in Private details.', 'Blank: nobody named.', 'Example: Anna and Ben'],
+      'Family emails': ['Meals: the family\'s addresses, commas. Each gets an email for every sign-up and cancellation (first name, date, role).', 'Blank: no family emails.', 'Example: anna.sample@example.test'],
+      Progress: ['The post\'s progress checklist (who ticked what, and when), kept by the script. Change it on the leader page.', 'Blank: nothing ticked yet.', 'Example: {"parents_reviewed":{"by":"Sister Example","at":"2026-12-01 10:00"}}'],
     },
     Slots: {
       'Slot id': ['One date and role of an opportunity. The script writes this tab.', 'Example: s1a2b3'],
@@ -493,6 +504,30 @@ var MEAL_REQUEST_ID = 'meal-request';
 var MEAL_BABY_ID = 'meals-new-moms';
 var MEAL_HARDSHIP_ID = 'meals-hardship';
 var MEAL_CATEGORY_IDS = [MEAL_BABY_ID, MEAL_HARDSHIP_ID];
+
+/**
+ * The progress checklist on each post (2.6, spec section 5), in order. shown_on_portal follows
+ * the post's Show on Serve switch and can't be ticked by hand.
+ */
+var PROGRESS_STEPS = [
+  { key: 'parents_reviewed', label: 'Parents reviewed' },
+  { key: 'sent_ministering', label: 'Sent to ministering sisters' },
+  { key: 'shown_on_portal', label: 'Shown on portal' },
+  { key: 'ward_email', label: 'Ward email sent' },
+  { key: 'discord', label: 'Posted on Discord' },
+];
+var PROGRESS_AUTO_KEY = 'shown_on_portal';
+/** The meal fields on a post: API key → Posts column, longest kept. */
+var MEAL_FIELDS = [
+  ['allergies', 'Allergies', 300],
+  ['likes', 'Food likes', 300],
+  ['serves', 'Serves', 60],
+  ['dropoffWindow', 'Drop-off window', 60],
+  ['dropoff', 'Drop-off', 10],
+  ['coordinateWith', 'Coordinate with', 100],
+];
+var DROPOFF_KINDS = ['Regular', 'Quiet'];
+var FAMILY_EMAILS_MAX = 10;
 var MEAL_CATEGORIES = [
   { Id: MEAL_REQUEST_ID, Name: 'Meals', Icon: '🍲', Kind: 'Request', 'Owning organizations': 'Relief Society', Notify: 'Coordinators', 'On Help page': true, 'Opportunity category': MEAL_BABY_ID + ', ' + MEAL_HARDSHIP_ID },
   { Id: MEAL_BABY_ID, Name: 'Meals for New Moms', Icon: '🍼', Kind: 'Opportunity', 'Owning organizations': 'Relief Society', 'Default audiences': 'Sisters' },
@@ -1541,7 +1576,8 @@ function validatePost(input, ctx) {
   else cutoff = Number(cutoff);
 
   var inSlots = Array.isArray(input.slots) ? input.slots : [];
-  if (!inSlots.length) errors.slots = 'Add at least one date.';
+  // A draft may have no dates yet (2.6: meal drafts start without any); publishing needs one.
+  if (!inSlots.length && ctx.publish) errors.slots = 'Add at least one date.';
   if (inSlots.length > 100) errors.slots = 'Use at most 100 dates and roles.';
   var keep = ctx.keepDates || {};
   var slots = inSlots.slice(0, 100).map(function (s, i) {
@@ -1598,6 +1634,58 @@ function validatePost(input, ctx) {
     },
     slots: slots,
   };
+}
+
+/** Show on Serve (2.6): blank or Yes is shown; only No hides the post from the lists. */
+function isShownOnServe_(post) {
+  return str_(post && post['Show on Serve']).toLowerCase() !== 'no';
+}
+
+/** A post in one of the two meals opportunity categories (2.6). */
+function isMealPost_(post) {
+  return MEAL_CATEGORY_IDS.indexOf(str_(post && post.Category)) >= 0;
+}
+
+/** The post's meal fields as the API answers them, or null when it has none. */
+function mealOf_(post) {
+  var out = {};
+  var any = false;
+  MEAL_FIELDS.forEach(function (f) {
+    out[f[0]] = str_(post && post[f[1]]);
+    if (out[f[0]]) any = true;
+  });
+  return any ? out : null;
+}
+
+/** The Progress column (JSON) as {key: {by, at}}; anything unreadable counts as nothing ticked. */
+function progressMap_(post) {
+  var raw = str_(post && post.Progress);
+  if (!raw) return {};
+  try {
+    var m = JSON.parse(raw);
+    return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+/** The checklist as the API answers it: [{key, label, done, by, at}], in PROGRESS_STEPS order. */
+function progressOf_(post) {
+  var m = progressMap_(post);
+  return PROGRESS_STEPS.map(function (st) {
+    var e = m[st.key];
+    var done = !!(e && typeof e === 'object');
+    return { key: st.key, label: st.label, done: done, by: done ? str_(e.by) : '', at: done ? str_(e.at) : '' };
+  });
+}
+
+/** The family's addresses from the Family emails column. */
+function familyEmailsOf_(post) {
+  return uniq_(
+    splitList(post && post['Family emails'])
+      .filter(isEmail)
+      .map(normEmail)
+  );
 }
 
 /** {slotId: {filled, waiting}}: filled = Confirmed; waiting = phase 2 waiting statuses. */
@@ -2150,7 +2238,7 @@ function needsHelpSoon(posts, slotsByPost, counts, todayLocal) {
   var last = addDays(todayLocal, NEEDS_HELP_DAYS);
   var rows = [];
   (posts || []).forEach(function (p) {
-    if (p.Status !== POST_STATUS.open) return;
+    if (p.Status !== POST_STATUS.open || !isShownOnServe_(p)) return;
     (slotsByPost[p['Post id']] || []).forEach(function (sl) {
       if (sl.Date < todayLocal || sl.Date > last) return;
       var needed = Number(sl.Needed) || 0;
@@ -3098,6 +3186,11 @@ function wardInfo_(s) {
   return { name: s.ward_name, contact: s.contact_email, serveLink: s.serve_short_link, helpLink: s.help_short_link };
 }
 
+/** A category's Picture for its posts (2.6 §7); filled in by task 9. */
+function categoryPicture_(category) {
+  return '';
+}
+
 function clearServeCache_() {
   try {
     cache_().remove('serve');
@@ -3156,7 +3249,8 @@ function apiServe_() {
   var cats = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
   var posts = d.posts
     .filter(function (p) {
-      return p.Status === POST_STATUS.open;
+      // Show on Serve = No (2.6): left off the page; the post's own link still works.
+      return p.Status === POST_STATUS.open && isShownOnServe_(p);
     })
     .map(function (p) {
       var sum = postSummary(p, slotsByPost[p['Post id']] || [], counts, today);
@@ -3707,7 +3801,7 @@ function otherWays_(s, d, except) {
   });
   return d.posts
     .filter(function (p) {
-      return p.Status === POST_STATUS.open && !skip[p['Post id']];
+      return p.Status === POST_STATUS.open && !skip[p['Post id']] && isShownOnServe_(p);
     })
     .map(function (p) {
       return postSummary(p, slotsByPost[p['Post id']] || [], counts, today);
@@ -4250,6 +4344,7 @@ function apiListPosts_(data) {
     return canApprove(lc.access, lc.email, v, postsById[v['First post']] || null);
   };
   var wantPast = !!(data && data.past);
+  var catsById = indexBy_(lc.categories, 'Id');
   var posts = d.posts
     .filter(function (p) {
       var over = p.Status === POST_STATUS.past || p.Status === POST_STATUS.cancelled;
@@ -4259,7 +4354,7 @@ function apiListPosts_(data) {
     .map(function (p) {
       var canEdit = canEditPost(lc.access, lc.email, p);
       var slots = (slotsByPost[p['Post id']] || []).slice().sort(slotOrder_);
-      return {
+      return withPostExtras_({
         postId: p['Post id'],
         publicId: p['Public id'],
         publicUrl: pageUrl_(lc.s, 'post', { p: p['Public id'] }),
@@ -4298,7 +4393,7 @@ function apiListPosts_(data) {
             if (canEdit) o.email = su.Email;
             return o;
           }),
-      };
+      }, p, canEdit, catsById);
     })
     .sort(function (a, b) {
       return cmpLocal(a.firstDate, b.firstDate) || cmpLocal(a.title, b.title);
@@ -4311,8 +4406,23 @@ function isFromRequest_(p) {
   return /^request /.test(String(p['Created by'] == null ? '' : p['Created by']));
 }
 
-function postForEdit_(p, slots, counts) {
-  return {
+/**
+ * 2.6 (decision 28; contract 2-6): showOnServe, picture, meal (absent when the post has none),
+ * isMeal and progress on every post a leader sees; familyEmails only for those who may edit it.
+ */
+function withPostExtras_(o, p, canEdit, catsById) {
+  o.showOnServe = isShownOnServe_(p);
+  o.picture = categoryPicture_(catsById[p.Category]);
+  var meal = mealOf_(p);
+  if (meal) o.meal = meal;
+  o.isMeal = isMealPost_(p);
+  o.progress = progressOf_(p);
+  if (canEdit) o.familyEmails = familyEmailsOf_(p);
+  return o;
+}
+
+function postForEdit_(p, slots, counts, catsById) {
+  return withPostExtras_({
     postId: p['Post id'],
     publicId: p['Public id'],
     organization: p.Organization,
@@ -4330,7 +4440,7 @@ function postForEdit_(p, slots, counts) {
       .map(function (sl) {
         return slotOut_(sl, counts);
       }),
-  };
+  }, p, true, catsById || {});
 }
 
 function apiGetPost_(data) {
@@ -4342,7 +4452,7 @@ function apiGetPost_(data) {
   var slots = d.slots.filter(function (sl) {
     return sl['Post id'] === p['Post id'];
   });
-  return { ok: true, post: postForEdit_(p, slots, countsBySlot(d.signups)) };
+  return { ok: true, post: postForEdit_(p, slots, countsBySlot(d.signups), indexBy_(lc.categories, 'Id')) };
 }
 
 /**
@@ -4407,6 +4517,12 @@ function apiSavePost_(data) {
     });
     var errors = v.ok ? {} : v.errors;
     if (cat && !sameCat && !allowedOrgsFor_(lc.access, cat).length) errors.category = TEXT.categoryNotAllowed;
+    // 2.6: meal fields, family emails and Show on Serve (only what the call sends; an edit that
+    // leaves them out keeps them).
+    var extra = postExtrasFrom_(input, data, !existing);
+    Object.keys(extra.errors).forEach(function (k) {
+      errors[k] = extra.errors[k];
+    });
     if (Object.keys(errors).length) return { ok: false, error: 'Please fix the marked fields.', fields: errors };
 
     var counts = countsBySlot(d.signups);
@@ -4451,6 +4567,13 @@ function apiSavePost_(data) {
       'Cancel cutoff hours': p.cutoffHours === '' ? lc.s.default_cancel_cutoff_hours : p.cutoffHours,
       Status: action === 'publish' ? POST_STATUS.open : POST_STATUS.draft,
     };
+    Object.keys(extra.cols).forEach(function (k) {
+      row[k] = extra.cols[k];
+    });
+    if ('Show on Serve' in extra.cols) {
+      var prog = withShownProgress_(existing || {}, extra.cols['Show on Serve'] === 'Yes', lc.leader.Name, now);
+      if (prog !== null) row.Progress = prog;
+    }
     var postId;
     var publicId;
     if (existing) {
@@ -4492,6 +4615,118 @@ function apiSavePost_(data) {
   clearServeCache_();
   result.publicUrl = pageUrl_(lc.s, 'post', { p: result.publicId });
   return result;
+}
+
+/**
+ * The 2.6 fields a savePost call sends, checked: {cols: {Posts column: value}, errors}. Read from
+ * the post object, or from the call itself (either works). A new post with no showOnServe is
+ * shown; an edit without a field keeps the stored value.
+ */
+function postExtrasFrom_(input, data, isNew) {
+  var cols = {};
+  var errors = {};
+  var pick = function (k) {
+    if (input && Object.prototype.hasOwnProperty.call(input, k)) return { has: true, v: input[k] };
+    if (data && Object.prototype.hasOwnProperty.call(data, k)) return { has: true, v: data[k] };
+    return { has: false };
+  };
+  var show = pick('showOnServe');
+  if (show.has) cols['Show on Serve'] = show.v === false || String(show.v).toLowerCase() === 'false' || String(show.v).toLowerCase() === 'no' ? 'No' : 'Yes';
+  else if (isNew) cols['Show on Serve'] = 'Yes';
+  var fam = pick('familyEmails');
+  if (fam.has) {
+    var list = (Array.isArray(fam.v) ? fam.v : splitList(fam.v)).map(function (e) {
+      return String(e == null ? '' : e).trim();
+    }).filter(String);
+    var bad = list.filter(function (e) {
+      return !isEmail(e);
+    });
+    if (bad.length) errors.familyEmails = 'Use email addresses, separated by commas.';
+    else if (uniq_(list.map(normEmail)).length > FAMILY_EMAILS_MAX) errors.familyEmails = 'Use at most ' + FAMILY_EMAILS_MAX + ' addresses.';
+    else cols['Family emails'] = uniq_(list.map(normEmail)).join(', ');
+  }
+  var meal = pick('meal');
+  if (meal.has && meal.v && typeof meal.v === 'object') {
+    MEAL_FIELDS.forEach(function (f) {
+      if (!Object.prototype.hasOwnProperty.call(meal.v, f[0])) return;
+      var val = String(meal.v[f[0]] == null ? '' : meal.v[f[0]]).trim();
+      if (f[0] === 'dropoff') {
+        if (val && DROPOFF_KINDS.indexOf(val) < 0) {
+          errors['meal.dropoff'] = 'Pick Regular or Quiet.';
+          return;
+        }
+      } else if (val.length > f[2]) {
+        errors['meal.' + f[0]] = 'Keep it under ' + f[2] + ' characters.';
+        return;
+      }
+      cols[f[1]] = val;
+    });
+  } else if (meal.has && meal.v !== null && meal.v !== undefined && meal.v !== '') {
+    errors.meal = TEXT.badRequest;
+  }
+  return { cols: cols, errors: errors };
+}
+
+/**
+ * The Progress JSON after Show on Serve is set to `shown` (spec 5: Shown on portal ticks itself
+ * when the switch is turned on, and unticks when it is turned off). null when nothing changes.
+ */
+function withShownProgress_(post, shown, who, now) {
+  var m = progressMap_(post);
+  var has = !!(m[PROGRESS_AUTO_KEY] && typeof m[PROGRESS_AUTO_KEY] === 'object');
+  if (shown === has) return null;
+  if (shown) m[PROGRESS_AUTO_KEY] = { by: who, at: now };
+  else delete m[PROGRESS_AUTO_KEY];
+  return Object.keys(m).length ? JSON.stringify(m) : '';
+}
+
+/** data: {k, postId, key, done}. Ticks or unticks a checklist step (editors), recording who and when. */
+function apiSetProgress_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var key = String((data && data.key) == null ? '' : data.key);
+  var known = PROGRESS_STEPS.some(function (st) {
+    return st.key === key;
+  });
+  if (!known) return { ok: false, error: TEXT.progressUnknown };
+  if (key === PROGRESS_AUTO_KEY) return { ok: false, error: TEXT.progressAuto };
+  return withLock_(function () {
+    var postsT = serviceTab_(TAB.posts);
+    var p = postsT.find('Post id', String(data.postId));
+    if (!p) return { ok: false, error: TEXT.postNotFound };
+    if (!canEditPost(lc.access, lc.email, p)) return { ok: false, error: TEXT.notAllowed };
+    var m = progressMap_(p);
+    var done = data.done === true || String(data.done).toLowerCase() === 'true';
+    if (done) m[key] = { by: lc.leader.Name, at: nowLocal_() };
+    else delete m[key];
+    postsT.update(p, { Progress: Object.keys(m).length ? JSON.stringify(m) : '' });
+    return { ok: true, progress: progressOf_(p) };
+  });
+}
+
+/** data: {k, postId, show}. Shows or hides the post on the Service Opportunities page (editors). */
+function apiSetShowOnServe_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var show = !(data && (data.show === false || String(data.show).toLowerCase() === 'false'));
+  var res = withLock_(function () {
+    var postsT = serviceTab_(TAB.posts);
+    var p = postsT.find('Post id', String(data && data.postId));
+    if (!p) return { ok: false, error: TEXT.postNotFound };
+    if (!canEditPost(lc.access, lc.email, p)) return { ok: false, error: TEXT.notAllowed };
+    var now = nowLocal_();
+    var changes = { 'Show on Serve': show ? 'Yes' : 'No' };
+    var prog = withShownProgress_(p, show, lc.leader.Name, now);
+    if (prog !== null) changes.Progress = prog;
+    if (String(p['Show on Serve']) !== changes['Show on Serve'] || prog !== null) {
+      changes['Last changed by'] = lc.leader.Name;
+      changes['Last changed at'] = now;
+      postsT.update(p, changes);
+    }
+    return { ok: true, showOnServe: isShownOnServe_(p), progress: progressOf_(p) };
+  });
+  if (res.ok) clearServeCache_();
+  return res;
 }
 
 /** Sign-ups holding (Confirmed) or waiting for (Waiting-*) a place in the slot. */
@@ -5121,6 +5356,8 @@ var POST_ACTIONS = [
   'preapproveCount',
   'preapproveAdd',
   'preapproveClear',
+  'setProgress',
+  'setShowOnServe',
 ];
 
 function jsonOut_(obj) {
@@ -5262,6 +5499,12 @@ function dispatch_(action, data) {
     },
     preapproveClear: function () {
       return apiPreapproveClear_(data);
+    },
+    setProgress: function () {
+      return apiSetProgress_(data);
+    },
+    setShowOnServe: function () {
+      return apiSetShowOnServe_(data);
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };
@@ -5796,9 +6039,14 @@ function ensureRequestColumns_(ss, categoryId) {
 
 // ---------- turning a request into a draft opportunity (2.2, decision 19) ----------
 
-/** The request kind's Opportunity category row, when it names a live Opportunity category. */
-function draftCategoryFor_(kind, catsById) {
-  var id = String(kind['Opportunity category'] == null ? '' : kind['Opportunity category']).trim();
+/**
+ * The request kind's Opportunity category row, when it names a live Opportunity category. The
+ * meals kind (2.6) names two, [new baby, hardship], and the row's Meals for answer picks one.
+ */
+function draftCategoryFor_(kind, catsById, r) {
+  var ids = splitList(kind['Opportunity category']);
+  var hardship = kind.Id === MEAL_REQUEST_ID && String((r && r['Meals for']) || '').trim() === MEAL_FOR[1];
+  var id = hardship && ids.length > 1 ? ids[1] : ids[0] || '';
   var oc = id ? catsById[id] : null;
   if (!oc || oc.Kind !== CATEGORY_KIND.opportunity || isTicked(oc.Archived)) return null;
   return oc;
@@ -5836,6 +6084,128 @@ function draftFromRequest_(s, kind, oc, r, todayLocal, nowLocal) {
       'Last changed at': nowLocal,
     },
     slot: { 'Slot id': newId_('t'), 'Post id': postId, Date: date, Start: '', End: '', Role: 'Help', Needed: 1, 'Role note': '', 'Bringing prompt': '', Filled: 0, Waiting: 0 },
+  };
+}
+
+/** The first word of a name ('' when blank). */
+function firstWord_(name) {
+  return String(name == null ? '' : name).trim().split(/\s+/)[0] || '';
+}
+
+/**
+ * "the Sample" when every named person shares a last name, else their first names joined with
+ * "and"; '' when nobody is named. A one-word name has no last name.
+ */
+function familyName_(names) {
+  var list = names
+    .map(function (n) {
+      return String(n == null ? '' : n).trim();
+    })
+    .filter(String);
+  if (!list.length) return '';
+  var lasts = list.map(function (n) {
+    var w = n.split(/\s+/);
+    return w.length > 1 ? w[w.length - 1] : '';
+  });
+  var same = lasts.every(function (l) {
+    return l && l.toLowerCase() === lasts[0].toLowerCase();
+  });
+  return same ? lasts[0] : joinNames_(list.map(firstWord_));
+}
+
+/**
+ * A meals draft (2.6, decision 28; changes decision 19 for meals only, by Sam's choice: "Go ahead
+ * and include their names"). Public: the title "Meals for the <family> family", allergies, food
+ * likes, how many it feeds, the drop-off window and kind, and the first names to coordinate
+ * with. Private: the address, the phones of the people ticked to coordinate with, the Other
+ * contact and the schedule asked for. Family emails: the addresses of the people ticked (or all
+ * given, when nobody is ticked). No dates (the coordinator adds them once baby is here) and
+ * Show on Serve = No (ministering sisters first). Never anything about ministering assignments.
+ */
+function mealDraftFromRequest_(s, kind, oc, r, nowLocal) {
+  var v = function (k) {
+    return String(r[k] == null ? '' : r[k]).trim();
+  };
+  var baby = v('Meals for') !== MEAL_FOR[1];
+  var people = baby
+    ? [
+        { tick: MEAL_COORD_BABY[0], name: v("Mom's name"), phone: v("Mom's phone"), email: v("Mom's email") },
+        { tick: MEAL_COORD_BABY[1], name: v("Dad's name"), phone: v("Dad's phone"), email: v("Dad's email") },
+      ]
+    : [
+        { tick: MEAL_COORD_HARDSHIP[0], name: v('Adult name'), phone: v('Adult phone'), email: v('Adult email') },
+        { tick: MEAL_COORD_HARDSHIP[1], name: v('Second adult name'), phone: v('Second adult phone'), email: v('Second adult email') },
+      ];
+  var ticks = splitList(v('Coordinate with'));
+  var ticked = people.filter(function (p) {
+    return ticks.indexOf(p.tick) >= 0;
+  });
+  var reach = ticked.length ? ticked : people;
+  var family = familyName_(
+    people.map(function (p) {
+      return p.name;
+    })
+  );
+  var serves = [];
+  var adults = v('Adults');
+  var kids = v('Kids');
+  if (adults) serves.push(adults + (adults === '1' ? ' adult' : ' adults'));
+  if (kids) serves.push(kids + (kids === '1' ? ' kid' : ' kids'));
+  var dropoff = /^quiet/i.test(v('Drop-off')) ? 'Quiet' : /^regular/i.test(v('Drop-off')) ? 'Regular' : '';
+  var lines = [];
+  if (v('Address')) lines.push('Address: ' + v('Address'));
+  reach.forEach(function (p) {
+    if (p.phone) lines.push((firstWord_(p.name) || p.tick) + ': ' + p.phone);
+  });
+  if (ticks.indexOf('Other') >= 0 && (v('Other contact name') || v('Other contact phone'))) {
+    lines.push('Other contact: ' + [v('Other contact name'), v('Other contact phone')].filter(String).join(', '));
+  }
+  var schedule = [v('Meals start') ? 'start ' + v('Meals start') : '', v('How often') + (v('Specific dates') ? ': ' + v('Specific dates') : '')].filter(String);
+  if (schedule.length) lines.push('Asked for: ' + schedule.join('; '));
+  var postId = newId_('p');
+  return {
+    post: {
+      'Post id': postId,
+      'Public id': newId_(''),
+      Organization: splitList(oc['Owning organizations'])[0] || splitList(kind['Owning organizations'])[0] || 'Relief Society',
+      Category: String(oc.Id),
+      Title: clip(family ? 'Meals for the ' + family + ' family' : 'Meals for a family', 100),
+      Audiences: (audiencesOf_(oc['Default audiences']).length ? audiencesOf_(oc['Default audiences']) : ['Sisters']).join(', '),
+      'Public note': '',
+      'Private details': clip(lines.join('\n'), 1000),
+      'Cancel cutoff hours': s.default_cancel_cutoff_hours,
+      Status: POST_STATUS.draft,
+      'Created by': 'request ' + r['Request id'],
+      'Created at': nowLocal,
+      'Last changed by': 'From a request',
+      'Last changed at': nowLocal,
+      'Show on Serve': 'No',
+      Allergies: clip(v('Allergies'), 300),
+      'Food likes': clip(v('Favorite foods'), 300),
+      Serves: clip(serves.join(', '), 60),
+      'Drop-off window': clip(v('Drop-off window'), 60),
+      'Drop-off': dropoff,
+      'Coordinate with': clip(
+        joinNames_(
+          ticked
+            .map(function (p) {
+              return firstWord_(p.name);
+            })
+            .filter(String)
+        ),
+        100
+      ),
+      'Family emails': uniq_(
+        reach
+          .map(function (p) {
+            return p.email;
+          })
+          .filter(isEmail)
+          .map(normEmail)
+      ).join(', '),
+      Progress: '',
+    },
+    slot: null,
   };
 }
 
@@ -5883,7 +6253,7 @@ function makeDraftsFromRequests_() {
               t.update(r, { 'Make opportunity': false });
               return;
             }
-            var oc = draftCategoryFor_(kind, catsById);
+            var oc = draftCategoryFor_(kind, catsById, r);
             if (!oc) {
               var set = String(kind['Opportunity category'] == null ? '' : kind['Opportunity category']).trim();
               t.update(r, {
@@ -5898,9 +6268,9 @@ function makeDraftsFromRequests_() {
             var key = 'request ' + String(r['Request id']).trim();
             var post = byCreator[key];
             if (!post) {
-              var d = draftFromRequest_(s, kind, oc, r, today, now);
+              var d = kind.Id === MEAL_REQUEST_ID ? mealDraftFromRequest_(s, kind, oc, r, now) : draftFromRequest_(s, kind, oc, r, today, now);
               postsT.append(d.post);
-              serviceTab_(TAB.slots).append(d.slot);
+              if (d.slot) serviceTab_(TAB.slots).append(d.slot);
               post = d.post;
               byCreator[key] = post;
               made.push({ kind: kind, post: post });
@@ -7324,4 +7694,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: each card's \"Show QR Code\" button opens the hub's existing QR pop-up, the same\n  function the hub's other cards call (openQR(title, link) here; if the hub's function has\n  another name, use that name in both buttons). No QR image files are needed. A hub without a\n  QR pop-up can leave each button out (from <button to </button>). A card whose short link is\n  not set yet has no button; add the short link in Settings and make the hub files again.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */\n  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }\n  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }\n  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }\n  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }\n  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }\n  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }\n  .gp-hub-top { display: flex; align-items: stretch; }\n  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }\n  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }\n  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }\n  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }\n  .gp-hub-qr:hover { background: #f4f7fc; }\n  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }\n  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }\n  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }\n</style>\n<div class=\"gp-hub-cols\">\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n    <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"serve.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Ways to serve in {{WARD_NAME}}</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{SERVE_SHORT_LINK}}</div>\n    </div>\n  </section>\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n    <h2 id=\"gp-hub-help\">Service Requests</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"help.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Request help or service</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Requests','https://{{HELP_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{HELP_SHORT_LINK}}</div>\n    </div>\n  </section>\n</div>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "a5099d529e36";
+var GP_BUILD = "7ab6380a22f7";

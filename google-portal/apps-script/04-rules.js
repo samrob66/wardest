@@ -52,7 +52,8 @@ function validatePost(input, ctx) {
   else cutoff = Number(cutoff);
 
   var inSlots = Array.isArray(input.slots) ? input.slots : [];
-  if (!inSlots.length) errors.slots = 'Add at least one date.';
+  // A draft may have no dates yet (2.6: meal drafts start without any); publishing needs one.
+  if (!inSlots.length && ctx.publish) errors.slots = 'Add at least one date.';
   if (inSlots.length > 100) errors.slots = 'Use at most 100 dates and roles.';
   var keep = ctx.keepDates || {};
   var slots = inSlots.slice(0, 100).map(function (s, i) {
@@ -109,6 +110,58 @@ function validatePost(input, ctx) {
     },
     slots: slots,
   };
+}
+
+/** Show on Serve (2.6): blank or Yes is shown; only No hides the post from the lists. */
+function isShownOnServe_(post) {
+  return str_(post && post['Show on Serve']).toLowerCase() !== 'no';
+}
+
+/** A post in one of the two meals opportunity categories (2.6). */
+function isMealPost_(post) {
+  return MEAL_CATEGORY_IDS.indexOf(str_(post && post.Category)) >= 0;
+}
+
+/** The post's meal fields as the API answers them, or null when it has none. */
+function mealOf_(post) {
+  var out = {};
+  var any = false;
+  MEAL_FIELDS.forEach(function (f) {
+    out[f[0]] = str_(post && post[f[1]]);
+    if (out[f[0]]) any = true;
+  });
+  return any ? out : null;
+}
+
+/** The Progress column (JSON) as {key: {by, at}}; anything unreadable counts as nothing ticked. */
+function progressMap_(post) {
+  var raw = str_(post && post.Progress);
+  if (!raw) return {};
+  try {
+    var m = JSON.parse(raw);
+    return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+/** The checklist as the API answers it: [{key, label, done, by, at}], in PROGRESS_STEPS order. */
+function progressOf_(post) {
+  var m = progressMap_(post);
+  return PROGRESS_STEPS.map(function (st) {
+    var e = m[st.key];
+    var done = !!(e && typeof e === 'object');
+    return { key: st.key, label: st.label, done: done, by: done ? str_(e.by) : '', at: done ? str_(e.at) : '' };
+  });
+}
+
+/** The family's addresses from the Family emails column. */
+function familyEmailsOf_(post) {
+  return uniq_(
+    splitList(post && post['Family emails'])
+      .filter(isEmail)
+      .map(normEmail)
+  );
 }
 
 /** {slotId: {filled, waiting}}: filled = Confirmed; waiting = phase 2 waiting statuses. */
@@ -661,7 +714,7 @@ function needsHelpSoon(posts, slotsByPost, counts, todayLocal) {
   var last = addDays(todayLocal, NEEDS_HELP_DAYS);
   var rows = [];
   (posts || []).forEach(function (p) {
-    if (p.Status !== POST_STATUS.open) return;
+    if (p.Status !== POST_STATUS.open || !isShownOnServe_(p)) return;
     (slotsByPost[p['Post id']] || []).forEach(function (sl) {
       if (sl.Date < todayLocal || sl.Date > last) return;
       var needed = Number(sl.Needed) || 0;
