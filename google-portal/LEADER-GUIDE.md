@@ -201,6 +201,32 @@ A **Moving** request turned into an opportunity becomes an **Elders Quorum** dra
 ask the Elders Quorum president, or the bishopric can set Moving's **Opportunity category** to a
 Relief Society category.
 
+**Meals for new parents and members in hardship (for the meal coordinators).** Families ask on
+the Help page (*Meals for New Moms & Dads* or *Meals for Members in Hardship*); you get a short
+email and the request is a row in your **Requests – Meals** sheet, one column per answer.
+1. Text the family if anything needs asking. After the birth, fill in **Baby's name**,
+   **Gender**, **Birth date** and **Photo link** by hand if they're happy to share, and tick
+   **Shared with RS** once the row is complete and the Relief Society presidency has been told
+   they can open it.
+2. Tick **Make opportunity**. Within the hour a hidden **Draft** appears on your leader page:
+   *Meals for the Sample family*, with the allergies (shown first), favorite foods, how many it
+   feeds, the drop-off window and Regular or Quiet drop-off, and who to coordinate with by first
+   name. The family asked for this to be shared. The address and phones are in the private
+   details (only signed-up, approved volunteers and leaders see them). The schedule they asked
+   for (*Meals start … How often …*) is in the public note: edit it as you like.
+3. Once baby is here, open the draft, add the dates (role *Bring a meal*) and **Publish**. It
+   stays off the Service Opportunities page (*Show on Serve* off), but its link works.
+4. Send the link to the parents, then to the mother's ministering sisters (copy their emails
+   from the Church's Tools app into Gmail; the portal never stores them). Tick **Parents
+   reviewed** and **Sent to ministering sisters** on the post's checklist.
+5. Turn **Show on Serve** on: the post appears on the Service Opportunities page and **Shown on
+   portal** ticks itself. Then send the ward email (Gmail Bcc or the Google Group) and post on
+   Discord, and tick **Ward email sent** and **Posted on Discord**. Each tick records who and
+   when.
+The family (the post's **Family emails**) and your Google Group get an email for every sign-up
+and every cancellation, with the volunteer's first name, the date and the role, never their
+email. Other request kinds stay as above: their drafts carry nothing from the request.
+
 **Matching Christmas offers (for the Christmas gift coordinators).** Families offer gifts on the
 Christmas giving form, from a link the ward shares or, if the ward turned it on, from the
 *Offer to give at Christmas* card on the Service Opportunities page. Only you and the bishopric

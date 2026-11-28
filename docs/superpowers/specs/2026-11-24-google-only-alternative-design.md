@@ -897,6 +897,23 @@ help soon", quota reserve and health email.
     those cells' notes; request sheets get them when made, rotated, given new columns, or on Set
     up. Data cells and any header or key without an entry are never touched.
 
+28. **Meals for new parents and members in hardship** (Sam, 2026-11-28, in 2.6). The full
+    design is `2026-11-28-google-portal-meals-design.md`; the server/UI API contract is shared
+    with the 2.6 UI build. In short: one Request kind `meal-request` with one form whose first
+    question branches to a baby or a hardship section (two Help tiles open it prefilled); a
+    request sheet with a column per answer plus Baby's name, Gender, Birth date, Photo link and
+    Shared with RS; Make opportunity makes a hidden zero-date Draft in `meals-new-moms` or
+    `meals-hardship` whose public fields carry the family name, allergies (first), food likes,
+    serves, drop-off window and kind, the first names to coordinate with, and the schedule they
+    asked for in the editable Public note, while the address and phones stay private. This
+    changes decision 19 for the meals categories only (Sam: "Go ahead and include their
+    names"). Posts gain Show on Serve (No hides a post from Serve, Other ways to serve and Needs
+    help soon; its link still works), a progress checklist (Parents reviewed, Sent to
+    ministering sisters, Shown on portal, Ward email sent, Posted on Discord; who and when), and
+    Family emails; Categories gain Picture and Sign-up notices to, which with Family emails get
+    an email for every sign-up and cancellation (first name, date, role). A Draft may have no
+    dates; publishing needs one. Ministering assignments are never stored (Handbook 38.8.32).
+
 ## 13. Settled with Sam, and open questions
 
 Settled (2026-11-24, from Draft 1's questions and review):

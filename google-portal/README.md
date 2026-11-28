@@ -23,6 +23,9 @@ soon, the daily health email): `docs/superpowers/plans/2026-11-24-google-portal-
 2.4 plan (Approvers per category, the Pre-approve list, volunteer status data for the leader
 page; spec §12 decision 24):
 `docs/superpowers/plans/2026-11-27-google-portal-2.4-approvers-preapprove-status.md`.
+2.6 plan (Meals for new parents and members in hardship, server half; spec
+`docs/superpowers/specs/2026-11-28-google-portal-meals-design.md`, §12 decision 28):
+`docs/superpowers/plans/2026-11-28-google-portal-2.6-meals.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).

@@ -33,6 +33,28 @@ How a volunteer is known (no Google account needed):
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
 
+> **If you already set up before 2.6** (before Meals for new parents and members in hardship),
+> do this once, signed in to the shared account in a private window:
+> 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
+> 2. **Deploy > Manage deployments**, select the deployment, click the **pencil**, set
+>    **Version** to **New version**, click **Deploy**.
+> 3. Run **Service Portal > Set up**. It adds two Categories columns (**Picture**, **Sign-up
+>    notices to**), nine Posts columns (Show on Serve, the meal fields, Family emails,
+>    Progress), and three Categories rows: the **Meals** request kind (`meal-request`) and the
+>    **Meals for New Moms** and **Meals for Members in Hardship** opportunity categories. It
+>    makes the Meals form, its Requests folder and month sheet, and adds a note on every new
+>    header. Your old **Meals** opportunity row stays as it is.
+> 4. Fill in the meals rows as in section 3, step 6 (*Meals*): the three meal coordinators in
+>    **Coordinators** on all three rows (and a **Leaders** row each), the coordinators' Google
+>    Group in **Sign-up notices to** on the two opportunity rows, and a **Picture** for each.
+> 5. Run **Service Portal > Install triggers** (the Meals form needs its trigger) and **Sync
+>    sharing** (the coordinators get the Meals folder).
+> 6. Run **Make hub files** and give the hub owner the new page files when the leader page
+>    update arrives (section 6, steps 1–3). The Help page shows the two Meals tiles by itself.
+> 7. Send the leaders and coordinators the new LEADER-GUIDE (*Meals*).
+>
+> If your ward is also before 2.5, do that box too (below).
+
 > **If you already set up before 2.5** (before the new look: the picture as a band across the
 > top, tabs along the bottom of the leader page, Every week / Pick days with Change and skip),
 > do this once, signed in to the shared account in a private window. Nothing in the Sheet
@@ -387,6 +409,8 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | Warn hours | How many hours before a date to warn if a role is still short. Blank means 48; `0` turns warnings off | `72` |
    | Also warn | More emails for that warning, separated by commas | `brother.clerk@example.test` |
    | Approvers | Emails, separated by commas: who gets the *Waiting for approval* email and the 48-hour reminder when someone's first sign-up is in this category, and who may approve them. Blank uses **default_approvers** (Settings); if that is blank too, the usual rule: the leaders of the opportunity's organization and the bishopric. Each person needs a row in **Leaders** (no role box needed); anyone who isn't there is skipped, and Check health names them. The bishopric can always approve, but isn't emailed when a list is set | `sister.example@example.test` |
+   | Picture | A picture shown at the top of this category's posts (post page, Service Opportunities card, leader page): a full `https://` address of an image, e.g. a file on the hub next to the background picture. Blank: no picture. Anything else is ignored and Check health says so | `https://rb1.example.test/links/meals-baby.jpg` |
+   | Sign-up notices to | Emails or a Google Group, separated by commas: each gets an email for **every** sign-up and **every** cancellation in this category (the volunteer's first name, the date and the role; never their email). No Leaders row needed. These emails count against the day's 100 | `rb1-meals@example.test` |
 
    **Approvers see the opportunities they approve for.** A listed approver who doesn't otherwise
    lead that category sees its opportunities on the leader page, with the names and an
@@ -401,6 +425,29 @@ private window, use a separate Chrome profile signed in only to the shared accou
    addresses are **never stored**: the private System Sheet's **Preapproved** tab keeps only a
    scrambled fingerprint of each (a salted hash), who added it and when, so nobody can read the
    list back. To take someone off, clear the whole list and paste it again without them.
+
+   **Meals** (2.6). Three rows work together; Set up adds them once:
+   - **Meals** (`meal-request`, a Request kind owned by the Relief Society, Notify
+     `Coordinators`, On Help page ticked). Its one form has two doors: the Help page shows two
+     tiles, **Meals for New Moms & Dads** and **Meals for Members in Hardship**, both opening the
+     same form with its first question (*What are the meals for?*) already answered. Its
+     **Opportunity category** is `meals-new-moms, meals-hardship`: a new-baby request becomes a
+     draft in the first, a hardship request in the second. Requests email only the
+     coordinators; the bishopric and the Relief Society leaders can open the folder.
+   - **Meals for New Moms** (`meals-new-moms`) and **Meals for Members in Hardship**
+     (`meals-hardship`): Opportunity rows, Relief Society, Default audiences Sisters.
+   - Type the three meal coordinators' emails in **Coordinators** on **all three** rows, e.g.
+     `sister.meals1@example.test, sister.meals2@example.test, sister.meals3@example.test`, and
+     give each a **Leaders** row (Organization Relief Society, Coordinator ticked) so they get a
+     leader link. Put the coordinators' Google Group in **Sign-up notices to** on both
+     opportunity rows, and a **Picture** on each (the generic *Welcome, sweet baby!* picture for
+     new moms, the gentle one for hardship).
+   - A meal post starts **hidden** (*Show on Serve* off): the coordinators send its link to the
+     parents and the ministering sisters first, then show it on the Service Opportunities page.
+     The family's addresses on the post (*Family emails*) hear about every sign-up and
+     cancellation, like Meal Train. The ward list (about 200 addresses) is never emailed by the
+     portal: send the link from Gmail (Bcc) or a Google Group, and paste the same addresses into
+     the Pre-approve list once. The portal never stores ministering assignments.
 
    Do not change the **Id** column.
 7. Click **Service Portal > Set up** again. It makes the **Service Portal** folder in Drive,
