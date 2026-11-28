@@ -403,6 +403,37 @@ button.gp-pcard:hover { background: rgba(29, 53, 87, 0.03); }
 }
 .gp-preapprove { margin-top: 1.25rem; padding-top: 0.75rem; border-top: 1px solid var(--gp-heading); }
 
+/* ---------- 2.6 meals (decision 28): category picture, meal block, progress ---------- */
+/* A fixed box, so the page doesn't jump while the picture loads. */
+.gp-pic { overflow: hidden; background: var(--gp-soft); border-radius: 4px; }
+.gp-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gp-pic-top { aspect-ratio: 16 / 7; margin: 0 0 0.9rem; }
+.gp-pic-thumb { width: 72px; height: 72px; flex: none; }
+a.gp-opp.gp-has-pic { grid-template-columns: 3.6rem 1fr 72px; }
+@media (max-width: 400px) {
+  a.gp-opp.gp-has-pic { grid-template-columns: 3.6rem 1fr 56px; }
+  .gp-pic-thumb { width: 56px; height: 56px; }
+}
+.gp-meal { margin: 0.7rem 0; border-top: 1px solid var(--gp-line); }
+.gp-meal-row { display: grid; grid-template-columns: minmax(7.5rem, auto) 1fr; gap: 0.2rem 0.8rem; padding: 0.45rem 0; border-bottom: 1px solid var(--gp-line); font-size: 0.95rem; }
+.gp-meal-k { color: var(--gp-muted); font-size: 0.86rem; }
+.gp-meal-v { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.gp-meal-row.gp-allergy { background: var(--gp-warn-bg); border: 1px solid var(--gp-warn-line); border-radius: 4px; padding: 0.55rem 0.7rem; margin: 0.4rem 0; }
+.gp-allergy .gp-meal-k { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--gp-warn); font-weight: bold; font-size: 0.92rem; }
+.gp-allergy .gp-meal-v { color: var(--gp-ink); font-weight: bold; }
+@media (max-width: 400px) {
+  .gp-meal-row { grid-template-columns: 1fr; }
+}
+.gp-progress { margin: 0.8rem 0; }
+.gp-progress > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--gp-heading); }
+.gp-prow { display: flex; align-items: flex-start; gap: 0.6rem; min-height: 44px; padding: 0.45rem 0; border-top: 1px solid var(--gp-line); margin: 0; }
+.gp-prow input { width: 22px; height: 22px; accent-color: var(--gp-good); flex: none; margin: 0.1rem 0 0; }
+.gp-prow .gp-ic { color: var(--gp-good); flex: none; }
+.gp-prow-by { display: block; font-size: 0.82rem; color: var(--gp-muted); }
+.gp-showrow { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; min-height: 48px; border-top: 1px solid var(--gp-line); border-bottom: 1px solid var(--gp-line); margin: 0.6rem 0; }
+.gp-nodates { margin: 0.8rem 0; padding: 0.8rem 1rem; border: 1px dashed var(--gp-line-strong); border-radius: 4px; }
+.gp-nodates button { margin: 0.5rem 0 0; }
+
 .gp-footer {
   position: relative;
   z-index: 1;

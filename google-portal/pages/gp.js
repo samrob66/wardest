@@ -458,6 +458,58 @@ var GP = (function () {
     return out;
   }
 
+  // ---------- 2.6: the category picture and the meal block (decision 28) ----------
+
+  /** A category picture in a fixed box: https only (anything else, none), decorative, lazy; a failed load hides the box. */
+  function picture(url, extra) {
+    if (typeof url !== 'string' || !/^https:\/\/[^\s]/i.test(url.trim())) return null;
+    var box = el('div', { class: 'gp-pic' + (extra ? ' ' + extra : '') });
+    box.appendChild(
+      el('img', {
+        src: url.trim(),
+        alt: '',
+        loading: 'lazy',
+        onerror: function () {
+          box.className += ' gp-hidden';
+        },
+      })
+    );
+    return box;
+  }
+
+  var DROPOFF = { Regular: 'Regular drop-off — knock or ring', Quiet: 'Quiet drop-off — text on arrival' };
+
+  function mealText(v) {
+    return typeof v === 'string' ? v.trim() : v === null || v === undefined ? '' : String(v).trim();
+  }
+
+  /** The public meal details: Allergies first (highlighted: colour, icon and the word), blanks left out; null when empty. */
+  function mealBlock(meal) {
+    if (!meal || typeof meal !== 'object') return null;
+    var drop = mealText(meal.dropoff);
+    var fields = [
+      ['Allergies', mealText(meal.allergies), true],
+      ['Favourite foods', mealText(meal.likes)],
+      ['Serves', mealText(meal.serves)],
+      ['Drop-off window', mealText(meal.dropoffWindow)],
+      ['Drop-off', DROPOFF.hasOwnProperty(drop) ? DROPOFF[drop] : drop],
+      ['Coordinate with', mealText(meal.coordinateWith)],
+    ].filter(function (f) {
+      return f[1];
+    });
+    if (!fields.length) return null;
+    return el(
+      'div',
+      { class: 'gp-meal' },
+      fields.map(function (f) {
+        return el('div', { class: 'gp-meal-row' + (f[2] ? ' gp-allergy' : '') }, [
+          el('span', { class: 'gp-meal-k' }, f[2] ? [icon('alert'), el('span', {}, f[0])] : f[0]),
+          el('span', { class: 'gp-meal-v' }, f[1]),
+        ]);
+      })
+    );
+  }
+
   return {
     init: init,
     config: config,
@@ -496,5 +548,7 @@ var GP = (function () {
     addMonths: addMonths,
     monthDays: monthDays,
     sched: { weekly: weekly, byWeek: byWeek, MAX: MAX_DATES },
+    picture: picture,
+    mealBlock: mealBlock,
   };
 })();

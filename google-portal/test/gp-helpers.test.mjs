@@ -195,3 +195,57 @@ describe('GP.sched: Every week', () => {
     expect(plain(GP.sched.byWeek([]))).toEqual([]);
   });
 });
+
+// 2.6 (decision 28): the category picture and the public meal block, shared by post, serve and leader.
+describe('GP.picture: https only, decorative, lazy, in a fixed box', () => {
+  const GP = loadGP();
+  it('no picture for blank, http:, javascript:, data: or a non-string', () => {
+    for (const bad of ['', '   ', 'http://img.example.test/a.jpg', 'javascript:alert(1)', 'JavaScript:alert(1)', 'data:image/png;base64,AAAA', '//img.example.test/a.jpg', undefined, null, 42]) {
+      expect(GP.picture(bad)).toBe(null);
+    }
+  });
+  it('an https address gives a .gp-pic box holding a lazy, alt="" image', () => {
+    const box = GP.picture('https://img.example.test/baby.jpg', 'gp-pic-top');
+    expect(cls(box)).toBe('gp-pic gp-pic-top');
+    const img = box.children[0];
+    expect(img.tagName).toBe('img');
+    expect(img.attrs.src).toBe('https://img.example.test/baby.jpg');
+    expect(img.attrs.alt).toBe('');
+    expect(img.attrs.loading).toBe('lazy');
+    expect(cls(GP.picture('HTTPS://img.example.test/x.jpg'))).toBe('gp-pic');
+  });
+});
+
+describe('GP.mealBlock: allergies first and highlighted, blanks left out', () => {
+  const GP = loadGP();
+  const rows = (b) => b.children.filter((c) => /gp-meal-row/.test(cls(c)));
+  it('null when there is no meal or every field is blank', () => {
+    expect(GP.mealBlock(undefined)).toBe(null);
+    expect(GP.mealBlock(null)).toBe(null);
+    expect(GP.mealBlock({})).toBe(null);
+    expect(GP.mealBlock({ allergies: '', likes: '  ', serves: '', dropoffWindow: '', dropoff: '', coordinateWith: '' })).toBe(null);
+  });
+  it('every field, in order: Allergies (highlighted, icon + word), Favourite foods, Serves, window, drop-off, coordinate with', () => {
+    const b = GP.mealBlock({ coordinateWith: 'Anna and Ben', dropoff: 'Quiet', dropoffWindow: '5:30–6:30 pm', serves: 'Feeds 2 adults, 3 kids', likes: 'Soups, Thai', allergies: 'Peanuts, shellfish' });
+    expect(cls(b)).toBe('gp-meal');
+    const r = rows(b);
+    expect(r.map((x) => x.children[0].textContent)).toEqual(['Allergies', 'Favourite foods', 'Serves', 'Drop-off window', 'Drop-off', 'Coordinate with']);
+    expect(cls(r[0])).toContain('gp-allergy');
+    expect(r[0].all().some((n) => n.tagName === 'svg')).toBe(true);
+    expect(r[0].textContent).toContain('Peanuts, shellfish');
+    expect(r[2].textContent).toContain('Feeds 2 adults, 3 kids');
+    expect(r[4].textContent).toContain('Quiet drop-off — text on arrival');
+    expect(r[5].textContent).toContain('Anna and Ben');
+  });
+  it('Regular wording, any other drop-off value as given, blank rows left out', () => {
+    const b = GP.mealBlock({ dropoff: 'Regular', likes: 'Pasta' });
+    expect(rows(b).map((x) => x.children[0].textContent)).toEqual(['Favourite foods', 'Drop-off']);
+    expect(rows(b)[1].textContent).toContain('Regular drop-off — knock or ring');
+    expect(rows(GP.mealBlock({ dropoff: 'Leave on porch' }))[0].textContent).toContain('Leave on porch');
+  });
+  it('markup in a field stays text (no element is made from it)', () => {
+    const b = GP.mealBlock({ allergies: '<script>alert(1)</script>' });
+    expect(b.textContent).toContain('<script>alert(1)</script>');
+    expect(b.all().some((n) => n.tagName === 'script')).toBe(false);
+  });
+});
