@@ -220,6 +220,31 @@ function button_(url, label) {
   );
 }
 
+/**
+ * A quiet text link on its own short line (2.4.1): a lead-in and an underlined link, no
+ * background or padding, so cancel and withdraw never look like the main button.
+ */
+function textLink_(lead, url, label) {
+  return (
+    '<p style="margin:0 0 12px;font-size:14px;color:#4a5568">' + esc(lead) + ' <a href="' + esc(url) +
+    '" style="color:#1d3557;text-decoration:underline">' + esc(label) + '</a></p>'
+  );
+}
+
+/**
+ * The end of a volunteer email (2.4.1, Sam: "See all your sign-ups" is the main button): the My
+ * sign-ups button when there is a link, then the cancel or withdraw text link. Text: the same
+ * order. undo: {lead, label, url}.
+ */
+function signupLinks_(meUrl, undo) {
+  var html = (meUrl ? button_(meUrl, 'See all your sign-ups') : '') + textLink_(undo.lead, undo.url, undo.label);
+  var text = [meUrl ? 'See all your sign-ups: ' + meUrl : '', undo.lead + ' ' + undo.label + ': ' + undo.url].filter(String).join('\n\n');
+  return { html: html, text: text };
+}
+
+var CANCEL_LINK = { lead: "Can't make it?", label: 'Cancel my sign-up' };
+var WITHDRAW_LINK = { lead: 'Rather step back?', label: 'Withdraw my offer' };
+
 function contactLine_(s) {
   return s.contact_email ? ' or write to ' + s.contact_email : '';
 }
@@ -270,13 +295,13 @@ function tplSignupConfirmed_(s, post, slot, signup, opts) {
   var who = whoServes_(signup);
   var details = opts.details ? detailsBlock_(post) : { text: '', html: '' };
   var other = otherWaysBlock_(opts.otherWays);
+  var links = signupLinks_(opts.meUrl, { lead: CANCEL_LINK.lead, label: CANCEL_LINK.label, url: opts.cancelUrl });
   var text = [
     'Hi ' + signup.Name + ',',
     who.text + ' signed up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').',
     signup.Bringing ? 'Bringing: ' + signup.Bringing : '',
     details.text,
-    "Can't make it? Cancel here: " + opts.cancelUrl,
-    opts.meUrl ? 'All your sign-ups: ' + opts.meUrl : '',
+    links.text,
     other.text,
     'Thank you for serving.',
   ].filter(String);
@@ -287,8 +312,7 @@ function tplSignupConfirmed_(s, post, slot, signup, opts) {
     ]) +
     (signup.Bringing ? paras_(['Bringing: ' + esc(signup.Bringing)]) : '') +
     details.html +
-    button_(opts.cancelUrl, 'Cancel my sign-up') +
-    (opts.meUrl ? paras_(['<a href="' + esc(opts.meUrl) + '">See all your sign-ups</a>']) : '') +
+    links.html +
     other.html +
     paras_(['Thank you for serving.']);
   return { subject: "You're signed up: " + post.Title, html: html, text: text.join('\n\n') };
@@ -300,20 +324,10 @@ function tplOverLimit_(s, post, slot, signup, opts) {
   var when = fmtWhen_(slot);
   var details = opts.details ? detailsBlock_(post) : { text: '', html: '' };
   var line = 'Thank you! ' + slot.Role + ' on ' + when + ' (' + post.Title + ') already has the people it needs: others signed up while yours was waiting.';
-  var more = 'You are still signed up and welcome to come. If you would rather step back, withdraw your offer with the button below. Nobody is told; the role stays full.';
-  var text = [
-    'Hi ' + signup.Name + ',',
-    line,
-    more,
-    'Withdraw my offer: ' + opts.withdrawUrl,
-    details.text,
-    opts.meUrl ? 'All your sign-ups: ' + opts.meUrl : '',
-  ].filter(String);
-  var html =
-    paras_(['Hi ' + esc(signup.Name) + ',', esc(line), esc(more)]) +
-    button_(opts.withdrawUrl, 'Withdraw my offer') +
-    details.html +
-    (opts.meUrl ? paras_(['<a href="' + esc(opts.meUrl) + '">See all your sign-ups</a>']) : '');
+  var more = 'You are still signed up and welcome to come. If you would rather step back, withdraw your offer with the link below. Nobody is told; the role stays full.';
+  var links = signupLinks_(opts.meUrl, { lead: WITHDRAW_LINK.lead, label: WITHDRAW_LINK.label, url: opts.withdrawUrl });
+  var text = ['Hi ' + signup.Name + ',', line, more, details.text, links.text].filter(String);
+  var html = paras_(['Hi ' + esc(signup.Name) + ',', esc(line), esc(more)]) + details.html + links.html;
   return { subject: 'Thank you: ' + post.Title + ' already has the people it needs', html: html, text: text.join('\n\n') };
 }
 
@@ -409,17 +423,21 @@ function tplFullyFilled_(s, post) {
   return { subject: 'Fully filled: ' + post.Title, html: paras_([esc(line), 'See who is signed up on your leader page.']), text: line + '\n\nSee who is signed up on your leader page.' };
 }
 
-/** details: true only for a confirmed sign-up of an approved volunteer or a leader. */
-function tplReminder_(s, post, slot, signup, cancelUrl, details) {
+/**
+ * details: true only for a confirmed sign-up of an approved volunteer or a leader. meUrl
+ * (optional): the My sign-ups link, shown as the main button when given.
+ */
+function tplReminder_(s, post, slot, signup, cancelUrl, details, meUrl) {
   var when = fmtWhen_(slot);
   var who = whoServes_(signup);
   var d = details ? detailsBlock_(post) : { text: '', html: '' };
+  var links = signupLinks_(meUrl, { lead: "Can't make it after all?", label: CANCEL_LINK.label, url: cancelUrl });
   var text = [
     'Hi ' + signup.Name + ',',
     'A reminder: ' + who.text.replace("You're", 'you are') + ' signed up for ' + slot.Role + ' tomorrow, ' + when + ' (' + post.Title + ').',
     signup.Bringing ? 'Bringing: ' + signup.Bringing : '',
     d.text,
-    "Can't make it after all? Cancel here: " + cancelUrl,
+    links.text,
   ].filter(String);
   var html =
     paras_([
@@ -428,7 +446,7 @@ function tplReminder_(s, post, slot, signup, cancelUrl, details) {
     ]) +
     (signup.Bringing ? paras_(['Bringing: ' + esc(signup.Bringing)]) : '') +
     d.html +
-    button_(cancelUrl, 'Cancel my sign-up');
+    links.html;
   return { subject: 'Reminder: ' + post.Title + ' tomorrow', html: html, text: text.join('\n\n') };
 }
 

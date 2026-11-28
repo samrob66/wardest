@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { loadPortal, seedPost } from './harness.mjs';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
-const tokenFrom = (text) => /#t=([0-9a-f]{64})/.exec(text)[1];
+// The cancel/confirm link (2.4.1: the My sign-ups link now comes first in the email).
+const tokenFrom = (text) => /confirm[^\s"]*#t=([0-9a-f]{64})/.exec(text)[1];
 const VOLUNTEER = { name: 'Brother Volunteer', email: 'brother.volunteer@example.test' };
 
 function setup() {

@@ -27,7 +27,8 @@ How a volunteer is known (no Google account needed):
   post itself, on the person's line), checks the ward directory, and clicks **Approve** or
   **Decline**. The leader's name and the time are recorded.
 - **Approved volunteers and leaders** count at once. Their confirmation email carries the
-  private details (an address, a gate code), a cancel button and a link to **My sign-ups**.
+  private details (an address, a gate code), a **See all your sign-ups** button (My sign-ups)
+  and, below it, a plain *Can't make it? Cancel my sign-up* link.
 - **The page never says which of these happened.** Every sign-up answers *Thanks. Check your
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
@@ -659,8 +660,8 @@ Do this before the ward starts using the portal.
       now counts.* In the Service Sheet's **Volunteers** tab, A's row says **Approved**, with
       your name in **Decided by** and the time in **Decided at**.
 - [ ] Address A gets *You're approved to serve* and *Thank you: … already has the people it
-      needs* (A counted after the role filled), with the private details, a **Withdraw my
-      offer** button and a **See all your sign-ups** link. The public page shows
+      needs* (A counted after the role filled), with the private details, a **See all your
+      sign-ups** button and a plain *Rather step back? Withdraw my offer* link. The public page shows
       **Filled ✓ · 2 of 1**; the leader page shows **2 of 1** and the tag *Over the number*.
 - [ ] Click **Withdraw my offer**, then the button on the page: *Your offer is withdrawn.*
       Nobody gets an email (the role is still full). (Once the role has started, the withdraw

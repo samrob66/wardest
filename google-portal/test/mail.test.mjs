@@ -117,6 +117,60 @@ describe('templates', () => {
     expect(child.text).toContain('Ana is signed up for');
   });
 
+  describe('2.4.1: "See all your sign-ups" is the button; cancel and withdraw are quiet text links', () => {
+    const ME = 'https://x.example.test/me.html#t=me0';
+    const CANCEL = 'https://x.example.test/confirm.html#t=cancel0';
+    const WITHDRAW = 'https://x.example.test/confirm.html#t=withdraw0';
+    /** The <a …> tag whose href is url. */
+    const anchor = (html, url) => {
+      const i = html.indexOf('href="' + url + '"');
+      expect(i).toBeGreaterThan(-1);
+      return html.slice(html.lastIndexOf('<a ', i), html.indexOf('>', i) + 1);
+    };
+    const isButton = (a) => /background/.test(a) && /padding/.test(a);
+    const check = (t, undoUrl, undoText) => {
+      expect(t.html.indexOf(ME)).toBeGreaterThan(-1);
+      expect(t.html.indexOf(ME)).toBeLessThan(t.html.indexOf(undoUrl));
+      expect(isButton(anchor(t.html, ME))).toBe(true);
+      expect(isButton(anchor(t.html, undoUrl))).toBe(false);
+      expect(anchor(t.html, undoUrl)).not.toMatch(/background|padding/);
+      expect(t.html).toContain(undoText);
+      // Exactly one button in the email.
+      expect(t.html.match(/background:#1d3557/g)).toHaveLength(1);
+      expect(t.text.indexOf('See all your sign-ups: ' + ME)).toBeGreaterThan(-1);
+      expect(t.text.indexOf(ME)).toBeLessThan(t.text.indexOf(undoUrl));
+    };
+
+    it("You're signed up (and a child's)", () => {
+      check(gp.tplSignupConfirmed_(s, post, slot, signup, { cancelUrl: CANCEL, meUrl: ME, details: true }), CANCEL, 't make it?');
+      const child = gp.tplSignupConfirmed_(s, post, slot, { ...signup, 'Child first name': 'Ana' }, { cancelUrl: CANCEL, meUrl: ME, details: true });
+      check(child, CANCEL, 'Cancel my sign-up');
+      expect(child.text).toContain("Can't make it? Cancel my sign-up: " + CANCEL);
+    });
+
+    it('over the number: withdraw is a text link after the My sign-ups button', () => {
+      const t = gp.tplOverLimit_(s, post, slot, signup, { withdrawUrl: WITHDRAW, meUrl: ME, details: true });
+      check(t, WITHDRAW, 'Withdraw my offer');
+      expect(t.text).toContain('Rather step back? Withdraw my offer: ' + WITHDRAW);
+      expect(t.html).not.toContain('button below');
+    });
+
+    it('reminder: with a My sign-ups link it is the button; without one, cancel is still only a text link', () => {
+      check(gp.tplReminder_(s, post, slot, signup, CANCEL, true, ME), CANCEL, 't make it after all?');
+      const r = gp.tplReminder_(s, post, slot, signup, CANCEL, true);
+      expect(isButton(anchor(r.html, CANCEL))).toBe(false);
+      expect(r.html).not.toMatch(/background:#1d3557/);
+      expect(r.text).toContain("Can't make it after all? Cancel my sign-up: " + CANCEL);
+    });
+
+    it('no My sign-ups link: the confirmation keeps cancel as a text link and has no button', () => {
+      const t = gp.tplSignupConfirmed_(s, post, slot, signup, { cancelUrl: CANCEL, details: true });
+      expect(isButton(anchor(t.html, CANCEL))).toBe(false);
+      expect(t.html).not.toMatch(/background:#1d3557/);
+      expect(t.text).not.toContain('See all your sign-ups');
+    });
+  });
+
   it('names cancellations and shortfalls', () => {
     expect(gp.tplCancelNotice_(s, post, slot, signup, false, false).subject).toBe('Cancellation: <script>alert(1)</script>');
     expect(gp.tplCancelNotice_(s, post, slot, signup, true, false).subject).toBe("You're now short: <script>alert(1)</script>");

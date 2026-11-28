@@ -64,7 +64,7 @@ describe('details in the reminder (phase 2: Send details is gone)', () => {
   it('a cancel during the hourly run is not reminded (claimed from a fresh read under the lock)', () => {
     const gp = setup();
     signup(gp);
-    const token = /#t=([0-9a-f]{64})/.exec(gp.fakes.mail.sent[0].body)[1];
+    const token = /confirm[^\s"]*#t=([0-9a-f]{64})/.exec(gp.fakes.mail.sent[0].body)[1]; // the cancel link (2.4.1: My sign-ups comes first)
     gp.apiCancel_({ t: token });
     gp.fakes.mail.sent.length = 0;
     gp.fakes.setNow('2026-12-01 18:00');
