@@ -40,6 +40,11 @@ var POST_ACTIONS = [
   'bishopric',
   'volunteers',
   'needsHelp',
+  'listVolunteers',
+  'decideVolunteer',
+  'preapproveCount',
+  'preapproveAdd',
+  'preapproveClear',
 ];
 
 function jsonOut_(obj) {
@@ -166,6 +171,21 @@ function dispatch_(action, data) {
     },
     needsHelp: function () {
       return apiNeedsHelp_(data);
+    },
+    listVolunteers: function () {
+      return apiListVolunteers_(data);
+    },
+    decideVolunteer: function () {
+      return apiDecideVolunteer_(data);
+    },
+    preapproveCount: function () {
+      return apiPreapproveCount_(data);
+    },
+    preapproveAdd: function () {
+      return apiPreapproveAdd_(data);
+    },
+    preapproveClear: function () {
+      return apiPreapproveClear_(data);
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };

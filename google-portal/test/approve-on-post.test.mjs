@@ -43,7 +43,7 @@ describe('Approve / Decline on the post (decision 22)', () => {
     const gp = setup();
     // Sister Example (Relief Society, ward council) can approve: NEW's first post is the RS meal.
     const { su } = signupOn(gp, 'sister.example@example.test', 'p1', 'Brother New');
-    expect(su.status).toBe('Waiting-approval');
+    expect(su.status).toBe('needs_approval');
     expect(su.canDecide).toBe(true);
     const r = plain(gp.apiDecide_({ k: linkFor(gp, 'sister.example@example.test'), signupId: su.signupId, decision: 'approve' }));
     expect(r).toMatchObject({ ok: true });
@@ -66,7 +66,7 @@ describe('Approve / Decline on the post (decision 22)', () => {
     const gp = setup();
     // Elders Quorum president: NEW's FIRST post is the Relief Society's, so not his to approve.
     const eq = signupOn(gp, 'brother.sample@example.test', 'p5', 'Brother New');
-    expect(eq.su.status).toBe('Waiting-approval');
+    expect(eq.su.status).toBe('needs_approval');
     expect(eq.su.canDecide).toBe(false);
     const r = plain(gp.apiDecide_({ k: linkFor(gp, 'brother.sample@example.test'), signupId: eq.su.signupId, decision: 'approve' }));
     expect(r.ok).toBe(false);
@@ -80,7 +80,7 @@ describe('Approve / Decline on the post (decision 22)', () => {
   it('a sign-up still waiting for the email click has no decision', () => {
     const gp = setup();
     const { su } = signupOn(gp, 'bishop.example@example.test', 'p1', 'Sister Late');
-    expect(su.status).toBe('Waiting-email');
+    expect(su.status).toBe('email_not_confirmed');
     expect(su.canDecide).toBe(false);
     expect(plain(gp.apiDecide_({ k: linkFor(gp, 'bishop.example@example.test'), signupId: su.signupId, decision: 'approve' })).ok).toBe(false);
   });

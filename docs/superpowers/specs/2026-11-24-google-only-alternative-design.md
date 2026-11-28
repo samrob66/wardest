@@ -831,6 +831,34 @@ help soon", quota reserve and health email.
     Youth, Children; empty sections hidden. No change to Default audiences or any column;
     existing posts regroup by themselves. Other lists (Other ways to serve, Needs help soon,
     leader page) already showed each post once.
+24. **Approvers per category, a Pre-approve list, and volunteer status data** (§4.1, §5.6; Sam,
+    2026-11-27, in 2.4). Sam's words: "what if we had a new column that specifies which email
+    member approvals should go to for that opportunity type? That would be the most flexible
+    way to do it." then "1. Yes"; on pre-approving, "Good idea, and we already have the
+    Bishop's permission."; and "We should have a page that shows the names of all volunteers
+    with their indicators, even if we don't show their emails".
+    - **Approvers.** A Categories column `Approvers` (emails) and a Settings row
+      `default_approvers`. The *Waiting for approval* notice and the 48 h nudge for a
+      volunteer go to the first post's category Approvers, else default_approvers, else the
+      old rule (the first post's organization leaders and the bishopric); `approverEmailsFor`
+      decides. Addresses not on the Leaders tab are dropped (Check health names them); if none
+      is left, the old rule applies, so a typo never silences approval emails. A listed
+      approver may approve that category's first-timers and sees its posts (names, canEdit
+      false, no addresses). Nobody loses approval rights: the bishopric and the organization's
+      leaders can still approve.
+    - **Pre-approve list.** The bishopric and approvers paste addresses; the System Sheet's
+      `Preapproved` tab keeps only a salted SHA-256 hash (salt: Script Property
+      `PREAPPROVE_SALT`), who added it and when. A sign-up from a listed address that isn't
+      Declined or Revoked is approved at once (Volunteers: Decided by "Pre-approve list",
+      Email confirmed at now), its earlier waiting sign-ups confirm as approval does, and it
+      gets the normal confirmation; the public answer is the same sentence. No per-address
+      remove: clear all and re-paste.
+    - **Status data for the leader page** (the 2.5 UI draws it): `listVolunteers` (any leader;
+      addresses, who decided and actions only for the bishopric and approvers, absent
+      otherwise), `decideVolunteer` by an opaque `vid`, `preapproveCount` / `preapproveAdd` /
+      `preapproveClear`, a volunteer `status` word on each listPosts sign-up (`leader`,
+      `approved`, `needs_approval`, `email_not_confirmed`, `declined`, `revoked`), and
+      `isApprover` / `canManagePreapprove` in whoami.
 
 ## 13. Settled with Sam, and open questions
 

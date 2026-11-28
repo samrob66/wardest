@@ -297,7 +297,61 @@ function canApprove(access, leaderEmail, volunteer, firstPost) {
   if (!access || !volunteer) return false;
   if (access.isBishopric) return true;
   if (!firstPost) return false;
+  // Decision 24: a configured approver for the first post's category (or default_approvers).
+  if (approvesPost_(access, firstPost)) return true;
   return (access.editOrgs || []).indexOf(firstPost.Organization) >= 0;
+}
+
+/**
+ * The approver list configured for a post's category (decision 24): the category's Approvers,
+ * else Settings default_approvers. Valid addresses, normalized, de-duplicated; [] when none.
+ */
+function configuredApprovers_(post, categoriesById, defaultApprovers) {
+  var cat = post ? categoriesById && categoriesById[str_(post.Category)] : null;
+  var own = cat ? splitList(cat.Approvers).filter(isEmail).map(normEmail) : [];
+  if (own.length) return uniq_(own);
+  return uniq_(splitList(defaultApprovers).filter(isEmail).map(normEmail));
+}
+
+/**
+ * Who gets the "waiting for approval" email and the 48 h nudge for a volunteer whose first post is
+ * this one (decision 24): the category's Approvers, else default_approvers, else approversFor
+ * (the organization's leaders and the bishopric). Only addresses on the Leaders tab are kept (a
+ * leader link needs a Leaders row); if none of a configured list is there, approversFor is used.
+ */
+function approverEmailsFor(firstPost, categoriesById, settings, leaders) {
+  var onTab = {};
+  (leaders || []).forEach(function (l) {
+    if (isEmail(l.Email)) onTab[normEmail(l.Email)] = true;
+  });
+  var listed = configuredApprovers_(firstPost, categoriesById, settings ? settings.default_approvers : '').filter(function (e) {
+    return onTab[e];
+  });
+  return listed.length ? listed : approversFor(firstPost, leaders);
+}
+
+/**
+ * A volunteer's status word (decision 24): 'leader' | 'approved' | 'needs_approval' |
+ * 'email_not_confirmed' | 'declined' | 'revoked'. An address with no Volunteers row that isn't a
+ * leader is 'approved' (phase 1 sign-ups were approved by the migration).
+ */
+function volunteerStatusOf(email, volunteerRow, leaderEmails) {
+  var e = normEmail(email);
+  if (e && (leaderEmails || []).map(normEmail).indexOf(e) >= 0) return 'leader';
+  if (!volunteerRow) return 'approved';
+  var st = str_(volunteerRow.Status);
+  if (st === VOLUNTEER_STATUS.approved) return 'approved';
+  if (st === VOLUNTEER_STATUS.declined) return 'declined';
+  if (st === VOLUNTEER_STATUS.revoked) return 'revoked';
+  return str_(volunteerRow['Email confirmed at']) ? 'needs_approval' : 'email_not_confirmed';
+}
+
+/** Is this leader a configured approver for this post (its category's list, or the default)? */
+function approvesPost_(access, post) {
+  if (!access || !post) return false;
+  var cat = str_(post.Category);
+  if (cat && access.approverCats && access.approverCats.hasOwnProperty(cat)) return access.approverCats[cat];
+  return !!access.inDefaultApprovers;
 }
 
 /**
@@ -379,7 +433,7 @@ function postsToMarkPast(posts, slotsByPost, todayLocal) {
  * Coordinator box alone gives nothing: a category must list them.
  * categories: Categories rows (optional; without them only the base rights apply).
  */
-function leaderAccess(leader, organizations, categories) {
+function leaderAccess(leader, organizations, categories, defaultApprovers) {
   var orgs = (organizations || []).slice();
   var bishopric = isTicked(leader.Bishopric);
   var wardCouncil = isTicked(leader['Ward council']);
@@ -391,10 +445,20 @@ function leaderAccess(leader, organizations, categories) {
   var coordinated = [];
   var catOrgs = {};
   var catIds = [];
+  // Decision 24: where this leader is a configured approver (a category's Approvers, or
+  // default_approvers for categories without their own).
+  var defaults = uniq_(splitList(defaultApprovers).filter(isEmail).map(normEmail));
+  var inDefault = !!me && defaults.indexOf(me) >= 0;
+  var approverCats = {};
+  var listedAnywhere = inDefault;
   (categories || []).forEach(function (c) {
     var id = str_(c.Id);
     if (!id || c.Kind !== CATEGORY_KIND.opportunity || isTicked(c.Archived)) return;
     catIds.push(id);
+    var ownApprovers = splitList(c.Approvers).filter(isEmail).map(normEmail);
+    var listed = ownApprovers.length ? !!me && ownApprovers.indexOf(me) >= 0 : inDefault;
+    approverCats[id] = listed;
+    if (!!me && ownApprovers.indexOf(me) >= 0) listedAnywhere = true;
     var coords = splitList(c.Coordinators).filter(isEmail).map(normEmail);
     var owners = splitList(c['Owning organizations']).filter(function (o) {
       return orgs.indexOf(o) >= 0;
@@ -426,6 +490,9 @@ function leaderAccess(leader, organizations, categories) {
     categories: coordinated,
     catOrgs: catOrgs,
     catIds: catIds,
+    approverCats: approverCats,
+    inDefaultApprovers: inDefault,
+    isApprover: bishopric || listedAnywhere,
   };
 }
 
@@ -441,7 +508,8 @@ function coordinates_(access, post) {
 }
 
 function canSeePost(access, post) {
-  return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post));
+  // A configured approver also sees the posts they approve for (decision 24), without editing.
+  return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post) || approvesPost_(access, post));
 }
 
 /**

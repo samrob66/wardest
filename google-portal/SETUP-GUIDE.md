@@ -32,6 +32,25 @@ How a volunteer is known (no Google account needed):
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
 
+> **If you already set up before 2.4** (before you could choose who approves first-time
+> volunteers, or pre-approve members), do this once, signed in to the shared account in a
+> private window:
+> 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
+> 2. **Deploy > Manage deployments**, select the deployment, click the **pencil**, set
+>    **Version** to **New version**, click **Deploy** (skip if you haven't deployed yet).
+> 3. Run **Service Portal > Set up**. It adds an **Approvers** column (last) to the Categories
+>    tab, a **default_approvers** row to Settings, and a **Preapproved** tab to the private
+>    System Sheet. All start blank, so approval emails keep going where they go today.
+> 4. Choose who approves (section 3, step 6, *Approvers*): type emails in **Approvers** on the
+>    Opportunity rows you want, and/or in **default_approvers** in Settings. Give each of those
+>    people a **Leaders** row (no role box needed) and send them their leader link (section 7).
+> 5. Run **Service Portal > Check health**: no line should say *Approver … is not on the
+>    Leaders tab*.
+> 6. Optional: pre-approve members you already know (section 3, *The Pre-approve list*). This
+>    needs the new leader page (the hub owner's next `leader.html`); until then, skip it.
+>
+> If your ward is also before 2.3, do that box too (below).
+
 > **If you already set up before 2.3** (before the pages and forms could take the ward's look),
 > do this once, signed in to the shared account in a private window:
 > 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
@@ -241,6 +260,7 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | theme_font | Optional Google Fonts family name for the pages | `Lora` |
    | theme_heading_font | Optional Google Fonts name for headings (blank: the same as theme_font) | (blank) |
    | form_template_url | Optional edit link of the ward's branded Google Form (section 6, step 8) | (blank for now) |
+   | default_approvers | Optional emails, separated by commas: who gets the *Waiting for approval* emails for every opportunity category whose **Approvers** cell is blank (step 6). Blank keeps the usual rule | `brother.counselor@example.test` |
    | test_mail_only | **Test mode**: leave empty, except while testing (section 9, *Test mode*) | (blank) |
 
 5. Open the **Leaders** tab. One row per leader:
@@ -330,6 +350,21 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | Any ward council may create | Tick to let every ward council member make opportunities in it | (blank) |
    | Warn hours | How many hours before a date to warn if a role is still short. Blank means 48; `0` turns warnings off | `72` |
    | Also warn | More emails for that warning, separated by commas | `brother.clerk@example.test` |
+   | Approvers | Emails, separated by commas: who gets the *Waiting for approval* email and the 48-hour reminder when someone's first sign-up is in this category, and who may approve them. Blank uses **default_approvers** (Settings); if that is blank too, the usual rule: the leaders of the opportunity's organization and the bishopric. Each person needs a row in **Leaders** (no role box needed); anyone who isn't there is skipped, and Check health names them. The bishopric can always approve, but isn't emailed when a list is set | `sister.example@example.test` |
+
+   **Approvers see the opportunities they approve for.** A listed approver who doesn't otherwise
+   lead that category sees its opportunities on the leader page, with the names and an
+   **Approve** / **Decline** line for each first-timer, but can't edit or cancel them and sees no
+   email addresses there.
+
+   **The Pre-approve list.** The bishopric and every approver can paste members' email
+   addresses on the leader page (*Pre-approve*), e.g. from the ward's own email list, with the
+   bishop's permission. When one of those addresses signs up, it counts at once: no *Please
+   confirm your email*, no waiting for approval, and the Volunteers tab records *Decided by:
+   Pre-approve list*. Someone who was declined or revoked is never approved this way. The
+   addresses are **never stored**: the private System Sheet's **Preapproved** tab keeps only a
+   scrambled fingerprint of each (a salted hash), who added it and when, so nobody can read the
+   list back. To take someone off, clear the whole list and paste it again without them.
 
    Do not change the **Id** column.
 7. Click **Service Portal > Set up** again. It makes the **Service Portal** folder in Drive,

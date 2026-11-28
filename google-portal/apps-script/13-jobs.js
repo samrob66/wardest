@@ -164,6 +164,7 @@ function sendNudges_() {
   if (!due.length) return 0;
   var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
   var leaders = leaders_();
+  var categoriesById = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
   due.forEach(function (n) {
     var post = postsById[n.postId];
     var here = d.signups.filter(function (su) {
@@ -174,7 +175,7 @@ function sendNudges_() {
     here.forEach(function (su) {
       var v = vols[normEmail(su.Email)];
       var first = v ? postsById[v['First post']] : null;
-      to = to.concat(approversFor(first || post, leaders));
+      to = to.concat(approverEmailsFor(first || post, categoriesById, s, leaders));
     });
     var t = tplNudge_(s, post, n.date, here.length);
     uniq_(to).forEach(function (e) {

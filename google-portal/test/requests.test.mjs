@@ -763,7 +763,7 @@ describe('Christmas giving on the Service Opportunities page (decision 17)', () 
     const before = gp.fakes.spreadsheet.rowsOf('Categories').map(({ '': gone, ...rest }) => rest);
     gp.gpEnsureTabs_(gp.fakes.spreadsheet);
     const after = gp.fakes.spreadsheet.rowsOf('Categories');
-    expect(after.map(({ 'On Serve page': x, 'Opportunity category': y, ...rest }) => rest)).toEqual(before);
+    expect(after.map(({ 'On Serve page': x, 'Opportunity category': y, Approvers: z, ...rest }) => rest)).toEqual(before);
     for (const r of after) expect(r['On Serve page']).toBe(false);
   });
 });

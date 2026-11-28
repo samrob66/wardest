@@ -357,6 +357,41 @@ function apiSignup_(data) {
     });
     // These answers don't depend on who the address belongs to.
     if (!check.ok && [TEXT.notOpen, TEXT.roleNotFound, TEXT.datePassed].indexOf(check.error) >= 0) return { error: check.error };
+    // The Pre-approve list (decision 24): a waiting or new address on it is approved now, as if
+    // a leader had approved it, and its earlier waiting sign-ups count. Declined, Revoked and
+    // leaders are never changed by it. The public answer stays the same.
+    var preMsgs = [];
+    if ((state === 'new' || state === 'pending-new' || state === 'pending-confirmed') && isPreapproved_(email)) {
+      var pre = { 'Decided by': 'Pre-approve list', 'Decided at': now };
+      var prow = byEmail[email];
+      if (!prow) {
+        prow = volsT.append({ Email: email, Name: name, Status: VOLUNTEER_STATUS.pending, 'First post': post['Post id'], 'Email confirmed at': now });
+        byEmail[email] = prow;
+      } else if (!prow['Email confirmed at']) {
+        pre['Email confirmed at'] = now;
+      }
+      var earlier = approveWaitingLocked_(email, prow, volsT, d, pre, today);
+      preMsgs = confirmationMsgs_(earlier, d).concat(
+        filledMsgsLocked_(
+          earlier.map(function (c) {
+            return c.post['Post id'];
+          }),
+          d
+        )
+      );
+      state = 'approved';
+      check = checkSignup({
+        post: post,
+        slot: slot,
+        counts: countsBySlot(d.signups),
+        existing: d.signups,
+        email: email,
+        childName: childName,
+        state: state,
+        todayLocal: today,
+        nowLocal: now,
+      });
+    }
     // From here every outcome answers the same sentence; only the email differs.
     if (state === 'blocked') {
       // One "please contact" email a day per address, however often it tries.
@@ -366,9 +401,9 @@ function apiSignup_(data) {
     }
     if (!check.ok && check.error === TEXT.roleFull) {
       var fullKey = 'F:' + tag + ':' + slot['Slot id'];
-      if (dc.get(fullKey)) return { msgs: [] };
+      if (dc.get(fullKey)) return { msgs: preMsgs };
       dc.bump(fullKey);
-      return { msgs: [mailMsg_(email, tplRoleFull_(s, post, slot))] };
+      return { msgs: preMsgs.concat([mailMsg_(email, tplRoleFull_(s, post, slot))]) };
     }
     if (!check.ok) {
       // A duplicate. When it is the address's own sign-up still waiting for its email click
@@ -381,7 +416,7 @@ function apiSignup_(data) {
           childKey_(su['Child first name']) === childKey_(childName)
         );
       })[0];
-      return { msgs: own ? confirmEmailLocked_(own, post, slot, dc, s, now) : [] };
+      return { msgs: preMsgs.concat(own ? confirmEmailLocked_(own, post, slot, dc, s, now) : []) };
     }
     var status = signupStatusFor(state);
     var signup = {
@@ -408,7 +443,7 @@ function apiSignup_(data) {
       vrow = volsT.append({ Email: email, Name: name, Status: VOLUNTEER_STATUS.pending, 'First post': post['Post id'] });
     }
     if (status === SIGNUP_STATUS.confirmed) {
-      return { msgs: confirmationMsgs_([{ signup: signup, post: post, slot: slot, over: false }], d).concat(filledMsgsLocked_([post['Post id']], d)) };
+      return { msgs: preMsgs.concat(confirmationMsgs_([{ signup: signup, post: post, slot: slot, over: false }], d)).concat(filledMsgsLocked_([post['Post id']], d)) };
     }
     if (status === SIGNUP_STATUS.waitingEmail) return { msgs: confirmEmailLocked_(signup, post, slot, dc, s, now) };
     var firstPost = indexBy_(d.posts, 'Post id')[vrow['First post']] || post;
@@ -480,13 +515,73 @@ function categoryCoordinators_(categoryId) {
   return uniq_(splitList(c.Coordinators).filter(isEmail).map(normEmail));
 }
 
-/** "Someone new is waiting": messages to the approvers of the volunteer's first post. */
+/** "Someone new is waiting": messages to the approvers of the volunteer's first post (decision 24). */
 function approverMsgs_(firstPost, name, items) {
   if (!items.length) return [];
-  var t = tplWaitingNotice_(settings_(), name, items);
-  return approversFor(firstPost, leaders_()).map(function (to) {
+  var s = settings_();
+  var t = tplWaitingNotice_(s, name, items);
+  return approverEmailsFor(firstPost, indexBy_(serviceTab_(TAB.categories).rows(), 'Id'), s, leaders_()).map(function (to) {
     return mailMsg_(to, t);
   });
+}
+
+// ---------- the Pre-approve list (decision 24): salted hashes only ----------
+
+/** The salt for pre-approve hashes and volunteer ids, made once (64 hex). */
+function preapproveSalt_() {
+  var p = props_();
+  var salt = p.getProperty('PREAPPROVE_SALT');
+  if (!salt) {
+    salt = newToken_();
+    p.setProperty('PREAPPROVE_SALT', salt);
+  }
+  return salt;
+}
+
+function preapproveHash_(email) {
+  return sha256Hex_(preapproveSalt_() + ':' + normEmail(email));
+}
+
+/** Opaque, stable volunteer id: not reversible by leaders; the server resolves it by scanning. */
+function volunteerId_(email) {
+  return sha256Hex_(preapproveSalt_() + ':v:' + normEmail(email)).slice(0, 16);
+}
+
+function isPreapproved_(email) {
+  var h = preapproveHash_(email);
+  return systemTab_(SYS_TAB.preapproved)
+    .rows()
+    .some(function (r) {
+      return String(r.Hash) === h;
+    });
+}
+
+/**
+ * Approves a volunteer (call inside the lock): the Volunteers row Approved with Decided by/at;
+ * their waiting sign-ups whose date is over lapse, the rest count. Returns the counted items.
+ */
+function approveWaitingLocked_(email, vrow, volsT, d, record, today) {
+  volsT.update(vrow, merge_({ Status: VOLUNTEER_STATUS.approved }, record));
+  var signupsT = serviceTab_(TAB.signups);
+  var slotsT = serviceTab_(TAB.slots);
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var postsById = indexBy_(d.posts, 'Post id');
+  var live = [];
+  d.signups
+    .filter(function (su) {
+      return normEmail(su.Email) === email && isWaitingSignup_(su.Status);
+    })
+    .forEach(function (su) {
+      var sl = slotsById[su['Slot id']];
+      var p = postsById[su['Post id']];
+      if (!sl || !p || sl.Date < today || p.Status === POST_STATUS.cancelled || p.Status === POST_STATUS.past) {
+        signupsT.update(su, { Status: SIGNUP_STATUS.lapsed });
+        if (sl) refreshFilled_(slotsT, sl, d.signups);
+      } else {
+        live.push(su);
+      }
+    });
+  return confirmSignupsLocked_(live, d);
 }
 
 /**

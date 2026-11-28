@@ -15,7 +15,7 @@
  */
 
 /** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
-var GP_VERSION = 'phase-2.3.1';
+var GP_VERSION = 'phase-2.4';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -73,6 +73,8 @@ var TEXT = {
   postCancelled: "This opportunity was cancelled and can't be reopened.",
   onlyDate: 'This is the only date. Cancel the whole opportunity instead.',
   cannotApprove: "You can't approve or decline this person.",
+  approversOnly: 'Only the bishopric and approvers can do this.',
+  tooManyPasted: 'Paste at most 2,000 addresses at a time.',
   bishopricOnly: 'Only the bishopric can do this.',
   councilOnly: 'Needs help soon is for the ward council and the bishopric.',
   signOutDone: 'We emailed you a new leader link. The old one no longer works.',
@@ -114,6 +116,7 @@ var SYS_TAB = {
   log: 'Log',
   requestFiles: 'Request files',
   counters: 'Counters',
+  preapproved: 'Preapproved',
 };
 
 /** Exact headers, in order. A header added later is appended by Set up (gpEnsureTabs_), never reordered. */
@@ -121,7 +124,7 @@ var SERVICE_HEADERS = {
   'Read me': [],
   Settings: ['Key', 'Value', 'Help'],
   Leaders: ['Name', 'Email', 'Calling', 'Organization', 'Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Link sent'],
-  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category'],
+  Categories: ['Id', 'Name', 'Icon', 'Kind', 'Owning organizations', 'Default audiences', 'Coordinators', 'Any ward council may create', 'Confidential', 'Warn hours', 'Also warn', 'Discord', 'Archived', 'Notify', 'On Help page', 'On Serve page', 'Opportunity category', 'Approvers'],
   Posts: ['Post id', 'Public id', 'Organization', 'Category', 'Title', 'Audiences', 'Public note', 'Private details', 'Cancel cutoff hours', 'Status', 'Created by', 'Created at', 'Last changed by', 'Last changed at'],
   Slots: ['Slot id', 'Post id', 'Date', 'Start', 'End', 'Role', 'Needed', 'Role note', 'Bringing prompt', 'Filled', 'Waiting'],
   'Sign-ups': ['Sign-up id', 'Post id', 'Slot id', 'Email', 'Name', 'Child first name', 'Bringing', 'Status', 'Signed up at', 'Reminded at', 'Details sent at', 'Over limit', 'Removed by', 'Cancelled at'],
@@ -135,6 +138,7 @@ var SYSTEM_HEADERS = {
   Log: ['At', 'What', 'Detail'],
   'Request files': ['Category id', 'Folder id', 'Form id', 'Sheet id', 'Month'],
   Counters: ['Key', 'Day', 'Count'],
+  Preapproved: ['Hash', 'Added at', 'Added by'],
 };
 
 /** Each request sheet's one tab. */
@@ -163,10 +167,10 @@ var CATEGORY_KIND = { opportunity: 'Opportunity', request: 'Request' };
 /** Column types, by header name (any tab). Read back as text; written with format '@'. */
 var DATE_COLS = ['Date', 'Moving date', 'Closed on', 'Day'];
 var TIME_COLS = ['Start', 'End'];
-var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received'];
+var LOCAL_DT_COLS = ['Created at', 'Last changed at', 'Signed up at', 'Reminded at', 'Details sent at', 'Cancelled at', 'Decided at', 'Email confirmed at', 'Link sent', 'Expires', 'Created', 'Queued at', 'At', 'Received', 'Added at'];
 var MONTH_COLS = ['Month'];
 /** Free text kept as typed (no date or number guessing by Sheets). */
-var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category'];
+var TEXT_COLS = ['Name', 'Email', 'Title', 'Public note', 'Private details', 'Role', 'Role note', 'Bringing prompt', 'Bringing', 'Child first name', 'Phone or email', 'Note', 'Leader note', 'Assigned to', 'To', 'Subject', 'Html', 'Text', 'Detail', 'Created by', 'Last changed by', 'Removed by', 'Decided by', 'Hash', 'Public id', 'Notify', 'Offer', 'Link', 'First post', 'Key', 'Posted as', 'Opportunity category', 'Approvers', 'Added by'];
 var CHECKBOX_COLS = ['Bishopric', 'Ward council', 'Org editor', 'Coordinator', 'Send leader link', 'Any ward council may create', 'Confidential', 'Discord', 'Archived', 'On Help page', 'On Serve page', 'Make opportunity', 'Copy contact to private details'];
 
 /** Settings rows: [key, default, help]. */
@@ -191,6 +195,7 @@ var SETTINGS_ROWS = [
   ['theme_accent', '', 'Optional accent colour as #rrggbb, e.g. #2f5d50. Blank: the standard colours.'],
   ['theme_font', '', 'Optional Google Fonts family name for the pages, e.g. Lora. Blank: the standard font.'],
   ['theme_heading_font', '', 'Optional Google Fonts family name for headings. Blank: the same as theme_font.'],
+  ['default_approvers', '', 'Who gets the "waiting for approval" emails, and may approve, for opportunity categories with no Approvers of their own: emails separated by commas, each on the Leaders tab. Blank: the first post\'s organization leaders and the bishopric.'],
   ['test_mail_only', '', 'TEST MODE. Blank: email goes to everyone as normal. Addresses here, separated by commas: only they get email, and every other email goes to the first address with [TEST for <address>] in front of its subject. Empty it before going live.'],
   ['form_template_url', '', 'Optional: the edit link of a branded Google Form (from the form editor\'s address bar). New request forms are made as copies of it, so they keep its look.'],
 ];
@@ -1434,7 +1439,61 @@ function canApprove(access, leaderEmail, volunteer, firstPost) {
   if (!access || !volunteer) return false;
   if (access.isBishopric) return true;
   if (!firstPost) return false;
+  // Decision 24: a configured approver for the first post's category (or default_approvers).
+  if (approvesPost_(access, firstPost)) return true;
   return (access.editOrgs || []).indexOf(firstPost.Organization) >= 0;
+}
+
+/**
+ * The approver list configured for a post's category (decision 24): the category's Approvers,
+ * else Settings default_approvers. Valid addresses, normalized, de-duplicated; [] when none.
+ */
+function configuredApprovers_(post, categoriesById, defaultApprovers) {
+  var cat = post ? categoriesById && categoriesById[str_(post.Category)] : null;
+  var own = cat ? splitList(cat.Approvers).filter(isEmail).map(normEmail) : [];
+  if (own.length) return uniq_(own);
+  return uniq_(splitList(defaultApprovers).filter(isEmail).map(normEmail));
+}
+
+/**
+ * Who gets the "waiting for approval" email and the 48 h nudge for a volunteer whose first post is
+ * this one (decision 24): the category's Approvers, else default_approvers, else approversFor
+ * (the organization's leaders and the bishopric). Only addresses on the Leaders tab are kept (a
+ * leader link needs a Leaders row); if none of a configured list is there, approversFor is used.
+ */
+function approverEmailsFor(firstPost, categoriesById, settings, leaders) {
+  var onTab = {};
+  (leaders || []).forEach(function (l) {
+    if (isEmail(l.Email)) onTab[normEmail(l.Email)] = true;
+  });
+  var listed = configuredApprovers_(firstPost, categoriesById, settings ? settings.default_approvers : '').filter(function (e) {
+    return onTab[e];
+  });
+  return listed.length ? listed : approversFor(firstPost, leaders);
+}
+
+/**
+ * A volunteer's status word (decision 24): 'leader' | 'approved' | 'needs_approval' |
+ * 'email_not_confirmed' | 'declined' | 'revoked'. An address with no Volunteers row that isn't a
+ * leader is 'approved' (phase 1 sign-ups were approved by the migration).
+ */
+function volunteerStatusOf(email, volunteerRow, leaderEmails) {
+  var e = normEmail(email);
+  if (e && (leaderEmails || []).map(normEmail).indexOf(e) >= 0) return 'leader';
+  if (!volunteerRow) return 'approved';
+  var st = str_(volunteerRow.Status);
+  if (st === VOLUNTEER_STATUS.approved) return 'approved';
+  if (st === VOLUNTEER_STATUS.declined) return 'declined';
+  if (st === VOLUNTEER_STATUS.revoked) return 'revoked';
+  return str_(volunteerRow['Email confirmed at']) ? 'needs_approval' : 'email_not_confirmed';
+}
+
+/** Is this leader a configured approver for this post (its category's list, or the default)? */
+function approvesPost_(access, post) {
+  if (!access || !post) return false;
+  var cat = str_(post.Category);
+  if (cat && access.approverCats && access.approverCats.hasOwnProperty(cat)) return access.approverCats[cat];
+  return !!access.inDefaultApprovers;
 }
 
 /**
@@ -1516,7 +1575,7 @@ function postsToMarkPast(posts, slotsByPost, todayLocal) {
  * Coordinator box alone gives nothing: a category must list them.
  * categories: Categories rows (optional; without them only the base rights apply).
  */
-function leaderAccess(leader, organizations, categories) {
+function leaderAccess(leader, organizations, categories, defaultApprovers) {
   var orgs = (organizations || []).slice();
   var bishopric = isTicked(leader.Bishopric);
   var wardCouncil = isTicked(leader['Ward council']);
@@ -1528,10 +1587,20 @@ function leaderAccess(leader, organizations, categories) {
   var coordinated = [];
   var catOrgs = {};
   var catIds = [];
+  // Decision 24: where this leader is a configured approver (a category's Approvers, or
+  // default_approvers for categories without their own).
+  var defaults = uniq_(splitList(defaultApprovers).filter(isEmail).map(normEmail));
+  var inDefault = !!me && defaults.indexOf(me) >= 0;
+  var approverCats = {};
+  var listedAnywhere = inDefault;
   (categories || []).forEach(function (c) {
     var id = str_(c.Id);
     if (!id || c.Kind !== CATEGORY_KIND.opportunity || isTicked(c.Archived)) return;
     catIds.push(id);
+    var ownApprovers = splitList(c.Approvers).filter(isEmail).map(normEmail);
+    var listed = ownApprovers.length ? !!me && ownApprovers.indexOf(me) >= 0 : inDefault;
+    approverCats[id] = listed;
+    if (!!me && ownApprovers.indexOf(me) >= 0) listedAnywhere = true;
     var coords = splitList(c.Coordinators).filter(isEmail).map(normEmail);
     var owners = splitList(c['Owning organizations']).filter(function (o) {
       return orgs.indexOf(o) >= 0;
@@ -1563,6 +1632,9 @@ function leaderAccess(leader, organizations, categories) {
     categories: coordinated,
     catOrgs: catOrgs,
     catIds: catIds,
+    approverCats: approverCats,
+    inDefaultApprovers: inDefault,
+    isApprover: bishopric || listedAnywhere,
   };
 }
 
@@ -1578,7 +1650,8 @@ function coordinates_(access, post) {
 }
 
 function canSeePost(access, post) {
-  return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post));
+  // A configured approver also sees the posts they approve for (decision 24), without editing.
+  return !!(access.seeAllNames || access.editOrgs.indexOf(post.Organization) >= 0 || coordinates_(access, post) || approvesPost_(access, post));
 }
 
 /**
@@ -2992,6 +3065,41 @@ function apiSignup_(data) {
     });
     // These answers don't depend on who the address belongs to.
     if (!check.ok && [TEXT.notOpen, TEXT.roleNotFound, TEXT.datePassed].indexOf(check.error) >= 0) return { error: check.error };
+    // The Pre-approve list (decision 24): a waiting or new address on it is approved now, as if
+    // a leader had approved it, and its earlier waiting sign-ups count. Declined, Revoked and
+    // leaders are never changed by it. The public answer stays the same.
+    var preMsgs = [];
+    if ((state === 'new' || state === 'pending-new' || state === 'pending-confirmed') && isPreapproved_(email)) {
+      var pre = { 'Decided by': 'Pre-approve list', 'Decided at': now };
+      var prow = byEmail[email];
+      if (!prow) {
+        prow = volsT.append({ Email: email, Name: name, Status: VOLUNTEER_STATUS.pending, 'First post': post['Post id'], 'Email confirmed at': now });
+        byEmail[email] = prow;
+      } else if (!prow['Email confirmed at']) {
+        pre['Email confirmed at'] = now;
+      }
+      var earlier = approveWaitingLocked_(email, prow, volsT, d, pre, today);
+      preMsgs = confirmationMsgs_(earlier, d).concat(
+        filledMsgsLocked_(
+          earlier.map(function (c) {
+            return c.post['Post id'];
+          }),
+          d
+        )
+      );
+      state = 'approved';
+      check = checkSignup({
+        post: post,
+        slot: slot,
+        counts: countsBySlot(d.signups),
+        existing: d.signups,
+        email: email,
+        childName: childName,
+        state: state,
+        todayLocal: today,
+        nowLocal: now,
+      });
+    }
     // From here every outcome answers the same sentence; only the email differs.
     if (state === 'blocked') {
       // One "please contact" email a day per address, however often it tries.
@@ -3001,9 +3109,9 @@ function apiSignup_(data) {
     }
     if (!check.ok && check.error === TEXT.roleFull) {
       var fullKey = 'F:' + tag + ':' + slot['Slot id'];
-      if (dc.get(fullKey)) return { msgs: [] };
+      if (dc.get(fullKey)) return { msgs: preMsgs };
       dc.bump(fullKey);
-      return { msgs: [mailMsg_(email, tplRoleFull_(s, post, slot))] };
+      return { msgs: preMsgs.concat([mailMsg_(email, tplRoleFull_(s, post, slot))]) };
     }
     if (!check.ok) {
       // A duplicate. When it is the address's own sign-up still waiting for its email click
@@ -3016,7 +3124,7 @@ function apiSignup_(data) {
           childKey_(su['Child first name']) === childKey_(childName)
         );
       })[0];
-      return { msgs: own ? confirmEmailLocked_(own, post, slot, dc, s, now) : [] };
+      return { msgs: preMsgs.concat(own ? confirmEmailLocked_(own, post, slot, dc, s, now) : []) };
     }
     var status = signupStatusFor(state);
     var signup = {
@@ -3043,7 +3151,7 @@ function apiSignup_(data) {
       vrow = volsT.append({ Email: email, Name: name, Status: VOLUNTEER_STATUS.pending, 'First post': post['Post id'] });
     }
     if (status === SIGNUP_STATUS.confirmed) {
-      return { msgs: confirmationMsgs_([{ signup: signup, post: post, slot: slot, over: false }], d).concat(filledMsgsLocked_([post['Post id']], d)) };
+      return { msgs: preMsgs.concat(confirmationMsgs_([{ signup: signup, post: post, slot: slot, over: false }], d)).concat(filledMsgsLocked_([post['Post id']], d)) };
     }
     if (status === SIGNUP_STATUS.waitingEmail) return { msgs: confirmEmailLocked_(signup, post, slot, dc, s, now) };
     var firstPost = indexBy_(d.posts, 'Post id')[vrow['First post']] || post;
@@ -3115,13 +3223,73 @@ function categoryCoordinators_(categoryId) {
   return uniq_(splitList(c.Coordinators).filter(isEmail).map(normEmail));
 }
 
-/** "Someone new is waiting": messages to the approvers of the volunteer's first post. */
+/** "Someone new is waiting": messages to the approvers of the volunteer's first post (decision 24). */
 function approverMsgs_(firstPost, name, items) {
   if (!items.length) return [];
-  var t = tplWaitingNotice_(settings_(), name, items);
-  return approversFor(firstPost, leaders_()).map(function (to) {
+  var s = settings_();
+  var t = tplWaitingNotice_(s, name, items);
+  return approverEmailsFor(firstPost, indexBy_(serviceTab_(TAB.categories).rows(), 'Id'), s, leaders_()).map(function (to) {
     return mailMsg_(to, t);
   });
+}
+
+// ---------- the Pre-approve list (decision 24): salted hashes only ----------
+
+/** The salt for pre-approve hashes and volunteer ids, made once (64 hex). */
+function preapproveSalt_() {
+  var p = props_();
+  var salt = p.getProperty('PREAPPROVE_SALT');
+  if (!salt) {
+    salt = newToken_();
+    p.setProperty('PREAPPROVE_SALT', salt);
+  }
+  return salt;
+}
+
+function preapproveHash_(email) {
+  return sha256Hex_(preapproveSalt_() + ':' + normEmail(email));
+}
+
+/** Opaque, stable volunteer id: not reversible by leaders; the server resolves it by scanning. */
+function volunteerId_(email) {
+  return sha256Hex_(preapproveSalt_() + ':v:' + normEmail(email)).slice(0, 16);
+}
+
+function isPreapproved_(email) {
+  var h = preapproveHash_(email);
+  return systemTab_(SYS_TAB.preapproved)
+    .rows()
+    .some(function (r) {
+      return String(r.Hash) === h;
+    });
+}
+
+/**
+ * Approves a volunteer (call inside the lock): the Volunteers row Approved with Decided by/at;
+ * their waiting sign-ups whose date is over lapse, the rest count. Returns the counted items.
+ */
+function approveWaitingLocked_(email, vrow, volsT, d, record, today) {
+  volsT.update(vrow, merge_({ Status: VOLUNTEER_STATUS.approved }, record));
+  var signupsT = serviceTab_(TAB.signups);
+  var slotsT = serviceTab_(TAB.slots);
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var postsById = indexBy_(d.posts, 'Post id');
+  var live = [];
+  d.signups
+    .filter(function (su) {
+      return normEmail(su.Email) === email && isWaitingSignup_(su.Status);
+    })
+    .forEach(function (su) {
+      var sl = slotsById[su['Slot id']];
+      var p = postsById[su['Post id']];
+      if (!sl || !p || sl.Date < today || p.Status === POST_STATUS.cancelled || p.Status === POST_STATUS.past) {
+        signupsT.update(su, { Status: SIGNUP_STATUS.lapsed });
+        if (sl) refreshFilled_(slotsT, sl, d.signups);
+      } else {
+        live.push(su);
+      }
+    });
+  return confirmSignupsLocked_(live, d);
 }
 
 /**
@@ -3593,7 +3761,7 @@ function leaderCtx_(data) {
   if (!leader) return null;
   var s = settings_();
   var categories = serviceTab_(TAB.categories).rows();
-  return { leader: leader, email: normEmail(leader.Email), access: leaderAccess(leader, s.organizations, categories), s: s, categories: categories };
+  return { leader: leader, email: normEmail(leader.Email), access: leaderAccess(leader, s.organizations, categories, s.default_approvers), s: s, categories: categories };
 }
 
 function opportunityCategories_() {
@@ -3624,12 +3792,14 @@ function apiWhoami_(data) {
     access: {
       isBishopric: a.isBishopric,
       isCouncil: a.seeAllNames,
-      canApprove: a.isBishopric || a.editOrgs.length > 0,
+      canApprove: a.isBishopric || a.editOrgs.length > 0 || a.isApprover,
       createOrgs: a.createOrgs,
       baseCreateOrgs: a.baseCreateOrgs,
       editOrgs: a.editOrgs,
       catOrgs: a.catOrgs,
       coordinates: a.categories,
+      isApprover: !!a.isApprover,
+      canManagePreapprove: !!a.isApprover,
     },
     organizations: lc.s.organizations,
     categories: creatableCategories_(a),
@@ -3669,6 +3839,7 @@ function apiListPosts_(data) {
   var signupsByPost = groupBy_(d.signups, 'Post id');
   var postsById = indexBy_(d.posts, 'Post id');
   var volunteers = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
+  var leaderList = leaderEmails_();
   // May this leader approve or decline the person behind a waiting sign-up (decision 22)? The
   // same rule as the Waiting for approval tab: canApprove, on the volunteer's first post.
   var canDecide = function (su) {
@@ -3715,7 +3886,8 @@ function apiListPosts_(data) {
               childName: su['Child first name'] || '',
               label: signupLabel_(su),
               bringing: su.Bringing || '',
-              status: su.Status,
+              // The volunteer's status word (decision 24), not the sign-up's.
+              status: volunteerStatusOf(su.Email, volunteers[normEmail(su.Email)] || null, leaderList),
               overLimit: isTicked(su['Over limit']),
               canDecide: canDecide(su),
             };
@@ -4249,6 +4421,197 @@ function apiBishopric_(data) {
   return { ok: true, message: done.message };
 }
 
+// ---------- 2.4 (decision 24): the volunteer list, decisions by id, the Pre-approve list ----------
+
+/** Order of the volunteer list: needs_approval, email_not_confirmed, then the rest. */
+var VOLUNTEER_LIST_ORDER = { needs_approval: 0, email_not_confirmed: 1 };
+
+/**
+ * Every address the portal knows: each Volunteers row, plus any leader or older (phase 1)
+ * address that has sign-ups. {email: {row, signups: []}}.
+ */
+function knownVolunteers_(d, volRows) {
+  var out = {};
+  volRows.forEach(function (v) {
+    if (!isEmail(v.Email)) return;
+    out[normEmail(v.Email)] = { row: v, signups: [] };
+  });
+  d.signups.forEach(function (su) {
+    if (!isEmail(su.Email)) return;
+    var e = normEmail(su.Email);
+    if (!out[e]) out[e] = { row: null, signups: [] };
+    out[e].signups.push(su);
+  });
+  return out;
+}
+
+/** vid → email, by scanning the known addresses; '' when unknown. */
+function emailForVid_(vid) {
+  var want = String(vid == null ? '' : vid);
+  if (!/^[0-9a-f]{16}$/.test(want)) return '';
+  var known = knownVolunteers_(volunteerData_(), serviceTab_(TAB.volunteers).rows());
+  var found = '';
+  Object.keys(known).forEach(function (e) {
+    if (!found && volunteerId_(e) === want) found = e;
+  });
+  return found;
+}
+
+/**
+ * Any leader: everyone who has signed up or is on the Volunteers tab, with a status word, how
+ * many upcoming sign-ups, their first sign-up and the children they signed up. Addresses, who
+ * decided, and the allowed actions only for the bishopric and approvers.
+ */
+function apiListVolunteers_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var manager = !!lc.access.isApprover;
+  var d = volunteerData_();
+  var today = todayLocal_();
+  var postsById = indexBy_(d.posts, 'Post id');
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var leaders = leaders_();
+  var leaderList = leaderEmails_(leaders);
+  var leaderNames = {};
+  leaders.forEach(function (l) {
+    if (isEmail(l.Email)) leaderNames[normEmail(l.Email)] = l.Name;
+  });
+  var known = knownVolunteers_(d, serviceTab_(TAB.volunteers).rows());
+  var list = Object.keys(known).map(function (e) {
+    var k = known[e];
+    var v = k.row;
+    var status = volunteerStatusOf(e, v, leaderList);
+    var sorted = k.signups.slice().sort(function (a, b) {
+      return cmpLocal(a['Signed up at'], b['Signed up at']);
+    });
+    var latest = sorted.length ? sorted[sorted.length - 1] : null;
+    var firstPost = v && v['First post'] ? postsById[v['First post']] : sorted.length ? postsById[sorted[0]['Post id']] : null;
+    var firstSignup = null;
+    if (firstPost) {
+      var dates = sorted
+        .filter(function (su) {
+          return su['Post id'] === firstPost['Post id'];
+        })
+        .map(function (su) {
+          return slotsById[su['Slot id']] ? slotsById[su['Slot id']].Date : '';
+        })
+        .filter(String)
+        .sort();
+      firstSignup = { title: firstPost.Title, date: dates[0] || '' };
+    }
+    var children = uniq_(
+      k.signups
+        .map(function (su) {
+          return String(su['Child first name'] || '').trim();
+        })
+        .filter(String)
+    );
+    var upcoming = k.signups.filter(function (su) {
+      var sl = slotsById[su['Slot id']];
+      return isActiveSignup_(su.Status) && sl && sl.Date >= today;
+    }).length;
+    var item = {
+      vid: volunteerId_(e),
+      name: (v && v.Name) || (latest && latest.Name) || leaderNames[e] || '',
+      status: status,
+      upcomingCount: upcoming,
+      firstSignup: firstSignup,
+      children: children,
+    };
+    if (manager) {
+      item.email = e;
+      item.decidedBy = v ? String(v['Decided by'] || '') : '';
+      item.decidedAt = v ? String(v['Decided at'] || '') : '';
+      var actions = [];
+      if (status === 'needs_approval' && canApprove(lc.access, lc.email, v, v ? postsById[v['First post']] || null : null)) actions.push('approve', 'decline');
+      if (status === 'approved' && v && lc.access.isBishopric) actions.push('revoke');
+      if ((status === 'declined' || status === 'revoked') && lc.access.isBishopric) actions.push('undo');
+      item.actions = actions;
+    }
+    return item;
+  });
+  list.sort(function (a, b) {
+    var oa = VOLUNTEER_LIST_ORDER.hasOwnProperty(a.status) ? VOLUNTEER_LIST_ORDER[a.status] : 2;
+    var ob = VOLUNTEER_LIST_ORDER.hasOwnProperty(b.status) ? VOLUNTEER_LIST_ORDER[b.status] : 2;
+    return oa - ob || cmpLocal(String(a.name).toLowerCase(), String(b.name).toLowerCase());
+  });
+  return { ok: true, canSeeEmails: manager, canAct: manager, volunteers: list };
+}
+
+/** data: {k, vid, decision}. The same checks and effects as decide / bishopric. */
+function apiDecideVolunteer_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var decision = data && data.decision;
+  if (['approve', 'decline', 'revoke', 'undo'].indexOf(decision) < 0) return { ok: false, error: TEXT.badRequest };
+  var email = emailForVid_(data.vid);
+  if (!email) return { ok: false, error: TEXT.notFound };
+  var pass = { k: data.k, email: email, decision: decision };
+  return decision === 'approve' || decision === 'decline' ? apiDecide_(pass) : apiBishopric_(pass);
+}
+
+/** Any leader: how many addresses are on the Pre-approve list (0 unless they may manage it). */
+function apiPreapproveCount_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var manager = !!lc.access.isApprover;
+  return { ok: true, total: manager ? systemTab_(SYS_TAB.preapproved).rows().length : 0, canManage: manager };
+}
+
+/**
+ * Bishopric and approvers: adds pasted addresses to the Pre-approve list as salted hashes. Split
+ * on commas, semicolons, spaces and new lines; at most 2,000 per call. Nothing pasted is echoed,
+ * logged or stored as text.
+ */
+function apiPreapproveAdd_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  if (!lc.access.isApprover) return { ok: false, error: TEXT.approversOnly };
+  var entries = String((data && data.emails) == null ? '' : data.emails)
+    .split(/[\s,;]+/)
+    .filter(String);
+  if (entries.length > 2000) return { ok: false, error: TEXT.tooManyPasted };
+  return withLock_(function () {
+    var t = systemTab_(SYS_TAB.preapproved);
+    var have = {};
+    t.rows().forEach(function (r) {
+      have[String(r.Hash)] = true;
+    });
+    var now = nowLocal_();
+    var add = [];
+    var already = 0;
+    var invalid = 0;
+    entries.forEach(function (e) {
+      if (!isEmail(e)) {
+        invalid++;
+        return;
+      }
+      var h = preapproveHash_(e);
+      if (have[h]) {
+        already++;
+        return;
+      }
+      have[h] = true;
+      add.push({ Hash: h, 'Added at': now, 'Added by': lc.leader.Name });
+    });
+    t.appendMany(add);
+    return { ok: true, added: add.length, already: already, invalid: invalid, total: Object.keys(have).length };
+  });
+}
+
+/** Bishopric and approvers: empties the Pre-approve list. */
+function apiPreapproveClear_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  if (!lc.access.isApprover) return { ok: false, error: TEXT.approversOnly };
+  return withLock_(function () {
+    var t = systemTab_(SYS_TAB.preapproved);
+    var rows = t.rows();
+    t.removeMany(rows);
+    return { ok: true, removed: rows.length };
+  });
+}
+
 /** Bishopric only: every volunteer with status and who decided. */
 function apiVolunteers_(data) {
   var lc = leaderCtx_(data);
@@ -4339,6 +4702,11 @@ var POST_ACTIONS = [
   'bishopric',
   'volunteers',
   'needsHelp',
+  'listVolunteers',
+  'decideVolunteer',
+  'preapproveCount',
+  'preapproveAdd',
+  'preapproveClear',
 ];
 
 function jsonOut_(obj) {
@@ -4465,6 +4833,21 @@ function dispatch_(action, data) {
     },
     needsHelp: function () {
       return apiNeedsHelp_(data);
+    },
+    listVolunteers: function () {
+      return apiListVolunteers_(data);
+    },
+    decideVolunteer: function () {
+      return apiDecideVolunteer_(data);
+    },
+    preapproveCount: function () {
+      return apiPreapproveCount_(data);
+    },
+    preapproveAdd: function () {
+      return apiPreapproveAdd_(data);
+    },
+    preapproveClear: function () {
+      return apiPreapproveClear_(data);
     },
   };
   if (!handlers.hasOwnProperty(action)) return { ok: false, error: TEXT.notFound };
@@ -5644,6 +6027,25 @@ function gpMenuCheckHealth() {
  * request data). opts.job: run from the daily job, which also checks the jobs run as the Service
  * Sheet's owner; from the menu (owner only) it names the account the listed triggers belong to.
  */
+/** "Approver x is not on the Leaders tab" for each configured approver that isn't (decision 24). */
+function approverProblems_(categories, s, leaders) {
+  var onTab = {};
+  leaders.forEach(function (l) {
+    if (isEmail(l.Email)) onTab[normEmail(l.Email)] = true;
+  });
+  var listed = splitList(s.default_approvers);
+  categories.forEach(function (c) {
+    if (c.Kind === CATEGORY_KIND.opportunity && !isTicked(c.Archived)) listed = listed.concat(splitList(c.Approvers));
+  });
+  return uniq_(listed.map(normEmail))
+    .filter(function (e) {
+      return !onTab[e];
+    })
+    .map(function (e) {
+      return 'Approver ' + clip(e, 80) + ' is not on the Leaders tab, so they get no approval emails. Add a Leaders row for them, or remove them from Approvers / default_approvers.';
+    });
+}
+
 function healthLines_(opts) {
   opts = opts || {};
   var lines = [];
@@ -5765,6 +6167,10 @@ function healthLines_(opts) {
     });
   add(formCount >= reqCats.length, 'Request forms: ' + formCount + ' of ' + reqCats.length + (formCount >= reqCats.length ? '.' : '. Run Set up.'));
   notifyBishopProblems_(reqCats, leaders_()).forEach(function (line) {
+    add(false, line);
+  });
+  // Approvers (2.4): an address that isn't on the Leaders tab gets no approval email.
+  approverProblems_(serviceTab_(TAB.categories).rows(), s, leaders_()).forEach(function (line) {
     add(false, line);
   });
   // Test mode (2.3.1): always a PROBLEM while on, so it can't be forgotten at go-live.
@@ -6052,6 +6458,7 @@ function sendNudges_() {
   if (!due.length) return 0;
   var vols = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
   var leaders = leaders_();
+  var categoriesById = indexBy_(serviceTab_(TAB.categories).rows(), 'Id');
   due.forEach(function (n) {
     var post = postsById[n.postId];
     var here = d.signups.filter(function (su) {
@@ -6062,7 +6469,7 @@ function sendNudges_() {
     here.forEach(function (su) {
       var v = vols[normEmail(su.Email)];
       var first = v ? postsById[v['First post']] : null;
-      to = to.concat(approversFor(first || post, leaders));
+      to = to.concat(approverEmailsFor(first || post, categoriesById, s, leaders));
     });
     var t = tplNudge_(s, post, n.date, here.length);
     uniq_(to).forEach(function (e) {
@@ -6256,4 +6663,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "f439c06e78f1";
+var GP_BUILD = "1f9b5019e6c4";

@@ -15,7 +15,7 @@ function leaderCtx_(data) {
   if (!leader) return null;
   var s = settings_();
   var categories = serviceTab_(TAB.categories).rows();
-  return { leader: leader, email: normEmail(leader.Email), access: leaderAccess(leader, s.organizations, categories), s: s, categories: categories };
+  return { leader: leader, email: normEmail(leader.Email), access: leaderAccess(leader, s.organizations, categories, s.default_approvers), s: s, categories: categories };
 }
 
 function opportunityCategories_() {
@@ -46,12 +46,14 @@ function apiWhoami_(data) {
     access: {
       isBishopric: a.isBishopric,
       isCouncil: a.seeAllNames,
-      canApprove: a.isBishopric || a.editOrgs.length > 0,
+      canApprove: a.isBishopric || a.editOrgs.length > 0 || a.isApprover,
       createOrgs: a.createOrgs,
       baseCreateOrgs: a.baseCreateOrgs,
       editOrgs: a.editOrgs,
       catOrgs: a.catOrgs,
       coordinates: a.categories,
+      isApprover: !!a.isApprover,
+      canManagePreapprove: !!a.isApprover,
     },
     organizations: lc.s.organizations,
     categories: creatableCategories_(a),
@@ -91,6 +93,7 @@ function apiListPosts_(data) {
   var signupsByPost = groupBy_(d.signups, 'Post id');
   var postsById = indexBy_(d.posts, 'Post id');
   var volunteers = volunteersByEmail_(serviceTab_(TAB.volunteers).rows());
+  var leaderList = leaderEmails_();
   // May this leader approve or decline the person behind a waiting sign-up (decision 22)? The
   // same rule as the Waiting for approval tab: canApprove, on the volunteer's first post.
   var canDecide = function (su) {
@@ -137,7 +140,8 @@ function apiListPosts_(data) {
               childName: su['Child first name'] || '',
               label: signupLabel_(su),
               bringing: su.Bringing || '',
-              status: su.Status,
+              // The volunteer's status word (decision 24), not the sign-up's.
+              status: volunteerStatusOf(su.Email, volunteers[normEmail(su.Email)] || null, leaderList),
               overLimit: isTicked(su['Over limit']),
               canDecide: canDecide(su),
             };
@@ -669,6 +673,197 @@ function apiBishopric_(data) {
   });
   if (done.error) return { ok: false, error: done.error };
   return { ok: true, message: done.message };
+}
+
+// ---------- 2.4 (decision 24): the volunteer list, decisions by id, the Pre-approve list ----------
+
+/** Order of the volunteer list: needs_approval, email_not_confirmed, then the rest. */
+var VOLUNTEER_LIST_ORDER = { needs_approval: 0, email_not_confirmed: 1 };
+
+/**
+ * Every address the portal knows: each Volunteers row, plus any leader or older (phase 1)
+ * address that has sign-ups. {email: {row, signups: []}}.
+ */
+function knownVolunteers_(d, volRows) {
+  var out = {};
+  volRows.forEach(function (v) {
+    if (!isEmail(v.Email)) return;
+    out[normEmail(v.Email)] = { row: v, signups: [] };
+  });
+  d.signups.forEach(function (su) {
+    if (!isEmail(su.Email)) return;
+    var e = normEmail(su.Email);
+    if (!out[e]) out[e] = { row: null, signups: [] };
+    out[e].signups.push(su);
+  });
+  return out;
+}
+
+/** vid → email, by scanning the known addresses; '' when unknown. */
+function emailForVid_(vid) {
+  var want = String(vid == null ? '' : vid);
+  if (!/^[0-9a-f]{16}$/.test(want)) return '';
+  var known = knownVolunteers_(volunteerData_(), serviceTab_(TAB.volunteers).rows());
+  var found = '';
+  Object.keys(known).forEach(function (e) {
+    if (!found && volunteerId_(e) === want) found = e;
+  });
+  return found;
+}
+
+/**
+ * Any leader: everyone who has signed up or is on the Volunteers tab, with a status word, how
+ * many upcoming sign-ups, their first sign-up and the children they signed up. Addresses, who
+ * decided, and the allowed actions only for the bishopric and approvers.
+ */
+function apiListVolunteers_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var manager = !!lc.access.isApprover;
+  var d = volunteerData_();
+  var today = todayLocal_();
+  var postsById = indexBy_(d.posts, 'Post id');
+  var slotsById = indexBy_(d.slots, 'Slot id');
+  var leaders = leaders_();
+  var leaderList = leaderEmails_(leaders);
+  var leaderNames = {};
+  leaders.forEach(function (l) {
+    if (isEmail(l.Email)) leaderNames[normEmail(l.Email)] = l.Name;
+  });
+  var known = knownVolunteers_(d, serviceTab_(TAB.volunteers).rows());
+  var list = Object.keys(known).map(function (e) {
+    var k = known[e];
+    var v = k.row;
+    var status = volunteerStatusOf(e, v, leaderList);
+    var sorted = k.signups.slice().sort(function (a, b) {
+      return cmpLocal(a['Signed up at'], b['Signed up at']);
+    });
+    var latest = sorted.length ? sorted[sorted.length - 1] : null;
+    var firstPost = v && v['First post'] ? postsById[v['First post']] : sorted.length ? postsById[sorted[0]['Post id']] : null;
+    var firstSignup = null;
+    if (firstPost) {
+      var dates = sorted
+        .filter(function (su) {
+          return su['Post id'] === firstPost['Post id'];
+        })
+        .map(function (su) {
+          return slotsById[su['Slot id']] ? slotsById[su['Slot id']].Date : '';
+        })
+        .filter(String)
+        .sort();
+      firstSignup = { title: firstPost.Title, date: dates[0] || '' };
+    }
+    var children = uniq_(
+      k.signups
+        .map(function (su) {
+          return String(su['Child first name'] || '').trim();
+        })
+        .filter(String)
+    );
+    var upcoming = k.signups.filter(function (su) {
+      var sl = slotsById[su['Slot id']];
+      return isActiveSignup_(su.Status) && sl && sl.Date >= today;
+    }).length;
+    var item = {
+      vid: volunteerId_(e),
+      name: (v && v.Name) || (latest && latest.Name) || leaderNames[e] || '',
+      status: status,
+      upcomingCount: upcoming,
+      firstSignup: firstSignup,
+      children: children,
+    };
+    if (manager) {
+      item.email = e;
+      item.decidedBy = v ? String(v['Decided by'] || '') : '';
+      item.decidedAt = v ? String(v['Decided at'] || '') : '';
+      var actions = [];
+      if (status === 'needs_approval' && canApprove(lc.access, lc.email, v, v ? postsById[v['First post']] || null : null)) actions.push('approve', 'decline');
+      if (status === 'approved' && v && lc.access.isBishopric) actions.push('revoke');
+      if ((status === 'declined' || status === 'revoked') && lc.access.isBishopric) actions.push('undo');
+      item.actions = actions;
+    }
+    return item;
+  });
+  list.sort(function (a, b) {
+    var oa = VOLUNTEER_LIST_ORDER.hasOwnProperty(a.status) ? VOLUNTEER_LIST_ORDER[a.status] : 2;
+    var ob = VOLUNTEER_LIST_ORDER.hasOwnProperty(b.status) ? VOLUNTEER_LIST_ORDER[b.status] : 2;
+    return oa - ob || cmpLocal(String(a.name).toLowerCase(), String(b.name).toLowerCase());
+  });
+  return { ok: true, canSeeEmails: manager, canAct: manager, volunteers: list };
+}
+
+/** data: {k, vid, decision}. The same checks and effects as decide / bishopric. */
+function apiDecideVolunteer_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var decision = data && data.decision;
+  if (['approve', 'decline', 'revoke', 'undo'].indexOf(decision) < 0) return { ok: false, error: TEXT.badRequest };
+  var email = emailForVid_(data.vid);
+  if (!email) return { ok: false, error: TEXT.notFound };
+  var pass = { k: data.k, email: email, decision: decision };
+  return decision === 'approve' || decision === 'decline' ? apiDecide_(pass) : apiBishopric_(pass);
+}
+
+/** Any leader: how many addresses are on the Pre-approve list (0 unless they may manage it). */
+function apiPreapproveCount_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  var manager = !!lc.access.isApprover;
+  return { ok: true, total: manager ? systemTab_(SYS_TAB.preapproved).rows().length : 0, canManage: manager };
+}
+
+/**
+ * Bishopric and approvers: adds pasted addresses to the Pre-approve list as salted hashes. Split
+ * on commas, semicolons, spaces and new lines; at most 2,000 per call. Nothing pasted is echoed,
+ * logged or stored as text.
+ */
+function apiPreapproveAdd_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  if (!lc.access.isApprover) return { ok: false, error: TEXT.approversOnly };
+  var entries = String((data && data.emails) == null ? '' : data.emails)
+    .split(/[\s,;]+/)
+    .filter(String);
+  if (entries.length > 2000) return { ok: false, error: TEXT.tooManyPasted };
+  return withLock_(function () {
+    var t = systemTab_(SYS_TAB.preapproved);
+    var have = {};
+    t.rows().forEach(function (r) {
+      have[String(r.Hash)] = true;
+    });
+    var now = nowLocal_();
+    var add = [];
+    var already = 0;
+    var invalid = 0;
+    entries.forEach(function (e) {
+      if (!isEmail(e)) {
+        invalid++;
+        return;
+      }
+      var h = preapproveHash_(e);
+      if (have[h]) {
+        already++;
+        return;
+      }
+      have[h] = true;
+      add.push({ Hash: h, 'Added at': now, 'Added by': lc.leader.Name });
+    });
+    t.appendMany(add);
+    return { ok: true, added: add.length, already: already, invalid: invalid, total: Object.keys(have).length };
+  });
+}
+
+/** Bishopric and approvers: empties the Pre-approve list. */
+function apiPreapproveClear_(data) {
+  var lc = leaderCtx_(data);
+  if (!lc) return relink_();
+  if (!lc.access.isApprover) return { ok: false, error: TEXT.approversOnly };
+  return withLock_(function () {
+    var t = systemTab_(SYS_TAB.preapproved);
+    var rows = t.rows();
+    t.removeMany(rows);
+    return { ok: true, removed: rows.length };
+  });
 }
 
 /** Bishopric only: every volunteer with status and who decided. */

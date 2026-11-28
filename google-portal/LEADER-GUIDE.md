@@ -43,6 +43,28 @@ organization's leaders and the bishopric only; a category coordinator doesn't ap
 someone is still waiting 48 hours before they would serve, you get an *Urgent: waiting for
 approval* email. Leaders on the ward's leader list never need approval.
 
+**Who gets the approval emails.** The Executive Secretary can name **Approvers** for each kind
+of opportunity in the Service Sheet (or one list for all of them). When a list is set, the
+*Waiting for approval* and *Urgent* emails go only to the people on it. They may approve or
+decline, and they see that kind's opportunities with the names (but can't edit them). The
+bishopric and the organization's leaders can still approve; they just aren't emailed. With no
+list, the emails go to the organization's leaders and the bishopric, as before.
+
+**Pre-approving members.** The bishopric and the approvers can paste members' email addresses
+into the **Pre-approve** list (with the bishop's permission). When one of them signs up, they
+count at once: no confirm email, no waiting, and the Volunteers list shows *Pre-approve list*
+as who decided. Nobody declined or revoked is ever approved this way. The addresses themselves
+aren't kept, only a scrambled fingerprint of each, so the list can't be read back; to take
+someone off, clear the list and paste it again without them.
+
+**What each person's word means.** Next to each volunteer:
+- **Approved**: counts at once, gets the private details.
+- **Leader**: on the ward's leader list; never needs approval.
+- **Needs approval**: confirmed their email, waiting for a leader to approve them.
+- **Email not confirmed**: hasn't clicked *Confirm my address* yet; nothing to do until they do.
+- **Declined**: can't sign up until a bishopric member undoes it.
+- **Revoked**: was approved, now can't sign up again until a bishopric member undoes it.
+
 **Watch sign-ups.** My opportunities shows each date and role as **7 of 10 · 3 waiting**: 7
 count, 3 are still waiting (for their email click or for approval) and don't hold a place yet.
 Each person shows with what they're bringing and, when they are waiting, a tag saying for

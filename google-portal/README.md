@@ -20,6 +20,9 @@ soon, the daily health email): `docs/superpowers/plans/2026-11-24-google-portal-
 `docs/superpowers/plans/2026-11-27-google-portal-2.3.2-approve-on-post.md`.
 2.3.3 plan (multi-audience posts once, under Everyone; spec §12 decision 23):
 `docs/superpowers/plans/2026-11-27-google-portal-2.3.3-everyone-section.md`.
+2.4 plan (Approvers per category, the Pre-approve list, volunteer status data for the leader
+page; spec §12 decision 24):
+`docs/superpowers/plans/2026-11-27-google-portal-2.4-approvers-preapprove-status.md`.
 
 - **Setting it up:** [SETUP-GUIDE.md](SETUP-GUIDE.md) (for the Executive Secretary, all in a
   browser).

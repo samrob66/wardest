@@ -194,7 +194,7 @@ describe('leader access', () => {
   const primaryPost = POST({ 'Post id': 'p2', Organization: 'Primary', 'Created by': 'sister.helper@example.test' });
   it('bishopric sees, edits and creates everywhere', () => {
     const a = plain(gp.leaderAccess(L('Bishop Example'), ORGS));
-    expect(a).toEqual({ isBishopric: true, seeAllNames: true, editOrgs: ORGS, createOrgs: ORGS, baseCreateOrgs: ORGS, categories: [], catOrgs: {}, catIds: [] });
+    expect(a).toEqual({ isBishopric: true, seeAllNames: true, editOrgs: ORGS, createOrgs: ORGS, baseCreateOrgs: ORGS, categories: [], catOrgs: {}, catIds: [], approverCats: {}, inDefaultApprovers: false, isApprover: true });
   });
   it('an Org editor of Primary cannot see or edit a Relief Society post but its creator can', () => {
     const a = gp.leaderAccess(L('Sister Helper'), ORGS);
@@ -212,7 +212,7 @@ describe('leader access', () => {
     expect(plain(a.createOrgs)).toEqual(['Elders Quorum']);
   });
   it('a coordinator listed in no category gets nothing', () => {
-    expect(plain(gp.leaderAccess(L('Sister Coordinator'), ORGS))).toEqual({ isBishopric: false, seeAllNames: false, editOrgs: [], createOrgs: [], baseCreateOrgs: [], categories: [], catOrgs: {}, catIds: [] });
+    expect(plain(gp.leaderAccess(L('Sister Coordinator'), ORGS))).toEqual({ isBishopric: false, seeAllNames: false, editOrgs: [], createOrgs: [], baseCreateOrgs: [], categories: [], catOrgs: {}, catIds: [], approverCats: {}, inDefaultApprovers: false, isApprover: false });
   });
   it('noticeRecipients: creator on the Leaders tab plus the org editors, de-duplicated', () => {
     const leaders = [...LEADERS, { Name: 'Sister Two', Email: 'Sister.Example@example.test ', Organization: 'Relief Society', 'Org editor': true }];

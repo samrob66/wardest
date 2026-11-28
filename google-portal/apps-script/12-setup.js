@@ -366,6 +366,25 @@ function gpMenuCheckHealth() {
  * request data). opts.job: run from the daily job, which also checks the jobs run as the Service
  * Sheet's owner; from the menu (owner only) it names the account the listed triggers belong to.
  */
+/** "Approver x is not on the Leaders tab" for each configured approver that isn't (decision 24). */
+function approverProblems_(categories, s, leaders) {
+  var onTab = {};
+  leaders.forEach(function (l) {
+    if (isEmail(l.Email)) onTab[normEmail(l.Email)] = true;
+  });
+  var listed = splitList(s.default_approvers);
+  categories.forEach(function (c) {
+    if (c.Kind === CATEGORY_KIND.opportunity && !isTicked(c.Archived)) listed = listed.concat(splitList(c.Approvers));
+  });
+  return uniq_(listed.map(normEmail))
+    .filter(function (e) {
+      return !onTab[e];
+    })
+    .map(function (e) {
+      return 'Approver ' + clip(e, 80) + ' is not on the Leaders tab, so they get no approval emails. Add a Leaders row for them, or remove them from Approvers / default_approvers.';
+    });
+}
+
 function healthLines_(opts) {
   opts = opts || {};
   var lines = [];
@@ -487,6 +506,10 @@ function healthLines_(opts) {
     });
   add(formCount >= reqCats.length, 'Request forms: ' + formCount + ' of ' + reqCats.length + (formCount >= reqCats.length ? '.' : '. Run Set up.'));
   notifyBishopProblems_(reqCats, leaders_()).forEach(function (line) {
+    add(false, line);
+  });
+  // Approvers (2.4): an address that isn't on the Leaders tab gets no approval email.
+  approverProblems_(serviceTab_(TAB.categories).rows(), s, leaders_()).forEach(function (line) {
     add(false, line);
   });
   // Test mode (2.3.1): always a PROBLEM while on, so it can't be forgotten at go-live.
