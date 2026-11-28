@@ -277,7 +277,7 @@ var FIELD_NOTES = {
       'Private details': ['Only for approved volunteers signed up and the leaders who can edit it (an address, a gate code).', 'Blank: none.', 'Example: 123 Example Lane, gate 4321'],
       'Cancel cutoff hours': ['Hours before a role after which a cancel tells leaders they are short.', 'Blank: Settings default_cancel_cutoff_hours.', 'Example: 24'],
       Status: ['Draft, Open, Closed, Past or Cancelled.', 'Example: Open'],
-      'Created by': ['The leader who made it.', 'Example: Sister Example'],
+      'Created by': ['The address of the leader who made it (or request <id> for a draft made from a request).', 'Example: sister.example@example.test'],
       'Created at': ['When it was made (ward time).', 'Example: 2026-11-30 09:15'],
       'Last changed by': ['The leader who last changed it.', 'Example: Sister Example'],
       'Last changed at': ['When it was last changed (ward time).', 'Example: 2026-12-01 18:40'],
@@ -390,7 +390,7 @@ var FIELD_NOTES = {
     'Closed on': ['The day it was set to Done or Declined. The daily job fills it.', 'Example: 2026-12-15'],
     'Make opportunity': ['Tick to make a Draft opportunity from this request within the hour (only for kinds with an Opportunity category).', 'The box unticks itself.', 'Example: ticked'],
     'Copy contact to private details': ['Tick with Make opportunity to put the name and phone or email in the draft\'s private details.', 'Unticked: not copied.', 'Example: ticked'],
-    'Posted as': ['What Make opportunity did. Written by the script.', 'Example: Draft made 2026-12-01 10:00'],
+    'Posted as': ['What Make opportunity did. Written by the script: Draft made <date> — finish and publish it on the leader page (<title>, <post id>), or Not made: <why>.', 'Example: Draft made 2026-12-01 — finish and publish it on the leader page (Moving help, p1a2b3)'],
   },
 };
 
