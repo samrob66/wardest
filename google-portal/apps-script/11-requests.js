@@ -122,6 +122,7 @@ function ensureRequestColumns_(ss) {
     return t.headers.indexOf(h) < 0;
   });
   if (missing.length) ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  else writeHeaderNotes_(ss.getSheetByName(REQUEST_TAB), REQUEST_TAB, t.headers); // 2.5.3: Set up refreshes the notes
 }
 
 // ---------- turning a request into a draft opportunity (2.2, decision 19) ----------

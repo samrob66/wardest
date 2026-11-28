@@ -21,7 +21,7 @@ describe('admin alerts (decision 26)', () => {
     const row = gp.fakes.spreadsheet.rowsOf('Settings').find((r) => r.Key === 'admin_alerts_to');
     expect(row).toBeTruthy();
     expect(row.Value).toBe('');
-    expect(gp.GP_VERSION).toBe('phase-2.5.2');
+    expect(gp.GP_VERSION >= 'phase-2.5.2').toBe(true); // bumped again by later phases
   });
 
   it('blank: only the Executive Secretary, not the bishop', () => {

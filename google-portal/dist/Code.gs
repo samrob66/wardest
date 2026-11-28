@@ -15,7 +15,7 @@
  */
 
 /** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
-var GP_VERSION = 'phase-2.5.2';
+var GP_VERSION = 'phase-2.5.3';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -201,6 +201,206 @@ var SETTINGS_ROWS = [
   ['form_template_url', '', 'Optional: the edit link of a branded Google Form (from the form editor\'s address bar). New request forms are made as copies of it, so they keep its look.'],
 ];
 var NUMBER_SETTINGS = ['reminder_hour', 'default_cancel_cutoff_hours', 'email_reserve', 'signup_limit_per_day', 'confirm_limit_per_day'];
+
+/**
+ * Cell notes (2.5.3, decision 27; Sam: "Insert Note on every key in column A in the Settings
+ * sheet ... a note on every header in row 1"). Set up and the GP_VERSION upgrade rewrite these on
+ * the Settings keys (column A) and the row-1 headers of every tab; nothing else is touched. Each
+ * note: what it is, the format or allowed values, what blank means, an invented example. Lines
+ * are joined with new lines when written. Keep them in step with the SETUP-GUIDE tables.
+ */
+var FIELD_NOTES = {
+  settings: {
+    ward_name: ['The ward name as members know it, on every page and email.', 'Required (Check health asks for it).', 'Example: Riverbend 1st Ward (example)'],
+    ward_prefix: ['Short ward prefix for the ward\'s zippa.run short links: letters and digits.', 'Blank: no prefix.', 'Example: rb1'],
+    time_zone: ['The ward time zone, as a name. Must match the script project time zone.', 'Required.', 'Example: America/Denver'],
+    contact_email: ['The address members may write to. Shown on every page and email.', 'Required. Blank hides the Contact line.', 'Example: help@riverbend.example.test'],
+    hub_url: ['The hub folder address (where index.html and serve.html live), https.', 'Blank: no hub; links open the web app pages.', 'Example: https://rb1.example.test/links/'],
+    web_app_url: ['The Web app URL from Deploy, ending in /exec (not a form link).', 'Required once deployed (setup section 4).', 'Example: https://script.google.com/macros/s/EXAMPLE/exec'],
+    preview_image_url: ['Optional picture shown when a page link is shared (https).', 'Blank: no preview picture.', 'Example: https://rb1.example.test/preview.png'],
+    serve_short_link: ['The zippa.run short link to the Service Opportunities page.', 'Blank until you make it (setup section 6).', 'Example: https://zippa.run/rb1Serve'],
+    help_short_link: ['The zippa.run short link to the Request Help page.', 'Blank until you make it (setup section 6).', 'Example: https://zippa.run/rb1Help'],
+    reminder_hour: ['Hour of the day (0-23) the reminders for the next day go out.', 'Default 18.', 'Example: 18'],
+    default_cancel_cutoff_hours: ['Hours before a role starts after which a cancel tells leaders they are short.', 'Default 24. A post can set its own.', 'Example: 24'],
+    email_reserve: ['Emails kept back each day for reminders and leader notices.', 'Default 30.', 'Example: 30'],
+    signup_limit_per_day: ['Most sign-up attempts accepted in one day, all posts together (refused and repeated ones count).', 'Default 80.', 'Example: 80'],
+    confirm_limit_per_day: ['Most "Please confirm your email" messages in one day (first-timers).', 'Default 20.', 'Example: 20'],
+    organizations: ['The ward\'s organizations, separated by commas. Feeds the Leaders and Categories dropdowns.', 'Starts with the usual list.', 'Example: Bishopric, Elders Quorum, Relief Society, Primary'],
+    discord: ['Discord announcements. Not used yet.', 'Leave off.', 'Example: off'],
+    theme_background_url: ['Optional picture for the band across the top of every page (https).', 'Blank: plain band.', 'Example: https://rb1.example.test/background.png'],
+    theme_accent: ['Optional accent colour, # and six letters or digits.', 'Blank: the standard colours.', 'Example: #2f5d50'],
+    theme_font: ['Optional Google Fonts family name for the pages.', 'Blank: the standard font.', 'Example: Lora'],
+    theme_heading_font: ['Optional Google Fonts family name for headings.', 'Blank: the same as theme_font.', 'Example: Lora'],
+    default_approvers: ['Who gets the "Waiting for approval" emails, and may approve, for opportunity categories with a blank Approvers cell. Emails, commas; each needs a Leaders row.', 'Blank: the organization\'s leaders and the bishopric.', 'Example: brother.counselor@example.test'],
+    admin_alerts_to: ['Who gets the "needs attention" emails (daily health email, job failures, request and form problems). Emails, commas.', 'Blank, or any entry that isn\'t an address: the Executive Secretary (the bishop if there is none).', 'Example: exec.home@example.test'],
+    test_mail_only: ['TEST MODE. Addresses, commas: only they get email; every other email goes to the first one with [TEST for ...] in its subject.', 'Blank: email goes to everyone as normal. Empty it before going live.', 'Example: exec.home@example.test'],
+    form_template_url: ['Optional edit link of the ward\'s branded Google Form; new request forms are copies of it.', 'Blank: plain new forms.', 'Example: https://docs.google.com/forms/d/EXAMPLE/edit'],
+  },
+  tabs: {
+    Settings: {
+      Key: ['The setting\'s name. Do not change it.', 'Hover a key to see what it means.', 'Example: ward_name'],
+      Value: ['What you type for that setting.', 'Blank: the setting\'s default (see the key\'s note).', 'Example: Riverbend 1st Ward (example)'],
+      Help: ['A short reminder of what the setting does. Set up writes it.', 'Leave it alone.', 'Example: The ward name as members know it.'],
+    },
+    Leaders: {
+      Name: ['The leader\'s name, as shown to other leaders and on "Decided by".', 'Required.', 'Example: Sister Example'],
+      Email: ['The address their leader link goes to.', 'Required: one address.', 'Example: sister.example@example.test'],
+      Calling: ['Their calling. The bishop must be exactly Bishop, the Executive Secretary exactly Executive Secretary.', 'Blank: no calling-based emails.', 'Example: Relief Society President'],
+      Organization: ['Their organization, from the Settings organizations list.', 'Pick from the dropdown.', 'Example: Relief Society'],
+      Bishopric: ['Tick for the bishop, both counselors, the Executive Secretary and the Ward Clerk only.', 'They edit the Service Sheet, read Christmas and Other requests, see and edit every opportunity and approve anyone.', 'Unticked: not bishopric.', 'Example: ticked'],
+      'Ward council': ['Tick for ward council members: they see every opportunity and its names, edit their organization\'s, approve its first-timers and see Needs help soon.', 'Unticked: not ward council.', 'Example: ticked'],
+      'Org editor': ['Tick for leaders who make opportunities for their organization (they see only its names) and approve its first-timers.', 'Unticked: no organization editing.', 'Example: ticked'],
+      Coordinator: ['A reminder only: what a coordinator may do comes from the Categories Coordinators column.', 'Unticked is fine for coordinators too.', 'Example: ticked'],
+      'Send leader link': ['Tick, then run Service Portal > Send leader links, to email this leader their link.', 'The script unticks it after sending.', 'Example: ticked'],
+      'Link sent': ['When the last leader link was sent. The script fills it.', 'Blank: never sent.', 'Example: 2026-12-01 10:00'],
+    },
+    Categories: {
+      Id: ['The category\'s fixed id. Do not change it once in use.', 'Lower case letters, digits and hyphens.', 'Example: meals'],
+      Name: ['The name people see.', 'Required.', 'Example: Meals'],
+      Icon: ['An emoji shown with the category on the public pages.', 'Blank: no icon.', 'Example: 🍲'],
+      Kind: ['Opportunity (volunteers sign up) or Request (a form for asking help).', 'Pick from the dropdown.', 'Example: Opportunity'],
+      'Owning organizations': ['The organizations it belongs to, commas. Their leaders make its opportunities (or read its requests).', 'Blank: any leader who can make opportunities.', 'Example: Relief Society'],
+      'Default audiences': ['Audiences ticked for a new opportunity: Brothers, Sisters, Youth, Children (commas).', 'Blank: none ticked.', 'Example: Sisters'],
+      Coordinators: ['Emails, commas. Opportunity rows: they own its posts (need a Leaders row). Request rows: they also read that kind\'s requests.', 'Blank: no coordinators.', 'Example: sister.coordinator@example.test'],
+      'Any ward council may create': ['Tick to let every ward council member make opportunities in it.', 'Unticked: only its owners, coordinators and the bishopric.', 'Example: ticked'],
+      Confidential: ['Request rows: only the bishopric and that kind\'s Coordinators read it (Christmas, Other).', 'Unticked: owning organizations\' leaders read it too.', 'Example: ticked'],
+      'Warn hours': ['Hours before a date to warn when a role is still short.', 'Blank: 48. 0 turns warnings off.', 'Example: 72'],
+      'Also warn': ['More emails for the "Still short" warning, commas.', 'Blank: only the coordinators (or owners).', 'Example: brother.clerk@example.test'],
+      Discord: ['Discord announcements for this category. Not used yet.', 'Leave unticked.', 'Example: ticked'],
+      Archived: ['Tick to retire a category: it disappears from pickers, pages and forms; its history stays.', 'Unticked: in use.', 'Example: ticked'],
+      Notify: ['Request rows: who gets the short "New ... request" email. Bishop, Owners, Coordinators or emails, commas.', 'Blank: everyone who can open the folder.', 'Example: Bishop, brother.counselor@example.test'],
+      'On Help page': ['Request rows: ticked kinds show on the public Request Help page.', 'Unticked: a private form (share its link yourself). Run Set up after changing it.', 'Example: ticked'],
+      'On Serve page': ['Christmas giving offers row only: ticked shows the "Offer to give at Christmas" card on Service Opportunities.', 'Unticked: on no public page.', 'Example: ticked'],
+      'Opportunity category': ['Request rows: the Id of the opportunity category a request can be turned into (Make opportunity).', 'Blank: never turned into an opportunity.', 'Example: moving-help'],
+      Approvers: ['Opportunity rows: who gets the "Waiting for approval" emails and may approve. Emails, commas; each needs a Leaders row.', 'Blank: Settings default_approvers, else the organization\'s leaders and the bishopric.', 'Example: sister.example@example.test'],
+    },
+    Posts: {
+      'Post id': ['The opportunity\'s internal id. The script writes this tab: edit opportunities on the leader page.', 'Example: p1a2b3'],
+      'Public id': ['The random id in the opportunity\'s public link.', 'Written by the script.', 'Example: pubmeals01'],
+      Organization: ['The organization the opportunity belongs to.', 'Example: Relief Society'],
+      Category: ['The Id of its Categories row.', 'Example: meals'],
+      Title: ['The title people see.', 'Example: Meals for the Sample family'],
+      Audiences: ['Who it is for: Brothers, Sisters, Youth, Children (commas).', 'Example: Sisters, Children'],
+      'Public note': ['The note anyone can read. Never a family\'s name, address or situation.', 'Blank: no note.', 'Example: Bring a dish by 5 pm.'],
+      'Private details': ['Only for approved volunteers signed up and the leaders who can edit it (an address, a gate code).', 'Blank: none.', 'Example: 123 Example Lane, gate 4321'],
+      'Cancel cutoff hours': ['Hours before a role after which a cancel tells leaders they are short.', 'Blank: Settings default_cancel_cutoff_hours.', 'Example: 24'],
+      Status: ['Draft, Open, Closed, Past or Cancelled.', 'Example: Open'],
+      'Created by': ['The leader who made it.', 'Example: Sister Example'],
+      'Created at': ['When it was made (ward time).', 'Example: 2026-11-30 09:15'],
+      'Last changed by': ['The leader who last changed it.', 'Example: Sister Example'],
+      'Last changed at': ['When it was last changed (ward time).', 'Example: 2026-12-01 18:40'],
+    },
+    Slots: {
+      'Slot id': ['One date and role of an opportunity. The script writes this tab.', 'Example: s1a2b3'],
+      'Post id': ['The opportunity it belongs to (Posts tab).', 'Example: p1a2b3'],
+      Date: ['The date, YYYY-MM-DD.', 'Example: 2026-12-03'],
+      Start: ['Start time, HH:MM (24 hours).', 'Blank: no time.', 'Example: 17:00'],
+      End: ['End time, HH:MM (24 hours).', 'Blank: no end time.', 'Example: 18:30'],
+      Role: ['What the volunteers do.', 'Example: Bring a meal'],
+      Needed: ['How many people the role needs.', 'Example: 2'],
+      'Role note': ['A short public note for this role.', 'Blank: none.', 'Example: Enough for 5 people'],
+      'Bringing prompt': ['The question asked at sign-up, e.g. what they will bring.', 'Blank: no question.', 'Example: What will you bring?'],
+      Filled: ['How many count now (Confirmed). The script keeps it up to date.', 'Example: 1'],
+      Waiting: ['How many are still waiting (email click or approval).', 'Example: 1'],
+    },
+    'Sign-ups': {
+      'Sign-up id': ['One person (or child) signed up for one role. The script writes this tab.', 'Example: u1a2b3'],
+      'Post id': ['The opportunity (Posts tab).', 'Example: p1a2b3'],
+      'Slot id': ['The date and role (Slots tab).', 'Example: s1a2b3'],
+      Email: ['The volunteer\'s address (the parent\'s, for a child).', 'Example: brother.volunteer@example.test'],
+      Name: ['The volunteer\'s name as typed.', 'Example: Brother Volunteer'],
+      'Child first name': ['A child signed up by this parent.', 'Blank: the volunteer themselves.', 'Example: Ana'],
+      Bringing: ['Their answer to the role\'s Bringing prompt.', 'Blank: none.', 'Example: Soup'],
+      Status: ['Waiting-email, Waiting-approval, Confirmed, Cancelled, Removed, Withdrawn or Lapsed.', 'Example: Confirmed'],
+      'Signed up at': ['When they signed up (ward time).', 'Example: 2026-12-01 10:00'],
+      'Reminded at': ['When the day-before reminder went.', 'Blank: not yet.', 'Example: 2026-12-02 18:00'],
+      'Details sent at': ['When the private details last went to them.', 'Blank: never.', 'Example: 2026-12-02 18:00'],
+      'Over limit': ['Yes when they counted after the role already had its number.', 'Blank: within the number.', 'Example: Yes'],
+      'Removed by': ['The leader who removed them.', 'Blank: not removed.', 'Example: Sister Example'],
+      'Cancelled at': ['When they cancelled.', 'Blank: not cancelled.', 'Example: 2026-12-02 08:30'],
+    },
+    Volunteers: {
+      Email: ['A volunteer\'s address. The script writes this tab: approve on the leader page.', 'Example: brother.volunteer@example.test'],
+      Name: ['Their name as last typed.', 'Example: Brother Volunteer'],
+      Status: ['Pending, Approved, Declined or Revoked.', 'Example: Approved'],
+      'Decided by': ['The leader who approved or declined them, or Pre-approve list.', 'Blank: not decided yet.', 'Example: Sister Example'],
+      'Decided at': ['When that was decided (ward time).', 'Example: 2026-12-01 11:00'],
+      'First post': ['The opportunity of their first sign-up: its leaders may approve them.', 'Example: p1a2b3'],
+      'Email confirmed at': ['When they clicked Confirm my address.', 'Blank: not confirmed yet.', 'Example: 2026-12-01 10:05'],
+    },
+    'Needs help soon': {
+      Date: ['Open roles still short in the next 14 days, soonest first. The script rewrites this tab.', 'Example: 2026-12-03'],
+      Start: ['Start time, HH:MM.', 'Example: 17:00'],
+      Title: ['The opportunity.', 'Example: Meals for the Sample family'],
+      Organization: ['Its organization.', 'Example: Relief Society'],
+      Role: ['The role still short.', 'Example: Bring a meal'],
+      Filled: ['How many count now.', 'Example: 1'],
+      Needed: ['How many it needs.', 'Example: 2'],
+      Link: ['The opportunity\'s public link, to share.', 'Example: https://rb1.example.test/links/post.html#p=pubmeals01'],
+    },
+  },
+  system: {
+    Tokens: {
+      Hash: ['A fingerprint of an emailed link (never the link itself). Script only.', 'Example: 3f9a… (64 letters and digits)'],
+      Kind: ['What the link does: confirm, cancel, withdraw, me (My sign-ups) or leader.', 'Example: cancel'],
+      Subject: ['What it acts on: a sign-up id or an address.', 'Example: u1a2b3'],
+      Expires: ['When the link stops working (ward time).', 'Example: 2026-12-04 23:59'],
+      Created: ['When it was made.', 'Example: 2026-12-01 10:00'],
+    },
+    Outbox: {
+      Id: ['An email waiting for quota, or one that failed. Script only.', 'Example: m1a2b3'],
+      'Queued at': ['When it was queued.', 'Example: 2026-12-01 10:00'],
+      To: ['Its one recipient.', 'Example: brother.volunteer@example.test'],
+      Subject: ['Its subject.', 'Example: Reminder: Meals tomorrow'],
+      Html: ['Its HTML body.', 'Written by the script.'],
+      Text: ['Its plain-text body.', 'Written by the script.'],
+      Priority: ['high (reminders, notices, alerts) or normal.', 'Example: high'],
+      Status: ['Queued or Failed.', 'Example: Queued'],
+      Error: ['Why it failed.', 'Blank: not failed.', 'Example: Service invoked too many times'],
+    },
+    Log: {
+      At: ['When it happened (ward time). Kept 90 days. Script only.', 'Example: 2026-12-01 10:00'],
+      What: ['What happened.', 'Example: mail sent'],
+      Detail: ['More about it (never request text).', 'Example: brother.volunteer@example.test | Reminder: Meals tomorrow'],
+    },
+    'Request files': {
+      'Category id': ['The request kind (Categories Id). Script only.', 'Example: moving'],
+      'Folder id': ['Its private Drive folder.', 'Written by Set up.'],
+      'Form id': ['Its Google Form.', 'Written by Set up.'],
+      'Sheet id': ['This month\'s request sheet.', 'Written by Set up and the monthly move.'],
+      Month: ['The month of that sheet, YYYY-MM.', 'Example: 2026-12'],
+    },
+    Counters: {
+      Key: ['A daily limit being counted (per address or in total). Script only.', 'Example: T (every sign-up attempt today)'],
+      Day: ['The day, YYYY-MM-DD.', 'Example: 2026-12-01'],
+      Count: ['How many so far that day.', 'Example: 2'],
+    },
+    Preapproved: {
+      Hash: ['A salted fingerprint of a pre-approved address; the address itself is never kept. Script only.', 'Example: 9c1d… (64 letters and digits)'],
+      'Added at': ['When it was added.', 'Example: 2026-12-01 10:00'],
+      'Added by': ['The leader who pasted it.', 'Example: Bishop Example'],
+    },
+  },
+  requestSheet: {
+    'Request id': ['The request\'s id. Written by the script.', 'Example: r1a2b3'],
+    Received: ['When it came in (ward time).', 'Example: 2026-12-01 10:00'],
+    Kind: ['The kind of request (Categories Name).', 'Example: Moving help'],
+    Name: ['The requester\'s name.', 'Example: Sister Sample'],
+    'Phone or email': ['How to reach them. Contact them directly; never copy it into an email.', 'Example: sister.sample@example.test'],
+    Moving: ['Moving requests: Moving in or Moving out.', 'Blank: other kinds.', 'Example: Moving in'],
+    'Moving date': ['Moving requests: the date, YYYY-MM-DD.', 'Blank: not given.', 'Example: 2026-12-12'],
+    For: ['Christmas requests: My family or Another family.', 'Blank: other kinds.', 'Example: My family'],
+    Note: ['The requester\'s note.', 'Blank: none.', 'Example: Two bedrooms, second floor.'],
+    Offer: ['Christmas giving offers: what they would like to give.', 'Blank: other kinds.', 'Example: Gifts for two children'],
+    Status: ['New, In progress, Done or Declined. You set it.', 'Rows are removed 30 days after Done or Declined.', 'Example: In progress'],
+    'Assigned to': ['Who is handling it. You fill it.', 'Blank: nobody yet.', 'Example: Brother Sample'],
+    'Leader note': ['A short note for the other leaders. You fill it.', 'Blank: none.', 'Example: Called Tuesday; truck booked.'],
+    'Closed on': ['The day it was set to Done or Declined. The daily job fills it.', 'Example: 2026-12-15'],
+    'Make opportunity': ['Tick to make a Draft opportunity from this request within the hour (only for kinds with an Opportunity category).', 'The box unticks itself.', 'Example: ticked'],
+    'Copy contact to private details': ['Tick with Make opportunity to put the name and phone or email in the draft\'s private details.', 'Unticked: not copied.', 'Example: ticked'],
+    'Posted as': ['What Make opportunity did. Written by the script.', 'Example: Draft made 2026-12-01 10:00'],
+  },
+};
 
 /**
  * The private Christmas giving offer form (decision 16): a request kind that is not on the Help
@@ -910,6 +1110,7 @@ function ensureTab_(ss, name, headers) {
   }
   if (sh.getFrozenRows() !== 1) sh.setFrozenRows(1);
   var all = have.concat(missing);
+  writeHeaderNotes_(sh, name, all);
   var rowsBelow = sh.getMaxRows() - 1;
   if (rowsBelow > 0) {
     all.forEach(function (h, i) {
@@ -939,6 +1140,69 @@ function gpEnsureTabs_(ss) {
   writeReadMe_(ss);
 }
 
+/** The FIELD_NOTES entries for a tab's headers (2.5.3); null when it has none. */
+function fieldNotesFor_(tabName) {
+  if (tabName === REQUEST_TAB) return FIELD_NOTES.requestSheet;
+  return FIELD_NOTES.tabs[tabName] || FIELD_NOTES.system[tabName] || null;
+}
+
+function noteText_(lines) {
+  return lines ? [].concat(lines).join('\n') : '';
+}
+
+/**
+ * Writes notes (2.5.3) on cells in one row (across) or one column (down), in runs of consecutive
+ * cells that have a note: a cell with no note text is never touched, so its own note stays.
+ */
+function writeNoteRuns_(sh, row, col, texts, down) {
+  var i = 0;
+  while (i < texts.length) {
+    if (!texts[i]) {
+      i++;
+      continue;
+    }
+    var j = i;
+    while (j < texts.length && texts[j]) j++;
+    var run = texts.slice(i, j);
+    if (down) sh.getRange(row + i, col, run.length, 1).setNotes(run.map(function (t) { return [t]; }));
+    else sh.getRange(row, col + i, 1, run.length).setNotes([run]);
+    i = j;
+  }
+}
+
+/** Row-1 header notes for a tab (headers in their sheet order). */
+function writeHeaderNotes_(sh, tabName, headers) {
+  var table = fieldNotesFor_(tabName);
+  if (!table || !headers.length) return;
+  writeNoteRuns_(
+    sh,
+    1,
+    1,
+    headers.map(function (h) {
+      return noteText_(table[String(h).trim()]);
+    }),
+    false
+  );
+}
+
+/** Notes on the Settings keys in column A (2.5.3). */
+function writeSettingsNotes_(ss) {
+  var sh = ss.getSheetByName(TAB.settings);
+  var last = sh ? sh.getLastRow() : 0;
+  if (last < 2) return;
+  var keys = sh.getRange(2, 1, last - 1, 1).getValues();
+  writeNoteRuns_(
+    sh,
+    2,
+    1,
+    keys.map(function (r) {
+      var k = String(r[0]).trim();
+      return FIELD_NOTES.settings.hasOwnProperty(k) ? noteText_(FIELD_NOTES.settings[k]) : '';
+    }),
+    true
+  );
+}
+
 function gpEnsureSystemTabs_(ss) {
   Object.keys(SYSTEM_HEADERS).forEach(function (name) {
     ensureTab_(ss, name, SYSTEM_HEADERS[name]);
@@ -958,6 +1222,7 @@ function ensureSettingsRows_(ss) {
     return { Key: row[0], Value: row[1], Help: row[2] };
   });
   t.appendMany(add);
+  writeSettingsNotes_(ss);
 }
 
 /** Seeds the default categories once: only while the tab has never been seeded. */
@@ -5236,6 +5501,7 @@ function ensureRequestColumns_(ss) {
     return t.headers.indexOf(h) < 0;
   });
   if (missing.length) ensureTab_(ss, REQUEST_TAB, uniq_(t.headers.filter(String).concat(REQUEST_HEADERS)));
+  else writeHeaderNotes_(ss.getSheetByName(REQUEST_TAB), REQUEST_TAB, t.headers); // 2.5.3: Set up refreshes the notes
 }
 
 // ---------- turning a request into a draft opportunity (2.2, decision 19) ----------
@@ -6751,4 +7017,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: each card's \"Show QR Code\" button opens the hub's existing QR pop-up, the same\n  function the hub's other cards call (openQR(title, link) here; if the hub's function has\n  another name, use that name in both buttons). No QR image files are needed. A hub without a\n  QR pop-up can leave each button out (from <button to </button>). A card whose short link is\n  not set yet has no button; add the short link in Settings and make the hub files again.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */\n  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }\n  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }\n  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }\n  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }\n  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }\n  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }\n  .gp-hub-top { display: flex; align-items: stretch; }\n  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }\n  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }\n  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }\n  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }\n  .gp-hub-qr:hover { background: #f4f7fc; }\n  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }\n  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }\n  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }\n</style>\n<div class=\"gp-hub-cols\">\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n    <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"serve.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Ways to serve in {{WARD_NAME}}</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{SERVE_SHORT_LINK}}</div>\n    </div>\n  </section>\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n    <h2 id=\"gp-hub-help\">Service Requests</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"help.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Request help or service</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Requests','https://{{HELP_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{HELP_SHORT_LINK}}</div>\n    </div>\n  </section>\n</div>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "5ef2d8fa648f";
+var GP_BUILD = "af6341ae5de8";

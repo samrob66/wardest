@@ -269,7 +269,8 @@ private window, use a separate Chrome profile signed in only to the shared accou
    Categories, Posts, Slots, Sign-ups, Volunteers, Needs help soon) and then says:
    *Fill in Settings (ward name, time zone, contact email) and the Leaders tab, then run Set up
    again.* Click **OK**.
-4. Open the **Settings** tab and type into the **Value** column (leave Key and Help alone):
+4. Open the **Settings** tab and type into the **Value** column (leave Key and Help alone).
+   Hover a header or a setting to see what it means (the notes are rewritten by Set up).
 
    | Key | What to type | Riverbend example |
    |---|---|---|

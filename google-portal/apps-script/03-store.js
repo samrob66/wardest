@@ -244,6 +244,7 @@ function ensureTab_(ss, name, headers) {
   }
   if (sh.getFrozenRows() !== 1) sh.setFrozenRows(1);
   var all = have.concat(missing);
+  writeHeaderNotes_(sh, name, all);
   var rowsBelow = sh.getMaxRows() - 1;
   if (rowsBelow > 0) {
     all.forEach(function (h, i) {
@@ -273,6 +274,69 @@ function gpEnsureTabs_(ss) {
   writeReadMe_(ss);
 }
 
+/** The FIELD_NOTES entries for a tab's headers (2.5.3); null when it has none. */
+function fieldNotesFor_(tabName) {
+  if (tabName === REQUEST_TAB) return FIELD_NOTES.requestSheet;
+  return FIELD_NOTES.tabs[tabName] || FIELD_NOTES.system[tabName] || null;
+}
+
+function noteText_(lines) {
+  return lines ? [].concat(lines).join('\n') : '';
+}
+
+/**
+ * Writes notes (2.5.3) on cells in one row (across) or one column (down), in runs of consecutive
+ * cells that have a note: a cell with no note text is never touched, so its own note stays.
+ */
+function writeNoteRuns_(sh, row, col, texts, down) {
+  var i = 0;
+  while (i < texts.length) {
+    if (!texts[i]) {
+      i++;
+      continue;
+    }
+    var j = i;
+    while (j < texts.length && texts[j]) j++;
+    var run = texts.slice(i, j);
+    if (down) sh.getRange(row + i, col, run.length, 1).setNotes(run.map(function (t) { return [t]; }));
+    else sh.getRange(row, col + i, 1, run.length).setNotes([run]);
+    i = j;
+  }
+}
+
+/** Row-1 header notes for a tab (headers in their sheet order). */
+function writeHeaderNotes_(sh, tabName, headers) {
+  var table = fieldNotesFor_(tabName);
+  if (!table || !headers.length) return;
+  writeNoteRuns_(
+    sh,
+    1,
+    1,
+    headers.map(function (h) {
+      return noteText_(table[String(h).trim()]);
+    }),
+    false
+  );
+}
+
+/** Notes on the Settings keys in column A (2.5.3). */
+function writeSettingsNotes_(ss) {
+  var sh = ss.getSheetByName(TAB.settings);
+  var last = sh ? sh.getLastRow() : 0;
+  if (last < 2) return;
+  var keys = sh.getRange(2, 1, last - 1, 1).getValues();
+  writeNoteRuns_(
+    sh,
+    2,
+    1,
+    keys.map(function (r) {
+      var k = String(r[0]).trim();
+      return FIELD_NOTES.settings.hasOwnProperty(k) ? noteText_(FIELD_NOTES.settings[k]) : '';
+    }),
+    true
+  );
+}
+
 function gpEnsureSystemTabs_(ss) {
   Object.keys(SYSTEM_HEADERS).forEach(function (name) {
     ensureTab_(ss, name, SYSTEM_HEADERS[name]);
@@ -292,6 +356,7 @@ function ensureSettingsRows_(ss) {
     return { Key: row[0], Value: row[1], Help: row[2] };
   });
   t.appendMany(add);
+  writeSettingsNotes_(ss);
 }
 
 /** Seeds the default categories once: only while the tab has never been seeded. */

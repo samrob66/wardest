@@ -174,6 +174,34 @@ class FakeRange {
     });
     return this;
   }
+  // Cell notes (2.5.3): stored per cell on the sheet; every setNote(s) call is recorded.
+  setNote(note) {
+    return this.setNotes(Array.from({ length: this.nr }, () => Array(this.nc).fill(note)));
+  }
+  setNotes(notes) {
+    if (notes.length !== this.nr || notes.some((row) => row.length !== this.nc)) {
+      throw new Error('The number of rows or columns in the data does not match the range.');
+    }
+    this.sheet.noteCalls.push({ r: this.r, c: this.c, nr: this.nr, nc: this.nc });
+    this.forEachCell((r, c) => {
+      const n = String(notes[r - this.r][c - this.c] ?? '');
+      if (n) this.sheet.notes.set(`${r},${c}`, n);
+      else this.sheet.notes.delete(`${r},${c}`);
+    });
+    return this;
+  }
+  getNote() {
+    return this.sheet.notes.get(`${this.r},${this.c}`) || '';
+  }
+  getNotes() {
+    const out = [];
+    for (let i = 0; i < this.nr; i++) {
+      const row = [];
+      for (let j = 0; j < this.nc; j++) row.push(this.sheet.notes.get(`${this.r + i},${this.c + j}`) || '');
+      out.push(row);
+    }
+    return out;
+  }
   setFontWeight() {
     return this;
   }
@@ -237,6 +265,8 @@ export class FakeSheet {
     this.data = [];
     this.formats = new Map();
     this.validations = new Map();
+    this.notes = new Map();
+    this.noteCalls = [];
     this.frozen = 0;
     this.maxRows = 1000;
     this.protections = [];

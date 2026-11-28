@@ -887,6 +887,15 @@ help soon", quota reserve and health email.
     (any case), or, when there are none, Calling Bishop, so alerts never go nowhere. A bad entry
     is a Check health PROBLEM naming the row. Approval and request notices are unchanged
     (Approvers and Notify decide those).
+27. **Notes on every setting and header** (§4.1; Sam, 2026-11-28, in 2.5.3). Sam's words: "are
+    you able to add Notes to fields in Google Sheets? It would be great to Insert Note on every
+    key in column A in the Settings sheet to explain what it is, a note on every header in row 1
+    in the Leaders sheet, a note on every header in row 1 of the Categories sheet, etc." One
+    table, `FIELD_NOTES` in 00-config.js (Settings keys, Service Sheet tabs, System Sheet tabs,
+    request sheets): what the field is, its format or values, what blank means, an invented
+    example. Set up and the GP_VERSION upgrade (via ensureTab_ and ensureSettingsRows_) rewrite
+    those cells' notes; request sheets get them when made, rotated, given new columns, or on Set
+    up. Data cells and any header or key without an entry are never touched.
 
 ## 13. Settled with Sam, and open questions
 
