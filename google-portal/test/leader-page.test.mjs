@@ -313,6 +313,17 @@ describe('leader page: the Meadow layout', () => {
     expect(page.findAll((n) => /^gp-opt/.test(n.className))).toEqual([]);
   });
 
+  it('leaving the Edit form (×) goes back to the post it came from', async () => {
+    const page = await openLeader({ whoami: WHOAMI, listPosts: { ok: true, posts: [post()] }, getPost: { ok: true, post: { ...post(), publicNote: '', privateDetails: '', cutoffHours: 24 } } });
+    await page.openPost();
+    await page.click(page.find((n) => n.attrs['aria-label'] === 'More actions'));
+    await page.click(page.findAll((n) => /^gp-opt/.test(n.className)).find((n) => n.textContent === 'Edit'));
+    expect(page.find((n) => n.tagName === 'h1').textContent).toBe('Edit opportunity');
+    await page.click(page.find((n) => n.attrs['aria-label'] === 'Close the form'));
+    expect(page.find((n) => n.tagName === 'h1').textContent).toBe('Test – meal for a family');
+    expect(page.main.textContent).not.toContain('no longer on your list');
+  });
+
   it('the page-level ••• has Sign out everywhere', async () => {
     const page = await openLeader({ whoami: WHOAMI, listPosts: { ok: true, posts: [] }, signOutEverywhere: { ok: true, message: 'Signed out. A new link is on its way.' } });
     await page.click(page.find((n) => n.attrs['aria-label'] === 'More actions'));

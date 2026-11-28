@@ -1182,7 +1182,9 @@ GP.footer();
     state.form = null;
     state.errors = {};
     state.formError = '';
-    go(state.postId ? 'post' : 'opps');
+    // Back where the form was opened from: the post (Edit, Copy this post) or Opportunities.
+    if (state.postId) openPost(state.postId, state.day);
+    else go('opps');
   }
 
   function formScreen(note) {
