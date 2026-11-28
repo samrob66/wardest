@@ -36,6 +36,7 @@ html { -webkit-text-size-adjust: 100%; }
 
 body {
   position: relative;
+  display: flow-root; /* the page's top margin stays inside body, so the band starts at the very top */
   margin: 0;
   font-family: var(--gp-font);
   color: var(--gp-ink);
@@ -86,7 +87,7 @@ h2 {
   padding-bottom: 0.3rem;
   border-bottom: 1px solid var(--gp-heading);
 }
-h3 { font-size: 1.04rem; font-weight: normal; margin: 0.1rem 0 0.2rem; }
+h3 { font-size: 1.04rem; margin: 0.1rem 0 0.2rem; }
 p { margin: 0.4rem 0; }
 
 a { color: var(--gp-link); overflow-wrap: anywhere; text-underline-offset: 0.18em; }
@@ -210,7 +211,8 @@ a.gp-opp { display: grid; grid-template-columns: 3.6rem 1fr; gap: 0.9rem; align-
 .gp-tile-dow { display: block; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gp-gold-deep); }
 .gp-tile-day { display: block; font-size: 1.5rem; color: var(--gp-heading); }
 .gp-tile-mon { display: block; font-size: 0.72rem; color: var(--gp-muted); }
-.gp-offer { display: flex; align-items: center; justify-content: center; gap: 0.4rem; text-align: center; color: var(--gp-heading); border: 1px solid var(--gp-line); padding: 0.75rem 1rem; margin: 0 0 1rem; }
+a.gp-offer { display: flex; align-items: center; justify-content: center; gap: 0.4rem; text-align: center; color: var(--gp-heading); padding: 0.75rem 1rem; margin: 0 0 1rem; }
+.gp-offer strong { font-weight: normal; }
 .gp-more { text-align: center; margin-top: 1.5rem; }
 
 /* ---------- Service Requests ---------- */
@@ -222,9 +224,8 @@ a.gp-htile:hover, a.gp-htile:focus { background: rgba(29, 53, 87, 0.03); }
 .gp-htile strong { font-weight: normal; }
 
 /* ---------- Sign up ---------- */
-.gp-intro { border-top: 0; text-align: center; }
-.gp-signup > h2 { margin-top: 1.25rem; }
-.gp-choice { display: flex; align-items: center; gap: 0.7rem; min-height: 52px; padding: 0.5rem 0.75rem; margin: 0 0 0.4rem; border: 1px solid var(--gp-line-strong); border-radius: 4px; background: var(--gp-card); color: var(--gp-ink); cursor: pointer; font-size: 0.95rem; }
+.gp-signup > h2 { font-size: 1.02rem; font-weight: bold; margin: 1.25rem 0 0.4rem; padding: 0; border: 0; }
+.gp-choice { display: flex; align-items: center; gap: 0.7rem; min-height: 52px; padding: 0.5rem 0.75rem; margin: 0 0 0.4rem; border: 1px solid var(--gp-line-strong); border-radius: 4px; background: var(--gp-card); color: var(--gp-ink); cursor: pointer; font-size: 1rem; }
 .gp-choice input { width: 22px; height: 22px; accent-color: var(--gp-heading); flex: none; margin: 0; }
 .gp-choice-t { flex: 1; min-width: 0; }
 .gp-choice-open { margin-left: auto; font-size: 0.82rem; color: var(--gp-muted); white-space: nowrap; }
@@ -251,7 +252,7 @@ a.gp-htile:hover, a.gp-htile:focus { background: rgba(29, 53, 87, 0.03); }
 .gp-icbtn:hover { background: var(--gp-soft); }
 .gp-icbtn .gp-ic { width: 1.35em; height: 1.35em; }
 .gp-pad { padding: 1rem; }
-.gp-seclabel { font-size: 1.2rem; margin: 0.4rem 0 0.6rem; }
+.gp-seclabel { font-size: 1.2rem; margin: 0.4rem 0 0.6rem; padding: 0; border: 0; }
 
 /* Tabs along the bottom */
 .gp-tabs { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: min(560px, 100%); z-index: 15; display: flex; align-items: flex-end; background: var(--gp-paper); border-top: 1px solid var(--gp-heading); padding: 0.3rem 0.25rem calc(0.4rem + env(safe-area-inset-bottom)); }
@@ -272,9 +273,10 @@ button.gp-pcard:hover { background: rgba(29, 53, 87, 0.03); }
 .gp-st-open { color: var(--gp-good); }
 .gp-next { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; font-size: 0.9rem; }
 .gp-next .gp-ic { color: var(--gp-gold-deep); }
-.gp-banner { display: block; width: 100%; text-align: left; background: var(--gp-wait-bg); border: 1px solid var(--gp-wait-line); color: var(--gp-wait); border-radius: 4px; padding: 0.75rem 0.9rem; margin: 0 0 1rem; font-size: 1rem; }
+.gp-banner { position: relative; display: block; width: 100%; text-align: left; background: var(--gp-wait-bg); border: 1px solid var(--gp-wait-line); color: var(--gp-wait); border-radius: 4px; padding: 0.75rem 0.9rem; margin: 0 0 1rem; font-size: 1rem; }
 .gp-banner strong { font-weight: normal; }
-.gp-banner span { display: block; font-size: 0.86rem; margin-top: 0.2rem; }
+.gp-banner span { display: block; font-size: 0.86rem; margin-top: 0.2rem; padding-right: 1.5rem; }
+.gp-banner > .gp-ic { position: absolute; right: 0.75rem; top: 0.9rem; }
 
 /* Post screen */
 .gp-sum { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.7rem; }
@@ -332,6 +334,7 @@ button.gp-pcard:hover { background: rgba(29, 53, 87, 0.03); }
 .gp-days button[aria-pressed='true'] { background: var(--gp-heading); color: #ffffff; border-color: var(--gp-heading); }
 .gp-range { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .gp-range label { margin-top: 0.2rem; }
+.gp-range > *, .gp-range input { min-width: 0; }
 .gp-weeks { margin-top: 0.75rem; }
 .gp-wk { margin-bottom: 0.6rem; }
 .gp-wk h3 { font-size: 0.82rem; color: var(--gp-muted); margin: 0 0 0.25rem; }
@@ -413,6 +416,8 @@ button.gp-pcard:hover { background: rgba(29, 53, 87, 0.03); }
 .gp-app ~ .gp-footer { margin-bottom: 96px; }
 
 @media (max-width: 559px) {
+  /* Phones: a shorter band, so the part above the page shows the whole picture, not just sky. */
+  body::before { height: 180px; }
   .gp-wrap { margin-top: 140px; padding: 1.25rem 1rem 1.5rem; }
   .gp-wrap.gp-app { margin-top: 72px; }
   h1 { font-size: 1.4rem; }

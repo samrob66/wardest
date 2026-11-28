@@ -248,6 +248,7 @@ GP.footer();
     GP.show(bannerHost, el('button', { type: 'button', class: 'gp-banner', onclick: function () { go('waiting'); } }, [
       el('strong', {}, [GP.icon('clock'), ' ' + n + (n === 1 ? ' person needs approval' : ' people need approval')]),
       el('span', {}, 'Their sign-ups don’t count until a leader approves them.'),
+      GP.icon('chevR'),
     ]));
   }
 
