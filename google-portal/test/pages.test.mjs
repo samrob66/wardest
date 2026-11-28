@@ -273,6 +273,36 @@ describe('post.html: one row per date and role (2.5)', () => {
     expect(main.textContent).toContain('Thanks. Check your email to finish or see your sign-up.');
   });
 
+  it('tapping an open row selects it and takes them to the name field; tapping a filled row selects nothing', async () => {
+    const doc = await renderPage('post', '#p=pubkids', {
+      post: { ok: true, ward: WARD, post: post({ audiences: ['Sisters'], slots: [slot({ slotId: 'f1', filled: 10, full: true }), slot({ slotId: 'o1', date: '2026-12-04' })] }) },
+    });
+    const main = doc.ids['gp-main'];
+    // Only the radio rows list the dates: no separate read-only list above the form.
+    expect(main.textContent).not.toMatch(/of 10 filled/);
+    const name = doc.ids['gp-name'];
+    const seen = [];
+    name.scrollIntoView = (o) => seen.push(['scroll', o.block]);
+    name.focus = () => seen.push(['focus']);
+    const [filled, open] = rows(main);
+    filled.children[0].listeners.change[0]();
+    expect(seen).toEqual([]);
+    expect(filled.className).toBe('gp-choice gp-choice-off');
+    expect(rows(main).some((r) => r.className === 'gp-choice gp-choice-on')).toBe(false);
+    open.children[0].listeners.change[0]();
+    expect(open.className).toBe('gp-choice gp-choice-on');
+    expect(seen).toEqual([['scroll', 'center'], ['focus']]);
+  });
+
+  it('a link to one date (#d=) arrives with the first open row on that date chosen, without jumping', async () => {
+    const doc = await renderPage('post', '#p=pubkids&d=2026-12-04', {
+      post: { ok: true, ward: WARD, post: post({ audiences: ['Sisters'], slots: [slot({ slotId: 'a', date: '2026-12-03' }), slot({ slotId: 'b', date: '2026-12-04', filled: 10, full: true }), slot({ slotId: 'c', date: '2026-12-04', role: 'Clean up' })] }) },
+    });
+    const r = rows(doc.ids['gp-main']);
+    expect(r.map((x) => x.className)).toEqual(['gp-choice', 'gp-choice gp-choice-off', 'gp-choice gp-choice-on']);
+    expect(r[2].children[0].checked).toBe(true);
+  });
+
   it('every row filled: "All filled", no submit button and no name or email fields', async () => {
     const doc = await renderPage('post', '#p=pubkids', {
       post: { ok: true, ward: WARD, post: post({ slots: [slot({ filled: 10, full: true }), slot({ slotId: 's2', date: '2026-12-04', filled: 10, full: true })] }) },

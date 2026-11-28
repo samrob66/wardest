@@ -67,18 +67,29 @@ GP.footer();
     return [label, s.roleNote ? el('p', { class: 'gp-rolenote' }, s.roleNote) : null];
   }
 
-  function rowsList(post, live, onPick) {
+  function rowsList(post, live, onPick, labels) {
     var rows = [];
     post.slots.forEach(function (s) {
-      slotRow(s, live, onPick).forEach(function (n) {
+      var made = slotRow(s, live, onPick);
+      if (labels) labels[s.slotId] = made[0];
+      made.forEach(function (n) {
         if (n) rows.push(n);
       });
     });
     return el('fieldset', { class: 'gp-rows' }, [el('legend', {}, 'Pick a date and role')].concat(rows));
   }
 
-  function signupForm(post) {
+  /** Brings a field into view (centred, so a phone keyboard doesn't hide it) and focuses it. */
+  function bringIntoView(field) {
+    if (!field) return;
+    var calm = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (typeof field.scrollIntoView === 'function') field.scrollIntoView({ block: 'center', behavior: calm ? 'auto' : 'smooth' });
+    if (typeof field.focus === 'function') field.focus({ preventScroll: true });
+  }
+
+  function signupForm(post, want) {
     var chosen = null;
+    var name = null;
     var chosenLabel = null;
     var out = el('div', { id: 'gp-out' });
     var bringWrap = el('div', { class: 'gp-hidden' });
@@ -91,18 +102,23 @@ GP.footer();
       errs[key] = el('p', { class: 'gp-error', role: 'alert' });
       return errs[key];
     }
-    var list = rowsList(post, true, function (s, label) {
+    var labels = {};
+    function pick(s, label, quiet) {
       chosen = s;
       if (chosenLabel) chosenLabel.className = 'gp-choice';
       chosenLabel = label;
       label.className = 'gp-choice gp-choice-on';
+      label.children[0].checked = true;
       bringLabel.textContent = s.bringingPrompt || 'What are you bringing?';
       bringWrap.className = s.bringingPrompt ? '' : 'gp-hidden';
-    });
+      // Tapping a row is the natural thing to do: take them straight to the name field below.
+      if (!quiet) bringIntoView(name);
+    }
+    var list = rowsList(post, true, pick, labels);
     if (!post.slots.filter(isOpen).length) {
       return el('div', { class: 'gp-signup' }, [el('h2', {}, 'Sign up'), list, el('p', { class: 'gp-filled' }, [GP.icon('check'), 'All filled. Thank you!'])]);
     }
-    var name = el('input', { type: 'text', id: 'gp-name', autocomplete: 'name', maxlength: '80' });
+    name = el('input', { type: 'text', id: 'gp-name', autocomplete: 'name', maxlength: '80' });
     var email = el('input', { type: 'email', id: 'gp-email', autocomplete: 'email', maxlength: '254' });
     var button = el('button', { type: 'submit', class: 'gp-block' }, 'Sign up');
     // Youth and Children posts: a parent signs up themselves or a child (first name only).
@@ -202,8 +218,18 @@ GP.footer();
       ]
     );
     var formWrap = el('div', {}, [form]);
+    // A link to one slot (#s=) or one date (#d=) arrives with that row chosen: the slot, or the
+    // first open row on that date.
+    var pre = null;
+    post.slots.forEach(function (s) {
+      if (pre || !isOpen(s)) return;
+      if ((want.s && s.slotId === want.s) || (!want.s && want.d && s.date === want.d)) pre = s;
+    });
+    if (pre && labels[pre.slotId]) pick(pre, labels[pre.slotId], true);
     return formWrap;
   }
+
+  var want = {};
 
   function render(post, doneMessage) {
     GP.$('gp-title').textContent = post.title;
@@ -217,7 +243,7 @@ GP.footer();
     if (doneMessage) {
       parts.push(el('div', { class: 'gp-ok', role: 'status' }, [GP.icon('check'), el('div', {}, doneMessage)]));
     } else if (post.status === 'Open') {
-      parts.push(signupForm(post));
+      parts.push(signupForm(post, want));
     } else {
       parts.push(el('div', { class: 'gp-signup' }, [rowsList(post, false, function () {})]));
       if (post.status === 'Past') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is over. Thank you to everyone who served.'));
@@ -228,6 +254,7 @@ GP.footer();
   }
 
   GP.hash().then(function (h) {
+    want = { d: h.d || '', s: h.s || '' };
     if (!h.p) return GP.show(main, GP.message('alert', 'This link is missing part of its address. Open it again from the list.'));
     GP.call('post', { p: h.p }).then(
       function (res) {
