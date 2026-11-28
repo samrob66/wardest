@@ -140,8 +140,9 @@ function apiListPosts_(data) {
               childName: su['Child first name'] || '',
               label: signupLabel_(su),
               bringing: su.Bringing || '',
-              // The volunteer's status word (decision 24), not the sign-up's.
-              status: volunteerStatusOf(su.Email, volunteers[normEmail(su.Email)] || null, leaderList),
+              status: su.Status,
+              // The volunteer's status word (decision 24), beside the sign-up's own status.
+              volunteerStatus: volunteerStatusOf(su.Email, volunteers[normEmail(su.Email)] || null, leaderList),
               overLimit: isTicked(su['Over limit']),
               canDecide: canDecide(su),
             };

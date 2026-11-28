@@ -856,7 +856,8 @@ help soon", quota reserve and health email.
     - **Status data for the leader page** (the 2.5 UI draws it): `listVolunteers` (any leader;
       addresses, who decided and actions only for the bishopric and approvers, absent
       otherwise), `decideVolunteer` by an opaque `vid`, `preapproveCount` / `preapproveAdd` /
-      `preapproveClear`, a volunteer `status` word on each listPosts sign-up (`leader`,
+      `preapproveClear`, a `volunteerStatus` word on each listPosts sign-up beside its
+      unchanged sign-up `status` (`leader`,
       `approved`, `needs_approval`, `email_not_confirmed`, `declined`, `revoked`), and
       `isApprover` / `canManagePreapprove` in whoami.
 

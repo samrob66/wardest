@@ -87,7 +87,7 @@ describe('Approvers (decision 24)', () => {
     const p1 = plain(gp.apiListPosts_({ k })).posts.find((p) => p.postId === 'p1');
     expect(p1.canEdit).toBe(false);
     const su = p1.signups.find((s) => s.name === 'Brother New');
-    expect(su).toMatchObject({ status: 'needs_approval', canDecide: true });
+    expect(su).toMatchObject({ status: 'Waiting-approval', volunteerStatus: 'needs_approval', canDecide: true });
     expect(JSON.stringify(p1)).not.toContain(NEW);
     expect(plain(gp.apiDecide_({ k, signupId: su.signupId, decision: 'approve' })).ok).toBe(true);
     expect(gp.fakes.spreadsheet.rowsOf('Volunteers').find((v) => v.Email === NEW)).toMatchObject({ Status: 'Approved', 'Decided by': 'Sister Meals' });
@@ -100,7 +100,7 @@ describe('Approvers (decision 24)', () => {
     // and the volunteer list gives her no addresses or actions (contract: approvers only).
     const sk = linkFor(gp, 'sister.example@example.test');
     const su = plain(gp.apiListPosts_({ k: sk })).posts.find((p) => p.postId === 'p1').signups.find((x) => x.name === 'Brother New');
-    expect(su).toMatchObject({ status: 'needs_approval', canDecide: true });
+    expect(su).toMatchObject({ status: 'Waiting-approval', volunteerStatus: 'needs_approval', canDecide: true });
     const v = plain(gp.apiListVolunteers_({ k: sk })).volunteers.find((x) => x.name === 'Brother New');
     expect(v.actions).toBeUndefined();
     const b = plain(gp.apiListVolunteers_({ k: linkFor(gp, 'bishop.example@example.test') })).volunteers.find((x) => x.name === 'Brother New');
@@ -205,6 +205,20 @@ describe('Pre-approve list (decision 24)', () => {
 });
 
 describe('volunteer status data (decision 24)', () => {
+  it('listPosts keeps the pre-2.4 sign-up status values in status; the volunteer word is volunteerStatus', () => {
+    const gp = ward();
+    confirmNew(gp); // Waiting-approval, needs_approval
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Sister Late', email: 'sister.late@example.test' }); // Waiting-email
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Bishop Example', email: 'bishop.example@example.test' }); // Confirmed, leader
+    const p1 = plain(gp.apiListPosts_({ k: linkFor(gp, 'bishop.example@example.test') })).posts.find((p) => p.postId === 'p1');
+    expect(p1.signups.map((s) => [s.name, s.status, s.volunteerStatus])).toEqual([
+      ['Brother New', 'Waiting-approval', 'needs_approval'],
+      ['Sister Late', 'Waiting-email', 'email_not_confirmed'],
+      ['Bishop Example', 'Confirmed', 'leader'],
+    ]);
+    for (const s of p1.signups) expect(['Confirmed', 'Waiting-email', 'Waiting-approval']).toContain(s.status);
+  });
+
   it('volunteerStatusOf covers every status', () => {
     const gp = loadPortal();
     const L = ['leader@example.test'];

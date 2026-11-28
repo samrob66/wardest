@@ -113,7 +113,7 @@ describe('Waiting for approval', () => {
 });
 
 describe('My opportunities with phase 2', () => {
-  it('shows waiting counts and every active sign-up with the volunteer status word (2.4); children as "Ana (signed up by …)"', () => {
+  it('shows waiting counts and every active sign-up with its status; children as "Ana (signed up by …)"', () => {
     const gp = setup();
     gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Brother New', email: NEW });
     gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Brother Volunteer', email: 'brother.volunteer@example.test' });
@@ -125,12 +125,18 @@ describe('My opportunities with phase 2', () => {
     const p1 = res.posts.find((p) => p.postId === 'p1');
     expect(p1.slots.find((s) => s.slotId === 'm2')).toMatchObject({ filled: 2, waiting: 1, needed: 5 });
     expect(p1.signups.map((s) => [s.label, s.status])).toEqual([
+      ['Brother New', 'Waiting-email'],
+      ['Brother Volunteer', 'Confirmed'],
+      ['Ana (signed up by Brother Volunteer)', 'Confirmed'],
+    ]);
+    expect(JSON.stringify(p1)).not.toContain('detailsDue');
+    expect(JSON.stringify(p1)).not.toContain('detailsSent');
+    // 2.4: the volunteer's status word sits beside the sign-up status, in its own field.
+    expect(p1.signups.map((s) => [s.label, s.volunteerStatus])).toEqual([
       ['Brother New', 'email_not_confirmed'],
       ['Brother Volunteer', 'approved'],
       ['Ana (signed up by Brother Volunteer)', 'approved'],
     ]);
-    expect(JSON.stringify(p1)).not.toContain('detailsDue');
-    expect(JSON.stringify(p1)).not.toContain('detailsSent');
   });
 
   it('a coordinator of meals sees and edits an Elders Quorum meals post but not its other posts', () => {
