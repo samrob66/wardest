@@ -454,6 +454,18 @@ describe('leader page 2.6: the form', () => {
     expect(msg && msg.textContent).toBe('Pick Regular or Quiet.');
   });
 
+  it('server refusals show where they belong: fields.slots under When, fields.familyEmails under Family emails', async () => {
+    const page = await openLeader({ ...answers(), savePost: { ok: false, error: 'Please fix the marked fields.', fields: { slots: 'Add at least one date.', familyEmails: 'Use at most 10 addresses.' } } });
+    await page.openPost();
+    await page.menu('Edit');
+    await page.click(page.button('Save draft'));
+    const when = page.findAll((n) => n.tagName === 'section').find((sec) => sec.children[0].textContent === 'When');
+    expect(when.all().find((n) => n.className === 'gp-error').textContent).toBe('Add at least one date.');
+    const famWrap = page.find((n) => n.children && n.children.some((c) => c.id === 'gp-family'));
+    expect(famWrap.all().find((n) => n.className === 'gp-error').textContent).toBe('Use at most 10 addresses.');
+    expect(page.main.textContent).toContain('Up to 10 addresses.');
+  });
+
   it("meal fields' lengths match the script's MEAL_FIELDS (300, 300, 60, 60, 100)", async () => {
     const page = await openLeader(answers());
     await page.openPost();

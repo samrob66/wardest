@@ -1564,7 +1564,7 @@ GP.footer();
     if (f.hasFamily) {
       var fam = bindText(el('input', { type: 'text', id: 'gp-family', maxlength: '500', value: f.familyEmails, placeholder: 'e.g. name@example.com, other@example.com', autocomplete: 'off' }), f, 'familyEmails');
       parts.push(field('Family emails (comma-separated)', fam, 'familyEmails'));
-      parts.push(el('p', { class: 'gp-hint' }, "Each gets an email for every sign-up and cancellation (date, role, volunteer's first name)."));
+      parts.push(el('p', { class: 'gp-hint' }, "Up to 10 addresses. Each gets an email for every sign-up and cancellation (date, role, volunteer's first name)."));
     }
     return el('section', { class: 'gp-blk' }, parts);
   }
