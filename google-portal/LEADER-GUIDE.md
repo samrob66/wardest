@@ -55,7 +55,9 @@ into the **Pre-approve** list (with the bishop's permission). When one of them s
 count at once: no confirm email, no waiting, and the Volunteers list shows *Pre-approve list*
 as who decided. Nobody declined or revoked is ever approved this way. The addresses themselves
 aren't kept, only a scrambled fingerprint of each, so the list can't be read back; to take
-someone off, clear the list and paste it again without them.
+someone off, clear the list and paste it again without them. Someone who types a pre-approved
+member's address can sign up in their name without a confirm click, but the member gets the
+confirmation email and can cancel it.
 
 **What each person's word means.** Next to each volunteer:
 - **Approved**: counts at once, gets the private details.

@@ -277,6 +277,7 @@ function gpEnsureSystemTabs_(ss) {
   Object.keys(SYSTEM_HEADERS).forEach(function (name) {
     ensureTab_(ss, name, SYSTEM_HEADERS[name]);
   });
+  ensurePreapproveSalt_(); // 2.4: made once here (Set up, upgrade), never in a race later
 }
 
 function ensureSettingsRows_(ss) {

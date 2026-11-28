@@ -942,6 +942,7 @@ function gpEnsureSystemTabs_(ss) {
   Object.keys(SYSTEM_HEADERS).forEach(function (name) {
     ensureTab_(ss, name, SYSTEM_HEADERS[name]);
   });
+  ensurePreapproveSalt_(); // 2.4: made once here (Set up, upgrade), never in a race later
 }
 
 function ensureSettingsRows_(ss) {
@@ -3235,15 +3236,25 @@ function approverMsgs_(firstPost, name, items) {
 
 // ---------- the Pre-approve list (decision 24): salted hashes only ----------
 
-/** The salt for pre-approve hashes and volunteer ids, made once (64 hex). */
+/**
+ * The salt for pre-approve hashes and volunteer ids (64 hex). Set up and the GP_VERSION upgrade
+ * make it (gpEnsureSystemTabs_ → ensurePreapproveSalt_); if it is still missing, it is made only
+ * under the script lock, re-read after taking it, so two requests can never write two salts.
+ */
 function preapproveSalt_() {
-  var p = props_();
-  var salt = p.getProperty('PREAPPROVE_SALT');
-  if (!salt) {
-    salt = newToken_();
-    p.setProperty('PREAPPROVE_SALT', salt);
-  }
-  return salt;
+  return props_().getProperty('PREAPPROVE_SALT') || ensurePreapproveSalt_();
+}
+
+function ensurePreapproveSalt_() {
+  return withLock_(function () {
+    var p = props_();
+    var salt = p.getProperty('PREAPPROVE_SALT');
+    if (!salt) {
+      salt = newToken_();
+      p.setProperty('PREAPPROVE_SALT', salt);
+    }
+    return salt;
+  });
 }
 
 function preapproveHash_(email) {
@@ -4560,18 +4571,34 @@ function apiPreapproveCount_(data) {
 }
 
 /**
- * Bishopric and approvers: adds pasted addresses to the Pre-approve list as salted hashes. Split
- * on commas, semicolons, spaces and new lines; at most 2,000 per call. Nothing pasted is echoed,
- * logged or stored as text.
+ * The address-like pieces of pasted text: every run around an @ between separators (spaces, new
+ * lines, commas, semicolons, colons, quotes, brackets, < >), so "Name <a@b.c>", "\"Name\" <a@b.c>"
+ * and plain lists all work and names are skipped. {valid: [normalized], invalid: count}.
+ */
+function preapproveAddresses_(text) {
+  var pieces = String(text == null ? '' : text).match(/[^\s<>"'(),;:\[\]]*@[^\s<>"'(),;:\[\]]*/g) || [];
+  var valid = [];
+  var invalid = 0;
+  pieces.forEach(function (piece) {
+    var e = normEmail(piece.replace(/\.+$/, ''));
+    if (isEmail(e)) valid.push(e);
+    else invalid++;
+  });
+  return { valid: valid, invalid: invalid, count: pieces.length };
+}
+
+/**
+ * Bishopric and approvers: adds pasted addresses to the Pre-approve list as salted hashes. Any
+ * paste works (plain lists, "Name <address>" from Gmail or a contacts export); names are skipped,
+ * and only @-pieces that aren't addresses count as invalid. At most 2,000 addresses per call.
+ * Nothing pasted is echoed, logged or stored as text.
  */
 function apiPreapproveAdd_(data) {
   var lc = leaderCtx_(data);
   if (!lc) return relink_();
   if (!lc.access.isApprover) return { ok: false, error: TEXT.approversOnly };
-  var entries = String((data && data.emails) == null ? '' : data.emails)
-    .split(/[\s,;]+/)
-    .filter(String);
-  if (entries.length > 2000) return { ok: false, error: TEXT.tooManyPasted };
+  var pasted = preapproveAddresses_(data && data.emails);
+  if (pasted.count > 2000) return { ok: false, error: TEXT.tooManyPasted };
   return withLock_(function () {
     var t = systemTab_(SYS_TAB.preapproved);
     var have = {};
@@ -4581,12 +4608,8 @@ function apiPreapproveAdd_(data) {
     var now = nowLocal_();
     var add = [];
     var already = 0;
-    var invalid = 0;
-    entries.forEach(function (e) {
-      if (!isEmail(e)) {
-        invalid++;
-        return;
-      }
+    var invalid = pasted.invalid;
+    pasted.valid.forEach(function (e) {
       var h = preapproveHash_(e);
       if (have[h]) {
         already++;
@@ -6664,4 +6687,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: make one for each short link the same way the hub's other QR codes are made\n  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and\n  help-qr.png, and put them next to index.html.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }\n  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }\n  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }\n  .gp-hub-card:hover { background: #f4f7fc; }\n  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }\n  .gp-hub-card strong { display: block; font-size: 0.98rem; }\n  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }\n</style>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n  <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n  <a class=\"gp-hub-card\" href=\"serve.html\">\n    <img src=\"serve-qr.png\" alt=\"QR code for Service Opportunities\">\n    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n  <h2 id=\"gp-hub-help\">Service Requests</h2>\n  <a class=\"gp-hub-card\" href=\"help.html\">\n    <img src=\"help-qr.png\" alt=\"QR code for Service Requests\">\n    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>\n  </a>\n</section>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "63a778923bcf";
+var GP_BUILD = "bb191fe110ef";

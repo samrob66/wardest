@@ -116,6 +116,7 @@ describe('Approvers (decision 24)', () => {
 
   it('Set up adds the Approvers column, the default_approvers row and the Preapproved tab', () => {
     const gp = loadPortal({ seed: true });
+    expect(gp.fakes.props.get('PREAPPROVE_SALT')).toMatch(/^[0-9a-f]{64}$/);
     expect(gp.table_(gp.fakes.spreadsheet.getSheetByName('Categories')).headers).toContain('Approvers');
     expect(gp.fakes.spreadsheet.rowsOf('Settings').map((r) => r.Key)).toContain('default_approvers');
     gp.gpEnsureSystemTabs_(gp.fakes.system);
@@ -128,7 +129,7 @@ describe('Pre-approve list (decision 24)', () => {
 
   it('only hashes are stored; no pasted address anywhere in the System Sheet', () => {
     const gp = ward();
-    const r = plain(gp.apiPreapproveAdd_({ k: linkFor(gp, B), emails: `${NEW}; Sister.Two@example.test\nnot-an-address  ${NEW}, sister.two@example.test` }));
+    const r = plain(gp.apiPreapproveAdd_({ k: linkFor(gp, B), emails: `${NEW}; Sister.Two@example.test\nnot-an-address@nodot  ${NEW}, sister.two@example.test` }));
     expect(r).toEqual({ ok: true, added: 2, already: 2, invalid: 1, total: 2 });
     const system = JSON.stringify(sys(gp).sheets.map((sh) => sh.raw()));
     for (const bad of [NEW, 'sister.two', 'not-an-address']) expect(system.toLowerCase()).not.toContain(bad);
@@ -195,6 +196,42 @@ describe('Pre-approve list (decision 24)', () => {
     expect(plain(gp.apiPreapproveCount_({ k: linkFor(gp, MEALS_APPROVER) }))).toEqual({ ok: true, total: 2, canManage: true });
     expect(plain(gp.apiPreapproveClear_({ k: linkFor(gp, B) }))).toEqual({ ok: true, removed: 2 });
     expect(plain(gp.apiPreapproveCount_({ k: linkFor(gp, B) })).total).toBe(0);
+  });
+
+  it('takes the Gmail "Name <address>" form and mixed separators; names never count as invalid', () => {
+    const gp = ward();
+    const k = linkFor(gp, B);
+    const paste = `"Sister Paste" <paste.one@example.test>, paste.two@example.test; Brother Three <Paste.Three@Example.test>\n` +
+      `'Sister Four' <paste.four@example.test>;\tmailto:paste.five@example.test (Brother Five)\r\nSister Six <bad@nodot>`;
+    expect(plain(gp.apiPreapproveAdd_({ k, emails: paste }))).toEqual({ ok: true, added: 5, already: 0, invalid: 1, total: 5 });
+    expect(plain(gp.apiPreapproveAdd_({ k, emails: 'Brother Three <paste.three@example.test>, just a name, paste.one@example.test.' }))).toEqual({
+      ok: true, added: 0, already: 2, invalid: 0, total: 5,
+    });
+    expect(JSON.stringify(sys(gp).sheets.map((sh) => sh.raw())).toLowerCase()).not.toContain('paste.');
+    // A pasted "Name <address>" entry matches the plain address at sign-up.
+    gp.fakes.mail.sent.length = 0;
+    gp.apiSignup_({ publicId: 'pubmeals01', slotId: 'm2', name: 'Brother Three', email: 'paste.three@example.test' });
+    expect(gp.fakes.spreadsheet.rowsOf('Volunteers').find((v) => v.Email === 'paste.three@example.test')['Decided by']).toBe('Pre-approve list');
+  });
+
+  it('the salt is made by Set up, and later only under the lock', () => {
+    const gp = ward();
+    const salt = gp.fakes.props.get('PREAPPROVE_SALT');
+    expect(salt).toMatch(/^[0-9a-f]{64}$/);
+    expect(gp.preapproveSalt_()).toBe(salt);
+    // A pasted 2.4 Code.gs on an older install: the GP_VERSION upgrade makes it.
+    gp.fakes.props.delete('PREAPPROVE_SALT');
+    gp.fakes.props.set('SCHEMA_VERSION', 'phase-2.3.3');
+    gp.ensureUpgraded_();
+    expect(gp.fakes.props.get('PREAPPROVE_SALT')).toMatch(/^[0-9a-f]{64}$/);
+    gp.fakes.props.delete('PREAPPROVE_SALT');
+    gp.fakes.lockBusy(true);
+    expect(() => gp.preapproveSalt_()).toThrow();
+    expect(gp.fakes.props.get('PREAPPROVE_SALT')).toBeFalsy();
+    gp.fakes.lockBusy(false);
+    const made = gp.preapproveSalt_();
+    expect(made).toMatch(/^[0-9a-f]{64}$/);
+    expect(gp.preapproveSalt_()).toBe(made);
   });
 
   it('more than 2,000 entries in one paste is refused', () => {

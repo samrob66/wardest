@@ -814,18 +814,34 @@ function apiPreapproveCount_(data) {
 }
 
 /**
- * Bishopric and approvers: adds pasted addresses to the Pre-approve list as salted hashes. Split
- * on commas, semicolons, spaces and new lines; at most 2,000 per call. Nothing pasted is echoed,
- * logged or stored as text.
+ * The address-like pieces of pasted text: every run around an @ between separators (spaces, new
+ * lines, commas, semicolons, colons, quotes, brackets, < >), so "Name <a@b.c>", "\"Name\" <a@b.c>"
+ * and plain lists all work and names are skipped. {valid: [normalized], invalid: count}.
+ */
+function preapproveAddresses_(text) {
+  var pieces = String(text == null ? '' : text).match(/[^\s<>"'(),;:\[\]]*@[^\s<>"'(),;:\[\]]*/g) || [];
+  var valid = [];
+  var invalid = 0;
+  pieces.forEach(function (piece) {
+    var e = normEmail(piece.replace(/\.+$/, ''));
+    if (isEmail(e)) valid.push(e);
+    else invalid++;
+  });
+  return { valid: valid, invalid: invalid, count: pieces.length };
+}
+
+/**
+ * Bishopric and approvers: adds pasted addresses to the Pre-approve list as salted hashes. Any
+ * paste works (plain lists, "Name <address>" from Gmail or a contacts export); names are skipped,
+ * and only @-pieces that aren't addresses count as invalid. At most 2,000 addresses per call.
+ * Nothing pasted is echoed, logged or stored as text.
  */
 function apiPreapproveAdd_(data) {
   var lc = leaderCtx_(data);
   if (!lc) return relink_();
   if (!lc.access.isApprover) return { ok: false, error: TEXT.approversOnly };
-  var entries = String((data && data.emails) == null ? '' : data.emails)
-    .split(/[\s,;]+/)
-    .filter(String);
-  if (entries.length > 2000) return { ok: false, error: TEXT.tooManyPasted };
+  var pasted = preapproveAddresses_(data && data.emails);
+  if (pasted.count > 2000) return { ok: false, error: TEXT.tooManyPasted };
   return withLock_(function () {
     var t = systemTab_(SYS_TAB.preapproved);
     var have = {};
@@ -835,12 +851,8 @@ function apiPreapproveAdd_(data) {
     var now = nowLocal_();
     var add = [];
     var already = 0;
-    var invalid = 0;
-    entries.forEach(function (e) {
-      if (!isEmail(e)) {
-        invalid++;
-        return;
-      }
+    var invalid = pasted.invalid;
+    pasted.valid.forEach(function (e) {
       var h = preapproveHash_(e);
       if (have[h]) {
         already++;

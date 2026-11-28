@@ -527,15 +527,25 @@ function approverMsgs_(firstPost, name, items) {
 
 // ---------- the Pre-approve list (decision 24): salted hashes only ----------
 
-/** The salt for pre-approve hashes and volunteer ids, made once (64 hex). */
+/**
+ * The salt for pre-approve hashes and volunteer ids (64 hex). Set up and the GP_VERSION upgrade
+ * make it (gpEnsureSystemTabs_ → ensurePreapproveSalt_); if it is still missing, it is made only
+ * under the script lock, re-read after taking it, so two requests can never write two salts.
+ */
 function preapproveSalt_() {
-  var p = props_();
-  var salt = p.getProperty('PREAPPROVE_SALT');
-  if (!salt) {
-    salt = newToken_();
-    p.setProperty('PREAPPROVE_SALT', salt);
-  }
-  return salt;
+  return props_().getProperty('PREAPPROVE_SALT') || ensurePreapproveSalt_();
+}
+
+function ensurePreapproveSalt_() {
+  return withLock_(function () {
+    var p = props_();
+    var salt = p.getProperty('PREAPPROVE_SALT');
+    if (!salt) {
+      salt = newToken_();
+      p.setProperty('PREAPPROVE_SALT', salt);
+    }
+    return salt;
+  });
 }
 
 function preapproveHash_(email) {
