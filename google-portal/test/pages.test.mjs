@@ -240,6 +240,53 @@ describe('post.html', () => {
   });
 });
 
+describe('post.html: one row per date and role (2.5)', () => {
+  const rows = (main) => main.all().filter((n) => n.tagName === 'label' && /^gp-choice/.test(n.className) && n.children[0].attrs.name === 'gp-slot');
+
+  it('a filled row is greyed with its radio disabled; an open row submits the same signup fields as before', async () => {
+    let sent = null;
+    const doc = await renderPage('post', '#p=pubmeal', {
+      post: { ok: true, ward: WARD, post: post({ audiences: ['Sisters', 'Brothers'], slots: [slot({ slotId: 'f1', date: '2026-12-02', start: '17:30', end: '', role: 'Bring dinner', needed: 1, filled: 1, full: true }), slot({ slotId: 'o1', date: '2026-12-04', start: '17:30', end: '', role: 'Bring dinner', needed: 1, filled: 0, bringingPrompt: 'What are you bringing?' })] }) },
+      signup: (body) => {
+        sent = body;
+        return { ok: true, message: 'Thanks. Check your email to finish or see your sign-up.' };
+      },
+    });
+    const main = doc.ids['gp-main'];
+    const [filled, open] = rows(main);
+    expect(filled.className).toBe('gp-choice gp-choice-off');
+    expect(filled.children[0].disabled).toBe(true);
+    expect(filled.textContent).toBe('Wed, Dec 2, 5:30 PM · Bring dinnerFilled');
+    expect(filled.children[1].children[0].className).toBe('gp-w');
+    expect(open.children[0].disabled).toBe(false);
+    expect(open.textContent).toBe('Fri, Dec 4, 5:30 PM · Bring dinner1 open');
+    // Picking the filled row does nothing; the open one is chosen.
+    filled.children[0].listeners.change[0]();
+    open.children[0].listeners.change[0]();
+    expect(open.className).toBe('gp-choice gp-choice-on');
+    doc.ids['gp-name'].value = 'Sister Example';
+    doc.ids['gp-email'].value = 'sister@example.test';
+    doc.ids['gp-bring'].value = 'Soup';
+    main.all().find((n) => n.tagName === 'form').listeners.submit[0]({ preventDefault() {} });
+    for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(sent).toEqual({ action: 'signup', publicId: 'pubkids', slotId: 'o1', name: 'Sister Example', email: 'sister@example.test', bringing: 'Soup', childName: '' });
+    expect(main.textContent).toContain('Thanks. Check your email to finish or see your sign-up.');
+  });
+
+  it('every row filled: "All filled", no submit button and no name or email fields', async () => {
+    const doc = await renderPage('post', '#p=pubkids', {
+      post: { ok: true, ward: WARD, post: post({ slots: [slot({ filled: 10, full: true }), slot({ slotId: 's2', date: '2026-12-04', filled: 10, full: true })] }) },
+    });
+    const main = doc.ids['gp-main'];
+    expect(rows(main)).toHaveLength(2);
+    expect(rows(main).every((r) => r.children[0].disabled)).toBe(true);
+    expect(main.textContent).toContain('All filled');
+    expect(main.all().filter((n) => n.tagName === 'button')).toEqual([]);
+    expect(doc.ids['gp-name']).toBeUndefined();
+    expect(main.textContent).not.toContain('Who is serving?');
+  });
+});
+
 describe('serve.html', () => {
   it('Brothers and Sisters side by side, Youth and Children with the parent line, category icons', async () => {
     const card = (id, audiences, over = {}) => ({ publicId: id, title: 'Post ' + id, organization: 'Relief Society', category: 'meals', categoryName: 'Meals', categoryIcon: '🍲', audiences, firstDate: '2026-12-03', lastDate: '2026-12-03', needed: 4, filled: 1, full: false, status: 'Open', ...over });

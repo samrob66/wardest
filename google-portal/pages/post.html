@@ -18,7 +18,7 @@
     <h1 id="gp-title">{{PAGE_TITLE}}</h1>
   </header>
   <div id="gp-main"><p class="gp-loading">Loading…</p></div>
-  <p style="text-align:center;margin-top:1.5rem"><a id="gp-back" class="gp-btn gp-light" href="serve.html">All service opportunities</a></p>
+  <p class="gp-more"><a id="gp-back" class="gp-btn gp-light" href="serve.html">All service opportunities</a></p>
 </main>
 <footer class="gp-footer" id="gp-footer">
   <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
@@ -33,38 +33,53 @@ GP.footer();
   var main = GP.$('gp-main');
   GP.$('gp-back').setAttribute('href', GP.pageUrl('serve'));
 
-  function byDate(slots) {
-    var out = [];
-    var at = {};
-    slots.forEach(function (s) {
-      if (!(s.date in at)) {
-        at[s.date] = out.length;
-        out.push({ date: s.date, slots: [] });
-      }
-      out[at[s.date]].slots.push(s);
-    });
-    return out;
+  function isOpen(s) {
+    return !s.full && !s.past;
   }
 
-  function slotLine(s) {
+  /**
+   * One full-width row per date and role: radio, weekday in gold, "Dec 2, 5:30 PM · Bring dinner",
+   * then "N open" or "Filled". A filled (or past) row is greyed out and its radio disabled.
+   */
+  function slotRow(s, live, onPick) {
+    var open = live && isOpen(s);
+    var input = el('input', { type: 'radio', name: 'gp-slot', value: s.slotId, disabled: open ? null : 'disabled' });
+    input.disabled = !open;
+    var label = el('label', { class: 'gp-choice' + (open ? '' : ' gp-choice-off') }, []);
+    input.addEventListener('change', function () {
+      if (open) onPick(s, label);
+    });
     var when = GP.fmtTimes(s.start, s.end);
-    return el('div', { class: 'gp-slot' }, [
-      el('strong', {}, s.role),
-      when ? el('span', { class: 'gp-meta' }, ' · ' + when) : null,
-      // Over the number is fine (a waiting sign-up approved later): say so plainly, "12 of 10".
-      s.full
-        ? el('div', { class: 'gp-filled' }, 'Filled ✓' + (s.filled > s.needed ? ' · ' + s.filled + ' of ' + s.needed : ''))
-        : el('div', {}, [GP.fillBar(s.filled, s.needed), el('span', { class: 'gp-count' }, s.filled + ' of ' + s.needed + ' filled')]),
-      s.roleNote ? el('p', { class: 'gp-meta' }, s.roleNote) : null,
-    ]);
+    var wd = GP.weekday(s.date);
+    var left = s.needed - s.filled;
+    // Over the number is fine (a waiting sign-up approved later): say so plainly, "12 of 10".
+    var right = s.full || left <= 0 ? 'Filled' + (s.filled > s.needed ? ' · ' + s.filled + ' of ' + s.needed : '') : s.past ? 'Over' : left + ' open';
+    [
+      input,
+      el('span', { class: 'gp-choice-t' }, [
+        wd ? el('span', { class: 'gp-w' }, wd) : null,
+        (wd ? ', ' + GP.fmtDate(s.date).slice(5) : GP.fmtDate(s.date)) + (when ? ', ' + when : '') + ' · ' + s.role,
+      ]),
+      el('span', { class: 'gp-choice-open' }, right),
+    ].forEach(function (c) {
+      if (c) label.appendChild(c);
+    });
+    return [label, s.roleNote ? el('p', { class: 'gp-rolenote' }, s.roleNote) : null];
+  }
+
+  function rowsList(post, live, onPick) {
+    var rows = [];
+    post.slots.forEach(function (s) {
+      slotRow(s, live, onPick).forEach(function (n) {
+        if (n) rows.push(n);
+      });
+    });
+    return el('fieldset', { class: 'gp-rows' }, [el('legend', {}, 'Pick a date and role')].concat(rows));
   }
 
   function signupForm(post) {
-    var open = post.slots.filter(function (s) {
-      return !s.full && !s.past;
-    });
-    if (!open.length) return el('p', { class: 'gp-muted' }, 'Every role is filled. Thank you!');
     var chosen = null;
+    var chosenLabel = null;
     var out = el('div', { id: 'gp-out' });
     var bringWrap = el('div', { class: 'gp-hidden' });
     var bringLabel = el('label', { for: 'gp-bring' }, 'What are you bringing?');
@@ -76,23 +91,20 @@ GP.footer();
       errs[key] = el('p', { class: 'gp-error', role: 'alert' });
       return errs[key];
     }
-    var choices = open.map(function (s) {
-      var input = el('input', {
-        type: 'radio',
-        name: 'gp-slot',
-        value: s.slotId,
-        onchange: function () {
-          chosen = s;
-          bringLabel.textContent = s.bringingPrompt || 'What are you bringing?';
-          bringWrap.className = s.bringingPrompt ? '' : 'gp-hidden';
-        },
-      });
-      var when = GP.fmtTimes(s.start, s.end);
-      return el('label', { class: 'gp-check' }, [input, GP.fmtDate(s.date) + (when ? ', ' + when : '') + ' · ' + s.role + ' (' + (s.needed - s.filled) + ' open)']);
+    var list = rowsList(post, true, function (s, label) {
+      chosen = s;
+      if (chosenLabel) chosenLabel.className = 'gp-choice';
+      chosenLabel = label;
+      label.className = 'gp-choice gp-choice-on';
+      bringLabel.textContent = s.bringingPrompt || 'What are you bringing?';
+      bringWrap.className = s.bringingPrompt ? '' : 'gp-hidden';
     });
+    if (!post.slots.filter(isOpen).length) {
+      return el('div', { class: 'gp-signup' }, [el('h2', {}, 'Sign up'), list, el('p', { class: 'gp-filled' }, [GP.icon('check'), 'All filled. Thank you!'])]);
+    }
     var name = el('input', { type: 'text', id: 'gp-name', autocomplete: 'name', maxlength: '80' });
     var email = el('input', { type: 'email', id: 'gp-email', autocomplete: 'email', maxlength: '254' });
-    var button = el('button', { type: 'submit' }, 'Sign up');
+    var button = el('button', { type: 'submit', class: 'gp-block' }, 'Sign up');
     // Youth and Children posts: a parent signs up themselves or a child (first name only).
     var young = post.audiences.indexOf('Youth') >= 0 || post.audiences.indexOf('Children') >= 0;
     var who = 'me';
@@ -115,19 +127,19 @@ GP.footer();
           nameLabel.textContent = value === 'child' ? 'Your name (the parent)' : 'Your name';
         },
       });
-      return el('label', { class: 'gp-check' }, [input, label]);
+      return el('label', { class: 'gp-choice' }, [input, label]);
     }
     var whoBox = young
-      ? el('fieldset', { style: 'border:none;padding:0;margin:0.6rem 0 0' }, [
-          el('legend', { class: 'gp-meta' }, 'Who is serving?'),
-          whoChoice('me', 'Me'),
-          whoChoice('child', 'My child'),
+      ? el('fieldset', {}, [
+          el('legend', {}, 'Who is serving?'),
+          el('div', { class: 'gp-seg2' }, [whoChoice('me', 'Me'), whoChoice('child', 'My child')]),
           el('p', { class: 'gp-meta' }, 'A parent signs up for their child. Use your own name and email; we never ask for a child\'s email. Sign up each child (and yourself) separately.'),
         ])
       : null;
     var form = el(
       'form',
       {
+        class: 'gp-signup',
         onsubmit: function (e) {
           e.preventDefault();
           Object.keys(errs).forEach(function (k) {
@@ -172,7 +184,7 @@ GP.footer();
       },
       [
         el('h2', {}, 'Sign up'),
-        el('fieldset', { style: 'border:none;padding:0;margin:0' }, [el('legend', { class: 'gp-meta' }, 'Pick a date and role')].concat(choices)),
+        list,
         errBox('slot'),
         whoBox,
         childWrap,
@@ -180,12 +192,12 @@ GP.footer();
         nameLabel,
         name,
         errBox('name'),
-        el('label', { for: 'gp-email' }, 'Your email (for your confirmation and reminder)'),
+        el('label', { for: 'gp-email' }, ['Your email ', el('span', { class: 'gp-meta' }, '(for your confirmation and reminder)')]),
         email,
         errBox('email'),
         bringWrap,
         errBox('bringing'),
-        el('p', {}, [button]),
+        el('p', { style: 'margin-top:1rem' }, [button]),
         out,
       ]
     );
@@ -197,20 +209,21 @@ GP.footer();
     GP.$('gp-title').textContent = post.title;
     document.title = post.title + ' · ' + GP.config().wardName;
     var parts = [
-      el('div', { class: 'gp-card' }, [
+      el('div', { class: 'gp-card gp-intro' }, [
         el('p', { class: 'gp-meta' }, [post.organization, post.audiences.length ? ' · For ' + post.audiences.join(', ') : ''].join('')),
         post.publicNote ? el('p', { class: 'gp-note' }, post.publicNote) : null,
       ]),
     ];
-    byDate(post.slots).forEach(function (d) {
-      parts.push(el('h2', {}, GP.fmtDate(d.date)));
-      parts.push(el('div', { class: 'gp-card' }, d.slots.map(slotLine)));
-    });
-    if (doneMessage) parts.push(GP.message('ok', doneMessage));
-    else if (post.status === 'Open') parts.push(signupForm(post));
-    else if (post.status === 'Past') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is over. Thank you to everyone who served.'));
-    else if (post.status === 'Cancelled') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity was cancelled.'));
-    else parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is closed to new sign-ups.'));
+    if (doneMessage) {
+      parts.push(el('div', { class: 'gp-ok', role: 'status' }, [GP.icon('check'), el('div', {}, doneMessage)]));
+    } else if (post.status === 'Open') {
+      parts.push(signupForm(post));
+    } else {
+      parts.push(el('div', { class: 'gp-signup' }, [rowsList(post, false, function () {})]));
+      if (post.status === 'Past') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is over. Thank you to everyone who served.'));
+      else if (post.status === 'Cancelled') parts.push(el('p', { class: 'gp-muted' }, 'This opportunity was cancelled.'));
+      else parts.push(el('p', { class: 'gp-muted' }, 'This opportunity is closed to new sign-ups.'));
+    }
     GP.show(main, parts);
   }
 
