@@ -33,6 +33,23 @@ How a volunteer is known (no Google account needed):
   email to finish or see your sign-up.* so nobody can learn anything about an address by typing
   it. The email tells the real owner.
 
+> **If you already set up before 2.5** (before the new look: the picture as a band across the
+> top, tabs along the bottom of the leader page, Every week / Pick days with Change and skip),
+> do this once, signed in to the shared account in a private window. Nothing in the Sheet
+> changes: no new tab, column or Settings row, and Set up isn't needed.
+> 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
+> 2. **Deploy > Manage deployments**, select the deployment, click the **pencil**, set
+>    **Version** to **New version**, click **Deploy**. The script's own pages (`…/exec?page=…`)
+>    show the new look at once.
+> 3. Run **Service Portal > Make hub files** and give the hub owner **all six page files** and
+>    the new `hub-sections.html` part (section 6, steps 1–3). The hub's pages change only once
+>    they are replaced.
+> 4. Optional, for the hub owner: the hub's own QR pop-up can have a **Print** button that makes
+>    a one-link poster (section 6, step 10).
+> 5. Send the leaders the new LEADER-GUIDE (*Finding your way*, *Create an opportunity*).
+>
+> If your ward is also before 2.4, do that box too (below).
+
 > **If you already set up before 2.4** (before you could choose who approves first-time
 > volunteers, or pre-approve members), do this once, signed in to the shared account in a
 > private window:
@@ -471,8 +488,9 @@ pages. The hub belongs to the ward; its owner adds the files.
    - **theme_background_url**: the full `https://` address of the background picture. For a
      hub on GitHub Pages, use the full address of the hub's own background image: open the hub,
      right-click its background (or ask the hub owner for the file name) and put the file name
-     after the hub address, e.g. `https://example.github.io/rb1links/background.png`. Text sits
-     on a light panel so it stays readable on any picture; on phones the picture scrolls.
+     after the hub address, e.g. `https://example.github.io/rb1links/background.png`. The
+     picture is a band across the top of every page (taller on a computer, cropped to fit);
+     text sits on plain paper below it, so any picture works. Blank shows a drawn landscape.
    - **theme_accent**: the hub's main colour as `#` and six letters or digits, e.g. `#2f5d50`.
      It colours the heading lines and fill bars; a dark enough colour also colours links and
      buttons (a light one would be hard to read, so it is left off them).
@@ -500,6 +518,11 @@ pages. The hub belongs to the ward; its owner adds the files.
       image** (upload the same picture, or pick it from your Drive or Photos), **Colour**, and
       **Font style** for Header, Question and Text. Close the panel; it saves by itself.
    The form's link stays the same.
+10. **Print a QR poster (hub owner, optional).** The hub's own **Show QR Code** pop-up can carry
+   a **Print** button that opens a one-page poster of that one link: its title, a big QR code,
+   the short link and the ward's name, portrait on A4 or Letter. It lives in the hub's
+   `index.html`, which belongs to the ward, so the hub owner adds it; the Service Portal files
+   don't change it.
 
 **If there is no hub, or the hub test in Check health fails:** skip this step, leave
 **hub_url** blank, and point the two short links at the web app's own pages instead:

@@ -5,33 +5,49 @@ have one (or it expired after 90 days), open the leader page from the ward's hub
 email and click **Email me a leader link**. Keep the link to yourself: whoever has it can act
 as you on the leader page.
 
-**Create an opportunity.** Click **New opportunity**. Pick the **category** first (Meals,
+**Finding your way** (2.5). Tabs along the bottom: **Opportunities** (your posts; tap one to
+open it), **Waiting** (people waiting for your approval, with a count), **New** (the big plus),
+**Short soon** (ward council and bishopric) and **Volunteers**. When people are waiting, a
+banner at the top of Opportunities says how many; tap it to go to Waiting. The **•••** at the
+top right holds what isn't used every day: on the main tabs, **Sign out everywhere**; on a post,
+**Edit**, **Copy the link**, **Copy this post**, **Close** and **Cancel this opportunity**.
+
+**Create an opportunity.** Tap **New**. The form fills the screen, in four parts: **What**,
+**When**, **Roles** and **Notes**, with **Save draft** and **Publish** always at the bottom. Pick the **category** first (Meals,
 Moving, Service project, …; every new opportunity needs one, and its usual audiences are ticked
 for you; **Copy this post** keeps the category when you may use it), then the organization, a
 title, who it is for (Brothers, Sisters, Youth, Children), a public note, and any **private
 details** (an address, a gate code). On the Service Opportunities page a post for one audience
 shows under that audience; a post for more than one shows once, at the top under **Everyone**,
-with its audiences (e.g. *Brothers · Sisters*) under the title. Then add dates: each date has one or more roles with how
-many people, times if you want them, a note, and an optional question such as *What are you
-bringing?*
-- **Add date** adds one date (copying the last date's roles); **Copy this date** duplicates a
-  date; **Add role** adds a role to a date.
-- **Add dates** is for meal trains: pick a first and last date and the weekdays, and every
-  matching date is added with the same roles.
+with its audiences (e.g. *Brothers · Sisters*) under the title. Then **When**:
+- **Once**: one date.
+- **Pick days**: tap the days on the calendar; tap again (or the **×** in the list) to remove
+  one. A small gold dot marks a day that already has another opportunity, so you can spread
+  them out.
+- **Every week**: tap the days of the week in the one row (say **Mon**, **Wed**, **Fri**), then
+  **from** and **until**. The dates appear below at once, grouped by week, each with its
+  weekday. Turn a date's switch off to **skip** it (a holiday, a family away that night). At
+  most 60 dates at a time.
+- **Roles** are set once for every date: the role, how many people (− and +), start and end
+  times if you want them, a note, and an optional question such as *What are you bringing?*
+  **Add role** adds another. A date that needs something different: tap **Change** next to it
+  under When; that date gets its own copy of the roles to edit (**Same as the others** puts it
+  back).
 - For **Youth** or **Children**, the sign-up form asks *Who is serving? Me / My child* and takes
   a child's first name. Every email goes to the parent; you see *Ana (signed up by …)*.
 
 Never put a family's name, address or situation in a post's public note — posts are public.
 
-**Publish and share.** **Save as draft** keeps it hidden; **Publish** puts it on the Service
-Opportunities page. Under **My opportunities**, each post shows its public link with a **Copy**
-button: paste it into a ward email (addresses in **Bcc**) or a message.
+**Publish and share.** **Save draft** keeps it hidden; **Publish** puts it on the Service
+Opportunities page. Open the post from **Opportunities**: its public link is at the top with a
+**Copy** button (also **•••** > **Copy the link**). Paste it into a ward email (addresses in
+**Bcc**) or a message.
 
 **Approve first-timers.** Someone signing up for the first time gets an email asking them to
 confirm their address. Once they click it, they appear under **Waiting for approval** for the
 leaders of the organization whose opportunity they first signed up for, and for the bishopric.
-You can decide in either place: on the **Waiting for approval** tab, or right on the post under
-**My opportunities**, where the person's line shows **Approve** and **Decline** (only to leaders
+You can decide in either place: on the **Waiting** tab, or right on the post (open it from
+**Opportunities**), where the person's line shows **Approve** and **Decline** (only to leaders
 who may decide for them). Check the ward directory, then:
 - **Approve**: they are approved for the whole ward. Every sign-up they have waiting counts at
   once, and each one gets its confirmation email with the private details. From then on their
@@ -59,7 +75,7 @@ someone off, clear the list and paste it again without them. Someone who types a
 member's address can sign up in their name without a confirm click, but the member gets the
 confirmation email and can cancel it.
 
-**What each person's word means.** Next to each volunteer:
+**What each person's word means.** Next to each volunteer, a small ringed mark and a word:
 - **Approved**: counts at once, gets the private details.
 - **Leader**: on the ward's leader list; never needs approval.
 - **Needs approval**: confirmed their email, waiting for a leader to approve them.
@@ -67,10 +83,12 @@ confirmation email and can cancel it.
 - **Declined**: can't sign up until a bishopric member undoes it.
 - **Revoked**: was approved, now can't sign up again until a bishopric member undoes it.
 
-**Watch sign-ups.** My opportunities shows each date and role as **7 of 10 · 3 waiting**: 7
-count, 3 are still waiting (for their email click or for approval) and don't hold a place yet.
-Each person shows with what they're bringing and, when they are waiting, a tag saying for
-what. You get an email when someone cancels (*You're now short* after the cancel cutoff), and
+**Watch sign-ups.** Opportunities shows each post with its next date and how full it is, e.g.
+**7 of 10 · 3 waiting**: 7 count, 3 are still waiting (for their email click or for approval)
+and don't hold a place yet. Tap a post to see each date and role with one line per person:
+their name, their mark, and what they're bringing. A post with several dates has a **day strip**
+at the top (each day with its weekday and a dot, green when that day is filled): tap a day to
+see only it, or **All** to see every date. You get an email when someone cancels (*You're now short* after the cancel cutoff), and
 a *Fully filled* email once every role has its people.
 
 **Over the number.** A waiting person approved after a role filled still counts: the role can
@@ -102,16 +120,23 @@ council, when the category allows it) make and edit its opportunities; you can a
 the ones you made. A category without coordinators belongs to its owning organizations'
 leaders (or to any leader, when it has no owner).
 
-**Bishopric: Volunteers.** The **Volunteers** tab lists everyone who has signed up, with who
-approved or declined them and when. **Undo decline** lets someone sign up again (their next
-sign-up waits for approval); **Revoke** stops an approved volunteer from signing up again
-(their current sign-ups stay; remove them if needed).
+**Volunteers.** Every leader has the **Volunteers** tab: everyone who has signed up, with their
+mark (the red **Declined** and **Revoked** too), how many sign-ups they have coming up, their
+first sign-up, and the children they signed up, listed under them. Search by name, filter by
+mark, and sort by name or most recent. The bishopric and the approvers also see each person's
+address and who decided and when, with the buttons: **Approve** / **Decline** for someone
+waiting, **Revoke** to stop an approved volunteer signing up again (their current sign-ups
+stay; remove them if needed) and **Undo decline** / **Undo revoke** (their next sign-up waits
+for approval). The **Pre-approve list** (paste box, **Add**, the total, **Clear the list**) is
+at the bottom of this tab for them.
 
-**Change a post.** **Edit** changes a post. A date or start time with people signed up can't be
-moved or removed until you remove them (or cancel that date, below). **Copy this post** starts
-a new draft from it.
+**Change a post.** Open it, then **•••** > **Edit**. It opens with its dates in **Pick days**
+(or **Once**, for one date). A date or start time with people signed up can't be moved or
+removed until you remove them (or cancel that date, below); everyone signed up keeps their
+place when you change other dates or roles. **•••** > **Copy this post** starts a new draft
+from it.
 
-**Close or cancel?**
+**Close or cancel?** (in the post's **•••**, except Cancel this date)
 - **Close**: no one new can sign up, but it is still happening. People already signed up keep
   their place and still get their reminder. (**Save as draft** on a published post does the
   same and also hides it from the public page.)
@@ -121,7 +146,8 @@ a new draft from it.
 - **Cancel this date**: one date of a longer post isn't happening. The people signed up for that
   date get the email; the other dates carry on.
 
-**Sign out everywhere.** If your link may have been forwarded, click **Sign out everywhere**.
+**Sign out everywhere.** If your link may have been forwarded, tap **•••** at the top of
+Opportunities, then **Sign out everywhere**.
 The old link stops working and a new one is emailed to you. Open the newest link on every device
 you use (phone, computer). If a page is still open with an old link, it shows *This leader link
 has expired…* and an **Email me a leader link** box at the top as soon as you come back to it or
@@ -129,7 +155,13 @@ open a form. Nothing you type there can be saved: copy it, then open the newest 
 
 **The buttons on a person's line** are, in order: **Approve** and **Decline** (someone waiting
 for approval, if you may decide for them), **Remove**, and on the last line of each date
-**Cancel this date** (posts with more than one date).
+**Cancel this date** (posts with more than one date). On a phone they wrap onto the line under
+the name. A post you see only because you approve for its kind shows names and marks, and
+Approve / Decline where you may decide, but no Remove, Cancel or •••.
+
+**The hub's QR codes.** On the ward's hub, each link's **Show QR Code** pop-up has **Print**: a
+one-page poster with the link's title, a big QR code, the short link and the ward's name, for a
+bulletin board or a table at church.
 
 **Gemini.** Do not ask Gemini to read, summarize or draft from the Service Sheet, the request
 sheets or request notices.

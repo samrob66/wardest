@@ -860,6 +860,24 @@ help soon", quota reserve and health email.
       unchanged sign-up `status` (`leader`,
       `approved`, `needs_approval`, `email_not_confirmed`, `declined`, `revoked`), and
       `isApprover` / `canManagePreapprove` in whoami.
+25. **Version 4 design** (§5.3, §5.6; Sam, 2026-11-27, in 2.5). Hymnal on every page (Georgia,
+    navy ink and buttons, gold accent, deep gold weekdays, near-white paper, square 4px corners,
+    hairline rules, a 1px navy rule under section headings, the ward's picture as a band across
+    the top: Settings `theme_background_url` now fills that band); the Meadow layout on the leader
+    page (tabs along the bottom: Opportunities, Waiting with a count, New, Short soon, Volunteers;
+    a full-screen form; ••• menus; a day strip on posts with more than one date); Meadow audience
+    filters on Service Opportunities (All, Everyone, Brothers, Sisters, Youth, Children; the
+    Everyone posts that include the chosen group stay listed once under Everyone). In the form,
+    When is Once, Pick days (a calendar whose dots mark days that already have an opportunity) or
+    Every week (one row of weekdays, from and until, the dates grouped by week); roles are set
+    once per post with **Change** per date, and a date in Every week can be **skipped**; an edit
+    opens in Once or Pick days and keeps every slot id. Decline stays on the person line; the
+    buttons (Approve, Decline, Remove, Cancel this date) wrap under the name on phones. "Needs
+    approval" is the status word, always a ringed icon and a word; the red Declined and Revoked
+    marks show to every leader, while who decided, addresses and the actions show only to the
+    bishopric and approvers (as the answers carry them). The sign-up page lists one row per date
+    and role; tapping an open row takes the volunteer to the name field. The hub's QR pop-up gains
+    **Print**, a one-link poster. UI only: no column, Settings row or API answer changed.
 
 ## 13. Settled with Sam, and open questions
 
