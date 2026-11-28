@@ -378,6 +378,15 @@ const tick = async () => {
 };
 const click = (node) => node.listeners.click[0]();
 const byText = (root, tag, text) => root.all().find((n) => n.tagName === tag && n.textContent === text);
+/** A leader-page bottom tab (2.5) by its label; the Waiting tab also carries its count. */
+const tabOf = (root, label) => {
+  const nav = root.all().find((n) => n.tagName === 'nav');
+  return nav ? nav.children.find((b) => b.textContent.replace(/\d+$/, '') === label) : undefined;
+};
+const openFirstPost = async (root) => {
+  click(root.all().find((n) => n.tagName === 'button' && n.className === 'gp-pcard'));
+  await tick();
+};
 
 describe('leader.html', () => {
   const whoami = (access) => ({
@@ -416,21 +425,23 @@ describe('leader.html', () => {
     });
     const main = doc.ids['gp-main'];
     expect(main.textContent).toContain('7 of 10 · 3 waiting');
+    await openFirstPost(main);
     expect(main.textContent).toContain('Ana (signed up by Sister Parent)');
-    expect(main.textContent).toContain('Waiting for approval');
+    expect(main.textContent).toContain('Needs approval');
     expect(main.textContent).not.toContain('Send details');
-    expect(byText(main, 'button', 'Volunteers')).toBeUndefined();
-    click(byText(main, 'button', 'Waiting for approval'));
+    // 2.4 / 2.5: every leader has Volunteers.
+    expect(tabOf(main, 'Volunteers')).toBeTruthy();
+    click(tabOf(main, 'Waiting'));
     await tick();
     expect(main.textContent).toContain('brother.new@example.test');
     click(byText(main, 'button', 'Approve'));
     await tick();
     expect(decided).toMatchObject({ action: 'decide', email: 'brother.new@example.test', decision: 'approve' });
     expect(main.textContent).toContain('Approved. 1 sign-up now counts.');
-    click(byText(main, 'button', 'Needs help soon'));
+    click(tabOf(main, 'Short soon'));
     await tick();
     expect(main.textContent).toContain('7 of 10 filled');
-    click(byText(main, 'button', 'New opportunity'));
+    click(tabOf(main, 'New'));
     await tick();
     expect(main.textContent).toContain('Category');
     expect(main.textContent).toContain('Who is serving');
@@ -442,8 +453,8 @@ describe('leader.html', () => {
       listPosts: { ok: true, posts: [] },
     });
     const main = coord.ids['gp-main'];
-    expect(byText(main, 'button', 'Waiting for approval')).toBeUndefined();
-    click(byText(main, 'button', 'New opportunity'));
+    expect(tabOf(main, 'Waiting')).toBeUndefined();
+    click(tabOf(main, 'New'));
     await tick();
     expect(coord.ids['gp-cat'].children.map((o) => o.value)).toEqual(['meals']);
     expect(coord.ids['gp-org'].children.map((o) => o.value)).toEqual(['Relief Society']);
@@ -451,6 +462,8 @@ describe('leader.html', () => {
     const bish = await renderPage('leader', '#k=' + 'a'.repeat(64), {
       whoami: whoami({ isBishopric: true }),
       listPosts: { ok: true, posts: [] },
+      // Sam's live 2.3.3 script: no listVolunteers yet, so the page uses the old list.
+      listVolunteers: { ok: false, error: 'Not found.' },
       volunteers: {
         ok: true,
         volunteers: [
@@ -460,7 +473,7 @@ describe('leader.html', () => {
       },
     });
     const bmain = bish.ids['gp-main'];
-    click(byText(bmain, 'button', 'Volunteers'));
+    click(tabOf(bmain, 'Volunteers'));
     await tick();
     expect(byText(bmain, 'button', 'Undo decline')).toBeTruthy();
     expect(byText(bmain, 'button', 'Revoke')).toBeTruthy();
@@ -570,7 +583,7 @@ describe('review round 2: the category picker', () => {
       listPosts: { ok: true, posts: [] },
     });
     const main = doc.ids['gp-main'];
-    click(byText(main, 'button', 'New opportunity'));
+    click(tabOf(main, 'New'));
     await tick();
     const options = doc.ids['gp-cat'].children.map((o) => o.textContent);
     expect(options).not.toContain('(none)');

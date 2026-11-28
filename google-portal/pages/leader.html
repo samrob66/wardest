@@ -12,8 +12,8 @@
 <!-- GP:CSS -->
 </head>
 <body>
-<main class="gp-wrap gp-wide">
-  <header class="gp-head">
+<main class="gp-wrap gp-app">
+  <header class="gp-head gp-signin" id="gp-head">
     <p class="gp-ward">{{WARD_NAME}}</p>
     <h1>{{PAGE_TITLE}}</h1>
   </header>
@@ -30,12 +30,27 @@ GP.footer();
 (function () {
   var el = GP.el;
   var main = GP.$('gp-main');
-  var STATUS_LABEL = { 'Waiting-email': 'Waiting for their email click', 'Waiting-approval': 'Waiting for approval' };
   var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var K = '';
   var me = null;
-  var state = { tab: 'list', past: false, form: null, errors: {}, formError: '', flash: null, relink: '' };
+  var state = {
+    tab: 'opps',
+    past: false,
+    postId: '',
+    day: '',
+    form: null,
+    errors: {},
+    formError: '',
+    flash: null,
+    relink: '',
+    posts: null,
+    waitingCount: null,
+    vol: { q: '', f: 'all', sort: 'name' },
+  };
   var lastLinkCheck = 0;
+  var sheetHost = el('div');
+  var pipHost = null;
+  var bannerHost = null;
 
   // ---------- helpers ----------
 
@@ -90,135 +105,38 @@ GP.footer();
     return out;
   }
 
-  function blankRole() {
-    return { slotId: '', start: '', end: '', role: '', needed: 1, roleNote: '', bringingPrompt: '' };
-  }
-
-  function copyRole(r) {
-    return { slotId: '', start: r.start, end: r.end, role: r.role, needed: r.needed, roleNote: r.roleNote, bringingPrompt: r.bringingPrompt };
-  }
-
-  /**
-   * Organizations this form may use: with no category the leader's own; in a category, the ones
-   * its rule gives this leader (whoami catOrgs). An edit that keeps the category keeps the post's
-   * organization too.
-   */
-  function orgsFor(f) {
-    var list = f.category ? (me.access.catOrgs && me.access.catOrgs[f.category]) || [] : me.access.baseCreateOrgs;
-    if (f.postId && f.category === f.origCategory && f.origOrganization) list = list.concat([f.origOrganization]);
-    return uniq(list);
-  }
-
-  function categoryById(id) {
-    for (var i = 0; i < me.categories.length; i++) if (me.categories[i].id === id) return me.categories[i];
-    return null;
-  }
-
-  function newForm() {
-    // A coordinator with no organization of their own starts in their first category.
-    var cat = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';
-    var f = {
-      postId: '',
-      status: '',
-      organization: '',
-      category: cat,
-      title: '',
-      audiences: [],
-      publicNote: '',
-      privateDetails: '',
-      cutoffHours: '',
-      dates: [{ date: '', roles: [blankRole()] }],
-    };
-    f.organization = orgsFor(f)[0] || '';
-    var c = categoryById(cat);
-    if (c && c.audiences) f.audiences = c.audiences.slice();
-    return f;
-  }
-
-  /** Server post → form model (slots grouped by date). */
-  function toForm(post) {
-    var dates = [];
-    var at = {};
-    post.slots.forEach(function (s) {
-      if (!(s.date in at)) {
-        at[s.date] = dates.length;
-        dates.push({ date: s.date, roles: [] });
-      }
-      dates[at[s.date]].roles.push({
-        slotId: s.slotId,
-        start: s.start || '',
-        end: s.end || '',
-        role: s.role,
-        needed: s.needed,
-        roleNote: s.roleNote || '',
-        bringingPrompt: s.bringingPrompt || '',
-        filled: s.filled || 0,
-      });
-    });
-    return {
-      postId: post.postId,
-      status: post.status,
-      fromRequest: !!post.fromRequest,
-      origCategory: post.category || '',
-      origOrganization: post.organization,
-      organization: post.organization,
-      category: post.category || '',
-      title: post.title,
-      audiences: post.audiences.slice(),
-      publicNote: post.publicNote || '',
-      privateDetails: post.privateDetails || '',
-      cutoffHours: post.cutoffHours === '' || post.cutoffHours === null || post.cutoffHours === undefined ? '' : String(post.cutoffHours),
-      dates: dates.length ? dates : [{ date: '', roles: [blankRole()] }],
-    };
-  }
-
-  /** Form model → [slots], plus where each slot index sits ([dateIndex, roleIndex]). */
-  function flatten(form) {
-    var slots = [];
-    var where = [];
-    form.dates.forEach(function (d, di) {
-      d.roles.forEach(function (r, ri) {
-        slots.push({
-          slotId: r.slotId,
-          date: d.date,
-          start: r.start,
-          end: r.end,
-          role: r.role,
-          needed: r.needed,
-          roleNote: r.roleNote,
-          bringingPrompt: r.bringingPrompt,
-        });
-        where.push([di, ri]);
-      });
-    });
-    return { slots: slots, where: where };
-  }
-
-  function slotErrorKey(form, di, ri, field) {
-    var map = flatten(form).where;
-    for (var i = 0; i < map.length; i++) if (map[i][0] === di && map[i][1] === ri) return 'slots[' + i + '].' + field;
-    return '';
-  }
-
-  function err(key) {
-    var msg = state.errors[key];
-    return msg ? el('p', { class: 'gp-error', role: 'alert' }, msg) : null;
-  }
-
-  function field(label, input, key) {
-    return el('div', {}, [el('label', { for: input.id }, label), input, err(key)]);
-  }
-
   var uid = 0;
   function nextId(prefix) {
     uid += 1;
     return prefix + uid;
   }
 
+  function canApproveAny() {
+    return !!(me.access.canApprove || me.access.isApprover);
+  }
+
+  /** 'Dec 2' */
+  function monthDay(d) {
+    return GP.fmtDate(d).slice(5);
+  }
+
+  /** [gold weekday, ', Dec 2'] */
+  function wdDate(d) {
+    var w = GP.weekday(d);
+    return w ? [el('span', { class: 'gp-w' }, w), ', ' + monthDay(d)] : [GP.fmtDate(d)];
+  }
+
+  /** The status mark on a person's line: the 2.4 volunteerStatus, else today's sign-up word. */
+  function personChip(su) {
+    var kind = GP.signupKind(su);
+    // A Confirmed sign-up (2.3.3 answer) belongs to someone approved.
+    return GP.chip(kind === 'confirmed' ? 'approved' : kind, su.status);
+  }
+
   // ---------- request a link ----------
 
   function showRequest(error) {
-    GP.show(main, requestParts(error));
+    GP.show(main, el('div', { class: 'gp-signin' }, requestParts(error)));
   }
 
   /** The "Email me a leader link" box. */
@@ -256,77 +174,190 @@ GP.footer();
 
   /** Shown above the page when the link stopped working while it was open. */
   function relinkBox(error) {
-    return el('div', { class: 'gp-card', id: 'gp-relink' }, requestParts(error).concat([
+    return el('div', { class: 'gp-card gp-pad', id: 'gp-relink' }, requestParts(error).concat([
       el('p', { class: 'gp-meta' }, 'Nothing below was saved. Copy anything you typed before you open the new link (it opens a fresh page).'),
     ]));
   }
 
-  // ---------- the signed-in page ----------
+  // ---------- the frame: app bar, tabs, bottom sheet ----------
 
-  function tab(name, label, before) {
-    return el('button', {
-      type: 'button',
-      role: 'tab',
-      'aria-selected': String(state.tab === name),
-      onclick: function () {
-        if (before) before();
-        state.tab = name;
-        render();
-      },
-    }, label);
+  function appbar(title, back, more) {
+    return el('header', { class: 'gp-appbar' }, [
+      back ? el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Back', onclick: back }, [GP.icon('chevL')]) : null,
+      el('div', { class: 'gp-appbar-t' }, [el('p', { class: 'gp-ward' }, GP.config().wardName), el('h1', {}, title)]),
+      more ? el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'More actions', 'aria-haspopup': 'dialog', onclick: more }, [GP.icon('more')]) : null,
+    ]);
   }
 
-  function render() {
+  function go(tab) {
+    state.tab = tab;
+    state.postId = '';
+    state.day = '';
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  /** Tabs along the bottom: Opportunities, Waiting, New, Short soon, Volunteers (each as access allows). */
+  function tabsBar() {
     var a = me.access;
-    var tabs = el('div', { class: 'gp-tabs', role: 'tablist' }, [
-      tab('list', 'My opportunities'),
-      a.canApprove ? tab('waiting', 'Waiting for approval') : null,
-      a.isCouncil ? tab('needs', 'Needs help soon') : null,
-      tab('form', state.form && state.form.postId ? 'Edit opportunity' : 'New opportunity', function () {
-        if (!state.form) state.form = newForm();
-        state.errors = {};
-        state.formError = '';
-        checkLink(true);
-      }),
-      a.isBishopric ? tab('volunteers', 'Volunteers') : null,
+    function tab(name, iconName, label, extra) {
+      return el('button', {
+        type: 'button',
+        'aria-current': state.tab === name || (name === 'opps' && state.tab === 'post') ? 'page' : null,
+        onclick: function () {
+          go(name);
+        },
+      }, [GP.icon(iconName), label, extra || null]);
+    }
+    pipHost = el('span', { class: 'gp-hidden' });
+    fillPip();
+    return el('nav', { class: 'gp-tabs', 'aria-label': 'Leader page' }, [
+      tab('opps', 'list', 'Opportunities'),
+      canApproveAny() ? tab('waiting', 'clock', 'Waiting', pipHost) : null,
+      el('button', {
+        type: 'button',
+        class: 'gp-tab-new',
+        'aria-current': state.tab === 'form' ? 'page' : null,
+        onclick: function () {
+          openNew();
+        },
+      }, [el('span', { class: 'gp-plus' }, [GP.icon('plus')]), 'New']),
+      a.isCouncil ? tab('needs', 'alert', 'Short soon') : null,
+      tab('volunteers', 'users', 'Volunteers'),
     ]);
-    var signOut = el('button', {
-      type: 'button',
-      class: 'gp-light',
-      onclick: function () {
-        if (!window.confirm('Sign out everywhere? Your current link stops working and we email you a new one.')) return;
-        call('signOutEverywhere').then(function (res) {
-          GP.show(main, GP.message(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res)));
-        }, failed);
+  }
+
+  function fillPip() {
+    if (!pipHost) return;
+    var n = state.waitingCount;
+    if (n) {
+      pipHost.className = 'gp-pip';
+      pipHost.setAttribute('aria-label', n + ' waiting');
+      pipHost.textContent = String(n);
+    } else {
+      pipHost.className = 'gp-hidden';
+      pipHost.textContent = '';
+    }
+  }
+
+  /** The banner on Opportunities when people need approval; it opens Waiting. */
+  function fillBanner() {
+    if (!bannerHost) return;
+    var n = state.waitingCount;
+    if (!n) return GP.clear(bannerHost);
+    GP.show(bannerHost, el('button', { type: 'button', class: 'gp-banner', onclick: function () { go('waiting'); } }, [
+      el('strong', {}, [GP.icon('clock'), ' ' + n + (n === 1 ? ' person needs approval' : ' people need approval')]),
+      el('span', {}, 'Their sign-ups don’t count until a leader approves them.'),
+    ]));
+  }
+
+  /** How many wait for this leader's approval (the waiting action), for the badge and banner. */
+  function loadWaitingCount() {
+    if (!canApproveAny()) return;
+    call('waiting').then(function (res) {
+      if (!res || !res.ok || !res.volunteers) return;
+      state.waitingCount = res.volunteers.length;
+      fillPip();
+      fillBanner();
+    }, function () {});
+  }
+
+  function openSheet(title, options) {
+    var close = function () {
+      GP.clear(sheetHost);
+    };
+    GP.show(sheetHost, [
+      el('div', { class: 'gp-scrim', onclick: close }),
+      el('div', { class: 'gp-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, [el('div', { class: 'gp-grab' }), el('h2', {}, title)].concat(options.map(function (o) {
+        return el('button', {
+          type: 'button',
+          class: 'gp-opt' + (o.red ? ' gp-red' : ''),
+          onclick: function () {
+            close();
+            o.run();
+          },
+        }, [GP.icon(o.icon), o.label]);
+      })).concat([el('button', { type: 'button', class: 'gp-opt', onclick: close }, [GP.icon('x'), 'Close this menu'])])),
+    ]);
+  }
+
+  /** The page-level ••• (who is signed in, Sign out everywhere). */
+  function accountMenu() {
+    openSheet('Signed in as ' + me.leader.name + (me.leader.organization ? ', ' + me.leader.organization : ''), [
+      {
+        icon: 'lock',
+        label: 'Sign out everywhere',
+        run: function () {
+          if (!window.confirm('Sign out everywhere? Your current link stops working and we email you a new one.')) return;
+          call('signOutEverywhere').then(function (res) {
+            GP.show(main, el('div', { class: 'gp-signin' }, [GP.message(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res))]));
+          }, failed);
+        },
       },
-    }, 'Sign out everywhere');
-    var who = el('div', { class: 'gp-card' }, [
-      el('p', { style: 'margin:0' }, 'Signed in as ' + me.leader.name + (me.leader.organization ? ', ' + me.leader.organization : '')),
-      signOut,
     ]);
-    var body = el('div');
+  }
+
+  var TITLES = { opps: 'Opportunities', waiting: 'Waiting for approval', needs: 'Needs help soon', volunteers: 'Volunteers' };
+
+  function render() {
+    var head = GP.$('gp-head');
+    if (head) head.className = 'gp-head gp-signin gp-hidden';
+    GP.clear(sheetHost);
     var note = state.flash ? GP.message(state.flash.kind, state.flash.text) : null;
     state.flash = null;
-    GP.show(main, [state.relink ? relinkBox(state.relink) : null, who, tabs, note, body]);
+    var parts = [state.relink ? relinkBox(state.relink) : null];
+    if (state.tab === 'form') {
+      // The full-screen form: no tabs; Save draft and Publish stay at the bottom.
+      parts.push(formScreen(note));
+      parts.push(sheetHost);
+      GP.show(main, parts);
+      return;
+    }
+    var body = el('div', { class: 'gp-pad' });
+    var bar = state.tab === 'post' ? null : appbar(TITLES[state.tab] || TITLES.opps, null, accountMenu);
+    var postBar = el('div');
+    parts.push(bar || postBar, note ? el('div', { class: 'gp-pad', style: 'padding-bottom:0' }, [note]) : null, body, tabsBar(), sheetHost);
+    GP.show(main, parts);
     // With a dead link only the form (already on the page) is shown; the other tabs need the link.
-    if (state.relink && state.tab !== 'form') return;
+    if (state.relink) return;
     if (state.tab === 'waiting') renderWaiting(body);
     else if (state.tab === 'needs') renderNeeds(body);
     else if (state.tab === 'volunteers') renderVolunteers(body);
-    else if (state.tab === 'form') renderForm(body);
+    else if (state.tab === 'post') renderPost(body, postBar);
     else renderList(body);
   }
 
-  /** Runs a leader action, then shows its answer above the current tab. */
+  /** Runs a leader action, then shows its answer above the current screen. */
   function act(action, data, box, btn) {
     if (btn) btn.disabled = true;
     call(action, data).then(function (res) {
       flash(res.ok ? 'ok' : 'alert', res.ok ? res.message : GP.errorText(res));
       render();
+      if (res.ok) loadWaitingCount();
     }, function (e) {
       if (btn) btn.disabled = false;
       failed(e, box);
     });
+  }
+
+  /** Approve / Decline for one person: data names the sign-up (on a post) or the address (Waiting). */
+  function decideButtons(name, data, out) {
+    var send = function (decision) {
+      var d = { decision: decision };
+      if (data.signupId) d.signupId = data.signupId;
+      else d.email = data.email;
+      return d;
+    };
+    var approve = el('button', { type: 'button', onclick: function () { act('decide', send('approve'), out, approve); } }, 'Approve');
+    var decline = el('button', {
+      type: 'button',
+      class: 'gp-danger',
+      onclick: function () {
+        if (!window.confirm('Decline ' + name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;
+        act('decide', send('decline'), out, decline);
+      },
+    }, 'Decline');
+    return [approve, decline];
   }
 
   // ---------- Waiting for approval ----------
@@ -335,30 +366,24 @@ GP.footer();
     GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
     call('waiting').then(function (res) {
       if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
+      state.waitingCount = res.volunteers.length;
+      fillPip();
       var parts = [
         el('p', { class: 'gp-meta' }, 'People who confirmed their email and wait for a leader. Check the ward directory, then approve or decline. Approval counts for the whole ward; you and the time are recorded.'),
       ];
       if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'Nobody is waiting for you.'));
       res.volunteers.forEach(function (v) {
         var out = el('div');
-        var approve = el('button', { type: 'button', onclick: function () { act('decide', { email: v.email, decision: 'approve' }, out, approve); } }, 'Approve');
-        var decline = el('button', {
-          type: 'button',
-          class: 'gp-danger',
-          onclick: function () {
-            if (!window.confirm('Decline ' + v.name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;
-            act('decide', { email: v.email, decision: 'decline' }, out, decline);
-          },
-        }, 'Decline');
-        parts.push(el('div', { class: 'gp-card' }, [
-          el('h3', {}, v.name),
-          el('p', { class: 'gp-meta' }, v.email + ' · first signed up for ' + (v.firstPost || 'an opportunity') + (v.firstPostOrganization ? ' (' + v.firstPostOrganization + ')' : '')),
+        var buttons = decideButtons(v.name, { email: v.email }, out);
+        parts.push(el('div', { class: 'gp-wcard' }, [
+          el('div', { class: 'gp-pcard-h' }, [el('h3', { style: 'margin:0' }, v.name), GP.chip('needs')]),
+          el('p', { class: 'gp-meta' }, (v.email ? v.email + ' · ' : '') + 'first signed up for ' + (v.firstPost || 'an opportunity') + (v.firstPostOrganization ? ' (' + v.firstPostOrganization + ')' : '')),
           v.signups.length
-            ? el('div', {}, v.signups.map(function (s) {
-                return el('div', { class: 'gp-person' }, (s.childName ? s.childName + ': ' : '') + s.title + ' · ' + GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTime(s.start) : '') + ' · ' + s.role);
+            ? el('ul', {}, v.signups.map(function (s) {
+                return el('li', {}, wdDate(s.date).concat([(s.start ? ', ' + GP.fmtTime(s.start) : '') + ' · ' + (s.childName ? s.childName + ': ' : '') + s.title + ' · ' + s.role]));
               }))
             : el('p', { class: 'gp-muted' }, 'No sign-ups waiting right now.'),
-          el('p', {}, [approve, decline]),
+          el('div', { class: 'gp-split' }, buttons),
           out,
         ]));
       });
@@ -374,63 +399,287 @@ GP.footer();
       if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
       var parts = [el('p', { class: 'gp-meta' }, 'Open roles still short in the next 14 days, soonest first.')];
       if (!res.rows.length) parts.push(el('p', { class: 'gp-muted' }, 'Nothing is short in the next 14 days.'));
+      var mine = {};
+      (state.posts || []).forEach(function (p) {
+        mine[p.postId] = true;
+      });
       res.rows.forEach(function (r) {
-        parts.push(el('div', { class: 'gp-slot' }, [
-          el('strong', {}, GP.fmtDate(r.date) + (r.start ? ', ' + GP.fmtTimes(r.start, r.end) : '') + ' · ' + r.role),
-          el('span', { class: 'gp-count' }, ' ' + r.filled + ' of ' + r.needed + ' filled'),
-          el('div', { class: 'gp-meta' }, [r.organization + ' · ', el('a', { href: r.publicUrl, target: '_blank', rel: 'noopener' }, r.title)]),
-        ]));
+        var inner = [
+          el('div', { class: 'gp-pcard-h' }, [el('strong', {}, r.role), el('span', { class: 'gp-role-c' }, r.filled + ' of ' + r.needed + ' filled')]),
+          el('div', { class: 'gp-next' }, [GP.icon('cal'), el('span', {}, wdDate(r.date).concat([r.start ? ', ' + GP.fmtTimes(r.start, r.end) : '']))]),
+          el('div', { class: 'gp-meta' }, r.organization + ' · ' + r.title),
+        ];
+        // A post this leader can open goes to its day; any other to its public page.
+        parts.push(mine[r.postId]
+          ? el('button', { type: 'button', class: 'gp-pcard', onclick: function () { openPost(r.postId, r.date); } }, inner)
+          : el('a', { class: 'gp-card', href: r.publicUrl, target: '_blank', rel: 'noopener' }, inner));
       });
       GP.show(body, parts);
     }, function (e) { failed(e, body); });
   }
 
-  // ---------- Volunteers (bishopric) ----------
+  // ---------- Volunteers ----------
+
+  var VFILTERS = [['all', 'All'], ['approved', 'Approved'], ['needs', 'Needs approval'], ['email', 'Email not confirmed'], ['no', 'Declined or revoked'], ['leader', 'Leaders']];
+
+  /** The 2.3.3 bishopric-only answer in the listVolunteers shape (until 2.4 is deployed). */
+  function fromOldVolunteers(res) {
+    return {
+      ok: true,
+      legacy: true,
+      canSeeEmails: true,
+      canAct: true,
+      volunteers: (res.volunteers || []).map(function (v) {
+        var kind = GP.signupKind(v);
+        return {
+          vid: v.email,
+          name: v.name,
+          status: v.status,
+          emailConfirmed: v.emailConfirmed,
+          firstSignup: v.firstPost ? { title: v.firstPost, date: '' } : null,
+          children: [],
+          email: v.email,
+          decidedBy: v.decidedBy,
+          decidedAt: v.decidedAt,
+          actions: kind === 'approved' ? ['revoke'] : kind === 'declined' || kind === 'revoked' ? ['undo'] : [],
+        };
+      }),
+    };
+  }
 
   function renderVolunteers(body) {
     GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
-    call('volunteers').then(function (res) {
+    call('listVolunteers').then(function (res) {
+      // Sam's live script before 2.4 doesn't know listVolunteers: use the old bishopric list.
+      if (res && !res.ok && res.error === 'Not found.') {
+        return call('volunteers').then(function (old) {
+          if (!old.ok) return GP.show(body, GP.message('alert', GP.errorText(old)));
+          drawVolunteers(body, fromOldVolunteers(old));
+        }, function (e) { failed(e, body); });
+      }
       if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
-      var parts = [el('p', { class: 'gp-meta' }, 'Everyone who has signed up. Undo a decline to let someone sign up again; revoke an approval when someone should no longer serve (their current sign-ups stay until you remove them).')];
-      if (!res.volunteers.length) parts.push(el('p', { class: 'gp-muted' }, 'No volunteers yet.'));
-      res.volunteers.forEach(function (v) {
-        var out = el('div');
-        var bits = [
-          el('strong', {}, v.name),
-          el('span', { class: 'gp-meta' }, ' ' + v.email),
-          el('div', { class: 'gp-meta' }, v.status + (v.status === 'Pending' && !v.emailConfirmed ? ' (has not clicked the email yet)' : '') + (v.decidedBy ? ' · ' + v.decidedBy + ', ' + v.decidedAt : '') + (v.firstPost ? ' · first: ' + v.firstPost : '')),
-        ];
-        if (v.status === 'Declined' || v.status === 'Revoked') {
-          var undo = el('button', { type: 'button', class: 'gp-light', onclick: function () { act('bishopric', { email: v.email, decision: 'undo' }, out, undo); } }, 'Undo ' + (v.status === 'Declined' ? 'decline' : 'revoke'));
-          bits.push(undo);
-        }
-        if (v.status === 'Approved') {
-          var revoke = el('button', {
-            type: 'button',
-            class: 'gp-danger',
-            onclick: function () {
-              if (!window.confirm('Revoke ' + v.name + '? They can no longer sign up. Their current sign-ups stay until you remove them.')) return;
-              act('bishopric', { email: v.email, decision: 'revoke' }, out, revoke);
-            },
-          }, 'Revoke');
-          bits.push(revoke);
-        }
-        bits.push(out);
-        parts.push(el('div', { class: 'gp-person' }, bits));
-      });
-      GP.show(body, parts);
+      drawVolunteers(body, res);
     }, function (e) { failed(e, body); });
   }
 
-  // ---------- My opportunities ----------
+  function drawVolunteers(body, res) {
+    var vs = state.vol;
+    var list = el('div', { id: 'gp-vlist' });
+    var search = el('input', { type: 'search', id: 'gp-vq', placeholder: 'Search by name', autocomplete: 'off', value: vs.q });
+    search.addEventListener('input', function () {
+      vs.q = search.value;
+      drawRows();
+    });
+    var filterButtons = VFILTERS.map(function (f) {
+      return el('button', {
+        type: 'button',
+        class: 'gp-light gp-sm',
+        'aria-pressed': String(vs.f === f[0]),
+        onclick: function () {
+          vs.f = f[0];
+          filterButtons.forEach(function (b, i) {
+            b.setAttribute('aria-pressed', String(VFILTERS[i][0] === vs.f));
+          });
+          drawRows();
+        },
+      }, f[1]);
+    });
+    var sort = el('select', { id: 'gp-vsort', onchange: function () { vs.sort = sort.value; drawRows(); } }, [
+      el('option', { value: 'name', selected: vs.sort === 'name' ? 'selected' : null }, 'Name'),
+      el('option', { value: 'recent', selected: vs.sort === 'recent' ? 'selected' : null }, 'Most recent'),
+    ]);
+    sort.value = vs.sort;
+
+    function matches(v) {
+      var q = vs.q.trim().toLowerCase();
+      var okQ = !q || String(v.name || '').toLowerCase().indexOf(q) >= 0 || (v.children || []).some(function (c) {
+        return String(c).toLowerCase().indexOf(q) >= 0;
+      });
+      var kind = GP.signupKind(v);
+      var okF = vs.f === 'all' || kind === vs.f || (vs.f === 'no' && (kind === 'declined' || kind === 'revoked'));
+      return okQ && okF;
+    }
+
+    function actionButtons(v, out) {
+      if (!res.canAct || !v.actions || !v.actions.length) return null;
+      var send = function (decision, btn) {
+        if (res.legacy) {
+          if (decision === 'approve' || decision === 'decline') act('decide', { email: v.email, decision: decision }, out, btn);
+          else act('bishopric', { email: v.email, decision: decision }, out, btn);
+        } else {
+          act('decideVolunteer', { vid: v.vid, decision: decision }, out, btn);
+        }
+      };
+      var kind = GP.signupKind(v);
+      var buttons = [];
+      v.actions.forEach(function (a) {
+        var b = null;
+        if (a === 'approve') b = el('button', { type: 'button', onclick: function () { send('approve', b); } }, 'Approve');
+        if (a === 'decline') {
+          b = el('button', { type: 'button', class: 'gp-danger', onclick: function () {
+            if (!window.confirm('Decline ' + v.name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;
+            send('decline', b);
+          } }, 'Decline');
+        }
+        if (a === 'revoke') {
+          b = el('button', { type: 'button', class: 'gp-danger', onclick: function () {
+            if (!window.confirm('Revoke ' + v.name + '? They can no longer sign up. Their current sign-ups stay until you remove them.')) return;
+            send('revoke', b);
+          } }, 'Revoke');
+        }
+        if (a === 'undo') b = el('button', { type: 'button', class: 'gp-light', onclick: function () { send('undo', b); } }, 'Undo ' + (kind === 'revoked' ? 'revoke' : 'decline'));
+        if (b) buttons.push(b);
+      });
+      return buttons.length ? el('span', { class: 'gp-vacts' }, buttons) : null;
+    }
+
+    function row(v) {
+      var out = el('div');
+      var kind = GP.signupKind(v);
+      var meta = [];
+      if (typeof v.upcomingCount === 'number') meta.push(v.upcomingCount ? v.upcomingCount + ' coming up' : 'Nothing coming up');
+      if (v.firstSignup && v.firstSignup.title) meta.push('first: ' + v.firstSignup.title + (v.firstSignup.date ? ', ' + GP.fmtDate(v.firstSignup.date) : ''));
+      // Who decided and the address only when the answer carries them (bishopric and approvers).
+      if (res.canSeeEmails && v.decidedBy) meta.push((kind === 'approved' ? 'approved by ' : 'decided by ') + v.decidedBy + (v.decidedAt ? ', ' + v.decidedAt : ''));
+      var metaLine = el('div', { class: 'gp-vmeta' }, [meta.join(' · ')]);
+      if (res.canSeeEmails && v.email) {
+        if (meta.length) metaLine.appendChild(document.createTextNode(' · '));
+        metaLine.appendChild(el('span', { class: 'gp-vmail' }, v.email));
+      }
+      return el('div', { class: 'gp-vrow' }, [
+        el('div', { class: 'gp-vtop' }, [el('span', { class: 'gp-vname' }, v.name || '(no name)'), GP.statusChip(v), actionButtons(v, out)]),
+        metaLine,
+        v.children && v.children.length
+          ? el('ul', { class: 'gp-vkids' }, v.children.map(function (c) {
+              return el('li', {}, [GP.icon('user'), String(c), el('span', { class: 'gp-meta' }, ' (child)')]);
+            }))
+          : null,
+        out,
+      ]);
+    }
+
+    function drawRows() {
+      var all = res.volunteers || [];
+      var shown = all.filter(matches).sort(function (a, b) {
+        if (vs.sort === 'recent') {
+          var da = (a.firstSignup && a.firstSignup.date) || '';
+          var db = (b.firstSignup && b.firstSignup.date) || '';
+          if (da !== db) return da < db ? 1 : -1;
+        }
+        return String(a.name || '').toLowerCase() < String(b.name || '').toLowerCase() ? -1 : String(a.name || '').toLowerCase() > String(b.name || '').toLowerCase() ? 1 : 0;
+      });
+      if (!all.length) return GP.show(list, el('p', { class: 'gp-muted' }, 'No volunteers yet.'));
+      if (!shown.length) return GP.show(list, el('p', { class: 'gp-muted' }, 'No one matches. Clear the search or pick All.'));
+      GP.show(list, [el('p', { class: 'gp-meta gp-vcount' }, shown.length + ' of ' + all.length + ' people')].concat(shown.map(row)));
+    }
+
+    var parts = [
+      el('p', { class: 'gp-meta' }, res.canSeeEmails
+        ? 'Everyone who has signed up. You also see emails, who decided, and the actions.'
+        : 'Everyone who has signed up, with their status. Emails and actions are for the bishopric and the leaders who approve.'),
+      el('label', { for: 'gp-vq', class: 'gp-sr' }, 'Search by name'),
+      search,
+      el('div', { class: 'gp-vrow2' }, [
+        el('div', { class: 'gp-vfilters', role: 'group', 'aria-label': 'Filter by status' }, filterButtons),
+        el('label', { class: 'gp-vsort', for: 'gp-vsort' }, ['Sort ', sort]),
+      ]),
+      list,
+    ];
+    if (me.access.canManagePreapprove) parts.push(preapproveBox());
+    GP.show(body, parts);
+    drawRows();
+  }
+
+  /** The pre-approve list (2.4): paste addresses, Add, the total, Clear. Addresses are never shown. */
+  function preapproveBox() {
+    var box = el('section', { class: 'gp-preapprove', 'aria-labelledby': 'gp-pre-h' });
+    var total = el('p', { class: 'gp-meta' }, 'Loading…');
+    var out = el('div');
+    var paste = el('textarea', { id: 'gp-pre-paste', rows: '4', placeholder: 'Paste addresses (commas, spaces or new lines between them)', autocomplete: 'off' });
+    function showTotal(n) {
+      total.textContent = n + (n === 1 ? ' address is' : ' addresses are') + ' on the list.';
+    }
+    var add = el('button', {
+      type: 'button',
+      onclick: function () {
+        add.disabled = true;
+        call('preapproveAdd', { emails: paste.value }).then(function (res) {
+          add.disabled = false;
+          if (!res.ok) return GP.show(out, GP.message('alert', GP.errorText(res)));
+          paste.value = '';
+          showTotal(res.total);
+          GP.show(out, GP.message('ok', 'Added ' + res.added + '. Already on the list: ' + res.already + '. Not an email address: ' + res.invalid + '.'));
+        }, function (e) {
+          add.disabled = false;
+          failed(e, out);
+        });
+      },
+    }, 'Add');
+    var clearBtn = el('button', {
+      type: 'button',
+      class: 'gp-danger',
+      onclick: function () {
+        if (!window.confirm('Clear the whole pre-approve list? People already approved stay approved. To change the list, clear it and paste it again.')) return;
+        clearBtn.disabled = true;
+        call('preapproveClear').then(function (res) {
+          clearBtn.disabled = false;
+          if (!res.ok) return GP.show(out, GP.message('alert', GP.errorText(res)));
+          showTotal(0);
+          GP.show(out, GP.message('ok', 'Cleared. ' + res.removed + (res.removed === 1 ? ' address' : ' addresses') + ' removed.'));
+        }, function (e) {
+          clearBtn.disabled = false;
+          failed(e, out);
+        });
+      },
+    }, 'Clear the list');
+    GP.show(box, [
+      el('h2', { id: 'gp-pre-h' }, 'Pre-approve list'),
+      el('p', { class: 'gp-meta' }, 'Addresses on this list are approved the moment they sign up (they still confirm their email). Declined or revoked people are never approved this way. The list is kept as fingerprints, so addresses can’t be shown again.'),
+      total,
+      el('label', { for: 'gp-pre-paste' }, 'Add addresses'),
+      paste,
+      el('p', {}, [add, clearBtn]),
+      out,
+    ]);
+    call('preapproveCount').then(function (res) {
+      if (!res.ok) return GP.show(out, GP.message('alert', GP.errorText(res)));
+      if (!res.canManage) return GP.clear(box);
+      showTotal(res.total);
+    }, function (e) { failed(e, out); });
+    return box;
+  }
+
+  // ---------- Opportunities ----------
+
+  /** {have, need, waiting, dates[], next} for a post from its slots. */
+  function sums(p) {
+    var have = 0;
+    var need = 0;
+    var waiting = 0;
+    var dates = [];
+    p.slots.forEach(function (s) {
+      need += s.needed;
+      have += Math.min(s.filled, s.needed);
+      waiting += s.waiting || 0;
+      if (dates.indexOf(s.date) < 0) dates.push(s.date);
+    });
+    var today = GP.today();
+    var next = dates.filter(function (d) {
+      return d >= today;
+    })[0] || dates[0] || '';
+    return { have: have, need: need, waiting: waiting, dates: dates, next: next };
+  }
 
   function renderList(body) {
     GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
     call('listPosts', { past: state.past }).then(function (res) {
       if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
-      var parts = [];
+      if (!state.past) state.posts = res.posts;
+      bannerHost = el('div');
+      fillBanner();
+      var parts = [bannerHost, el('h2', { class: 'gp-seclabel' }, state.past ? 'Past' : 'Coming up')];
       if (!res.posts.length) {
-        parts.push(el('p', { class: 'gp-muted' }, state.past ? 'No past opportunities.' : 'No opportunities yet. Use New opportunity to make one.'));
+        parts.push(el('p', { class: 'gp-muted' }, state.past ? 'No past opportunities.' : 'No opportunities yet. Use New to make one.'));
       }
       res.posts.forEach(function (p) {
         parts.push(postCard(p));
@@ -444,8 +693,96 @@ GP.footer();
     }, function (e) { failed(e, body); });
   }
 
+  function postCard(p) {
+    var t = sums(p);
+    var first = p.slots.filter(function (s) {
+      return s.date === t.next;
+    })[0];
+    var pct = t.need ? Math.round((t.have / t.need) * 100) : 0;
+    return el('button', { type: 'button', class: 'gp-pcard', onclick: function () { openPost(p.postId, ''); } }, [
+      el('div', { class: 'gp-pcard-h' }, [el('strong', {}, p.title), el('span', { class: 'gp-st' + (p.status === 'Open' ? ' gp-st-open' : '') }, p.status)]),
+      t.next
+        ? el('div', { class: 'gp-next' }, [GP.icon('cal'), el('span', {}, [t.dates.length > 1 ? 'Next ' : ''].concat(wdDate(t.next)).concat([
+            first && first.start ? ', ' + GP.fmtTime(first.start) : '',
+            t.dates.length > 1 ? el('span', { class: 'gp-muted' }, ' · ' + t.dates.length + ' dates') : null,
+          ]))])
+        : null,
+      el('div', { class: 'gp-fill' }, [
+        el('span', { class: 'gp-bar' }, [el('span', { style: 'width:' + pct + '%' })]),
+        el('span', { class: 'gp-count' }, t.have + ' of ' + t.need + (t.waiting ? ' · ' + t.waiting + ' waiting' : '')),
+      ]),
+      p.fromRequest ? el('p', { style: 'margin:0.45rem 0 0' }, [el('span', { class: 'gp-tag' }, 'From a request')]) : null,
+    ]);
+  }
+
+  function openPost(postId, day) {
+    state.tab = 'post';
+    state.postId = postId;
+    state.day = day || '';
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- one post ----------
+
+  function renderPost(body, barHost) {
+    GP.show(body, el('p', { class: 'gp-loading' }, 'Loading…'));
+    call('listPosts', { past: state.past }).then(function (res) {
+      if (!res.ok) return GP.show(body, GP.message('alert', GP.errorText(res)));
+      if (!state.past) state.posts = res.posts;
+      var p = res.posts.filter(function (x) {
+        return x.postId === state.postId;
+      })[0];
+      if (!p && state.past) {
+        // Short soon may open a current post while Past is showing.
+        state.past = false;
+        return renderPost(body, barHost);
+      }
+      if (!p) {
+        state.tab = 'opps';
+        flash('alert', 'That opportunity is no longer on your list.');
+        return render();
+      }
+      var live = p.status !== 'Past' && p.status !== 'Cancelled';
+      GP.show(barHost, appbar(p.title, function () { go('opps'); }, p.canEdit ? function () { postMenu(p, live); } : null));
+      drawPost(body, p);
+    }, function (e) { failed(e, body); });
+  }
+
+  /** The ••• on a post: Edit, Copy the link, Copy this post, Close, Cancel this opportunity. */
+  function postMenu(p, live) {
+    var opts = [];
+    if (live) opts.push({ icon: 'edit', label: 'Edit', run: function () { openForEdit(p.postId, false); } });
+    if (p.status === 'Open' && p.publicUrl) opts.push({ icon: 'copy', label: 'Copy the link', run: function () { GP.copyText(p.publicUrl, null); flash('ok', 'Link copied. Paste it into a ward email (addresses in Bcc).'); renderFlashOnly(); } });
+    opts.push({ icon: 'repeat', label: 'Copy this post', run: function () { openForEdit(p.postId, true); } });
+    if (live && (p.status === 'Open' || p.status === 'Draft')) {
+      opts.push({
+        icon: 'lock',
+        label: 'Close (still happening, no new sign-ups)',
+        run: function () {
+          var q = 'Close "' + p.title + '"? No one new can sign up. People already signed up keep their place and still get their reminder. (If it is not happening at all, use Cancel this opportunity.)';
+          if (!window.confirm(q)) return;
+          call('savePost', { mode: 'close', post: { postId: p.postId } }).then(function (res) {
+            flash(res.ok ? 'ok' : 'alert', res.ok ? 'Closed.' : GP.errorText(res));
+            render();
+          }, function (e) { failed(e); });
+        },
+      });
+    }
+    if (live) opts.push({ icon: 'x', label: 'Cancel this opportunity', red: true, run: function () { cancelPanel(p, '', state.cancelBox); } });
+    openSheet(p.title, opts);
+  }
+
+  function renderFlashOnly() {
+    if (state.flashBox && state.flash) {
+      GP.show(state.flashBox, GP.message(state.flash.kind, state.flash.text));
+      state.flash = null;
+    }
+  }
+
   /** The inline "are you sure" panel for cancelling a post (date blank) or one date. */
   function cancelPanel(p, date, box) {
+    if (!box) return;
     var note = el('textarea', { id: nextId('gp-cancel-note-'), maxlength: '300', placeholder: 'Optional note for the email (up to 300 characters)' });
     var msg = el('div');
     var question = date
@@ -462,6 +799,7 @@ GP.footer();
             return GP.show(msg, GP.message('alert', GP.errorText(res)));
           }
           flash('ok', res.message);
+          if (!date) state.tab = 'opps';
           render();
         }, function (e) {
           yes.disabled = false;
@@ -479,130 +817,127 @@ GP.footer();
     ]));
   }
 
-  function postCard(p) {
+  function drawPost(body, p) {
+    var live = p.status !== 'Past' && p.status !== 'Cancelled';
     var bySlot = {};
     p.signups.forEach(function (s) {
       (bySlot[s.slotId] = bySlot[s.slotId] || []).push(s);
     });
-    var live = p.status !== 'Past' && p.status !== 'Cancelled';
-    var out = el('div');
-    var items = [
-      el('h3', {}, p.title),
-      el('p', { class: 'gp-meta' }, [
-        p.status + ' · ' + p.organization + (p.audiences.length ? ' · ' + p.audiences.join(', ') : ''),
-        p.fromRequest ? ' ' : null,
-        p.fromRequest ? el('span', { class: 'gp-tag' }, 'From a request') : null,
-      ]),
-    ];
-    if (p.status === 'Open') {
-      var copyBtn = el('button', { type: 'button', class: 'gp-light', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');
-      items.push(el('p', { class: 'gp-meta' }, ['Public link: ', el('a', { href: p.publicUrl, target: '_blank', rel: 'noopener' }, p.publicUrl), ' ', copyBtn]));
-    }
-    if (p.status === 'Closed' || p.status === 'Draft') {
-      items.push(el('p', { class: 'gp-meta' }, 'No one new can sign up. People already signed up keep their place and still get their reminder.'));
-    }
-    var dates = {};
+    var dates = [];
     p.slots.forEach(function (s) {
-      dates[s.date] = true;
+      if (dates.indexOf(s.date) < 0) dates.push(s.date);
     });
-    var multiDate = Object.keys(dates).length > 1;
+    var multiDate = dates.length > 1;
+    if (state.day && dates.indexOf(state.day) < 0) state.day = '';
     var bookedDates = {};
     p.signups.forEach(function (su) {
       p.slots.forEach(function (x) {
         if (x.slotId === su.slotId) bookedDates[x.date] = true;
       });
     });
-    // The last role of each date: its last row carries that date's "Cancel this date".
+    // The last role of each date: its last line carries that date's "Cancel this date".
     var lastSlotOfDate = {};
     p.slots.forEach(function (s) {
       lastSlotOfDate[s.date] = s.slotId;
     });
-    p.slots.forEach(function (s) {
-      // One "Cancel this date" per date with people signed up, when the post has other dates;
-      // it goes at the end of the date's last row, after that row's own buttons.
-      var cancelDate = null;
-      var dateBox = null;
-      if (p.canEdit && live && multiDate && bookedDates[s.date] && lastSlotOfDate[s.date] === s.slotId) {
-        dateBox = el('div');
-        var box = dateBox;
-        cancelDate = el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, s.date, box); } }, 'Cancel this date');
-      }
-      var list = bySlot[s.slotId] || [];
-      var people = list.map(function (su, i) {
-        return personRow(p, s, su, out, i === list.length - 1 ? cancelDate : null);
-      });
-      if (!people.length) {
-        people = [el('div', { class: 'gp-person' }, [el('span', { class: 'gp-muted' }, 'No one yet.'), cancelDate ? el('span', { class: 'gp-actions' }, [cancelDate]) : null])];
-      }
-      items.push(
-        el('div', { class: 'gp-slot' }, [
-          el('strong', {}, GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '') + ' · ' + s.role),
-          el('span', { class: 'gp-count' }, ' ' + s.filled + ' of ' + s.needed + (s.waiting ? ' · ' + s.waiting + ' waiting' : '') + (s.filled >= s.needed ? ' · Filled ✓' : '')),
-        ].concat(people).concat(dateBox ? [dateBox] : []))
-      );
-    });
-    if (p.canEdit && live) {
-      var cancelBox = el('div');
-      var actions = [
-        el('button', { type: 'button', onclick: function () { openForEdit(p.postId, false, out); } }, 'Edit'),
-        el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post'),
-      ];
-      if (p.status === 'Open' || p.status === 'Draft') {
-        actions.push(
-          el('button', {
-            type: 'button',
-            class: 'gp-light',
-            onclick: function () {
-              var q = 'Close "' + p.title + '"? No one new can sign up. People already signed up keep their place and still get their reminder. (If it is not happening at all, use Cancel this opportunity.)';
-              if (!window.confirm(q)) return;
-              call('savePost', { mode: 'close', post: { postId: p.postId } }).then(function (res) {
-                flash(res.ok ? 'ok' : 'alert', res.ok ? 'Closed.' : GP.errorText(res));
-                render();
-              }, function (e) { failed(e, out); });
-            },
-          }, 'Close')
-        );
-      }
-      actions.push(el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, '', cancelBox); } }, 'Cancel this opportunity'));
-      items.push(el('p', {}, actions));
-      items.push(cancelBox);
-    } else if (p.canEdit && p.status === 'Past') {
-      items.push(el('p', {}, [el('button', { type: 'button', class: 'gp-light', onclick: function () { openForEdit(p.postId, true, out); } }, 'Copy this post')]));
+    var out = el('div');
+    state.cancelBox = el('div');
+    state.flashBox = el('div');
+    var items = [
+      state.flashBox,
+      el('div', { class: 'gp-sum' }, [
+        el('span', { class: 'gp-tag' }, p.status),
+        p.organization ? el('span', { class: 'gp-tag' }, p.organization) : null,
+        p.audiences.length ? el('span', { class: 'gp-tag' }, GP.audienceLine(p)) : null,
+        p.fromRequest ? el('span', { class: 'gp-tag' }, 'From a request') : null,
+      ]),
+    ];
+    if (p.status === 'Open' && p.publicUrl) {
+      var copyBtn = el('button', { type: 'button', class: 'gp-sm', onclick: function () { GP.copyText(p.publicUrl, copyBtn); } }, 'Copy');
+      items.push(el('div', { class: 'gp-linkrow' }, [GP.icon('link'), el('a', { href: p.publicUrl, target: '_blank', rel: 'noopener' }, p.publicUrl), copyBtn]));
     }
+    if (p.status === 'Closed' || p.status === 'Draft') {
+      items.push(el('p', { class: 'gp-meta' }, 'No one new can sign up. People already signed up keep their place and still get their reminder.'));
+    }
+    items.push(state.cancelBox);
+    if (multiDate) {
+      // The day strip: one date at a time (or all of them).
+      var strip = [el('button', { type: 'button', class: 'gp-all', 'aria-pressed': String(!state.day), onclick: function () { state.day = ''; drawPost(body, p); } }, 'All ' + dates.length)];
+      dates.forEach(function (d) {
+        var full = p.slots.filter(function (s) {
+          return s.date === d;
+        }).every(function (s) {
+          return s.filled >= s.needed;
+        });
+        var t = GP.tile(d) || { dow: '', day: d, mon: '' };
+        strip.push(el('button', {
+          type: 'button',
+          'aria-pressed': String(state.day === d),
+          'aria-label': GP.fmtLong(d) + (full ? ', filled' : ', still short'),
+          onclick: function () {
+            state.day = d;
+            drawPost(body, p);
+          },
+        }, [
+          el('span', { class: 'gp-sw-w' }, t.dow),
+          el('span', { class: 'gp-sw-d' }, t.day),
+          el('span', { class: 'gp-sw-m' }, t.mon),
+          el('span', { class: 'gp-sw-f' + (full ? ' gp-sw-ok' : '') }),
+        ]));
+      });
+      items.push(el('div', { class: 'gp-strip', role: 'group', 'aria-label': 'Show one date' }, strip));
+    }
+    dates.filter(function (d) {
+      return !state.day || d === state.day;
+    }).forEach(function (d) {
+      items.push(el('div', { class: 'gp-dayhead' }, [el('h2', {}, GP.fmtLong(d))]));
+      var dateBox = null;
+      p.slots.filter(function (s) {
+        return s.date === d;
+      }).forEach(function (s) {
+        // One "Cancel this date" per date with people signed up, when the post has other dates;
+        // it goes at the end of the date's last line, after that line's own buttons.
+        var cancelDate = null;
+        if (p.canEdit && live && multiDate && bookedDates[s.date] && lastSlotOfDate[s.date] === s.slotId) {
+          dateBox = el('div');
+          var box = dateBox;
+          cancelDate = el('button', { type: 'button', class: 'gp-danger', onclick: function () { cancelPanel(p, s.date, box); } }, 'Cancel this date');
+        }
+        var list = bySlot[s.slotId] || [];
+        var people = list.map(function (su, i) {
+          return personRow(p, s, su, out, i === list.length - 1 ? cancelDate : null);
+        });
+        if (!people.length) {
+          people = [el('div', { class: 'gp-person' }, [el('span', { class: 'gp-muted' }, 'No one yet.'), cancelDate ? el('span', { class: 'gp-actions' }, [cancelDate]) : null])];
+        }
+        var full = s.filled >= s.needed;
+        items.push(el('div', { class: 'gp-role' }, [
+          el('div', { class: 'gp-role-h' }, [
+            el('strong', {}, [s.role, s.start ? el('span', { class: 'gp-meta' }, ' ' + GP.fmtTimes(s.start, s.end)) : null]),
+            el('span', { class: 'gp-role-c' + (full ? ' gp-role-ok' : '') }, [full ? GP.icon('check') : null, ' ' + s.filled + ' of ' + s.needed + (s.waiting ? ' · ' + s.waiting + ' waiting' : '')]),
+          ]),
+        ].concat(people)));
+      });
+      if (dateBox) items.push(dateBox);
+    });
     items.push(out);
-    return el('div', { class: 'gp-card' }, items);
+    GP.show(body, items);
   }
 
   /**
-   * One line per person: name, tags, what they bring, email (to editors only), then the buttons
-   * together in this order: Approve, Decline, Remove, and on the date's last row Cancel this date.
+   * One line per person: name, status mark, what they bring, email (to editors only), then the
+   * buttons together in this order: Approve, Decline, Remove, and on the date's last line Cancel
+   * this date. Below 560px the buttons wrap under the name.
    */
   function personRow(p, s, su, out, cancelDate) {
-    var bits = [el('span', {}, su.label || su.name)];
+    var bits = [el('span', {}, su.label || su.name), personChip(su)];
     var buttons = [];
-    if (STATUS_LABEL[su.status]) bits.push(el('span', { class: 'gp-tag' }, STATUS_LABEL[su.status]));
     if (su.overLimit) bits.push(el('span', { class: 'gp-tag' }, 'Over the number'));
-    if (su.bringing) bits.push(el('span', { class: 'gp-meta' }, 'Bringing: ' + su.bringing));
-    if (su.email) bits.push(el('span', { class: 'gp-meta' }, su.email));
+    if (su.bringing) bits.push(el('span', { class: 'gp-bring' }, 'Bringing: ' + su.bringing));
+    if (su.email) bits.push(el('span', { class: 'gp-bring' }, su.email));
     // Approve / Decline right here when this leader may decide for this person (decision 22); the
     // Waiting for approval tab does the same.
-    if (su.canDecide) {
-      var approve = el('button', {
-        type: 'button',
-        onclick: function () {
-          act('decide', { signupId: su.signupId, decision: 'approve' }, out, approve);
-        },
-      }, 'Approve');
-      var decline = el('button', {
-        type: 'button',
-        class: 'gp-danger',
-        onclick: function () {
-          if (!window.confirm('Decline ' + su.name + '? Their waiting sign-ups end, and they are asked to contact the ward. The bishopric can undo this.')) return;
-          act('decide', { signupId: su.signupId, decision: 'decline' }, out, decline);
-        },
-      }, 'Decline');
-      buttons.push(approve, decline);
-    }
+    if (su.canDecide) buttons = buttons.concat(decideButtons(su.name, { signupId: su.signupId }, out));
     if (p.canEdit && p.status !== 'Past' && p.status !== 'Cancelled') {
       buttons.push(
         el('button', {
@@ -623,16 +958,207 @@ GP.footer();
     return el('div', { class: 'gp-person' }, bits);
   }
 
-  function openForEdit(postId, asCopy, out) {
+  // ---------- the form model ----------
+
+  var rkNext = 0;
+  function rk() {
+    rkNext += 1;
+    return 'r' + rkNext;
+  }
+
+  function blankRole() {
+    return { rk: rk(), slotId: '', start: '', end: '', role: '', needed: 1, roleNote: '', bringingPrompt: '', filled: 0 };
+  }
+
+  function copyRole(r, keepId) {
+    return { rk: r.rk || rk(), slotId: keepId ? r.slotId || '' : '', start: r.start || '', end: r.end || '', role: r.role || '', needed: r.needed, roleNote: r.roleNote || '', bringingPrompt: r.bringingPrompt || '', filled: keepId ? r.filled || 0 : 0 };
+  }
+
+  function sameRoles(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      var x = a[i];
+      var y = b[i];
+      if (x.role !== y.role || String(x.needed) !== String(y.needed) || x.start !== y.start || x.end !== y.end || x.roleNote !== y.roleNote || x.bringingPrompt !== y.bringingPrompt) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Organizations this form may use: with no category the leader's own; in a category, the ones
+   * its rule gives this leader (whoami catOrgs). An edit that keeps the category keeps the post's
+   * organization too.
+   */
+  function orgsFor(f) {
+    var list = f.category ? (me.access.catOrgs && me.access.catOrgs[f.category]) || [] : me.access.baseCreateOrgs;
+    if (f.postId && f.category === f.origCategory && f.origOrganization) list = list.concat([f.origOrganization]);
+    return uniq(list);
+  }
+
+  function categoryById(id) {
+    for (var i = 0; i < me.categories.length; i++) if (me.categories[i].id === id) return me.categories[i];
+    return null;
+  }
+
+  function newForm() {
+    // A coordinator with no organization of their own starts in their first category.
+    var cat = me.access.baseCreateOrgs.length ? '' : me.categories[0] ? me.categories[0].id : '';
+    var f = {
+      postId: '',
+      status: '',
+      organization: '',
+      category: cat,
+      title: '',
+      audiences: [],
+      publicNote: '',
+      privateDetails: '',
+      cutoffHours: '',
+      how: 'once',
+      one: '',
+      picked: [],
+      days: [],
+      from: '',
+      until: '',
+      off: [],
+      roles: [blankRole()],
+      ids: {},
+      own: {},
+      month: GP.today().slice(0, 7),
+    };
+    f.organization = orgsFor(f)[0] || '';
+    var c = categoryById(cat);
+    if (c && c.audiences) f.audiences = c.audiences.slice();
+    return f;
+  }
+
+  /**
+   * Server post → form model. Roles shared by every date go in roles (each date's slot ids kept
+   * in ids[date][rk]); a date whose roles differ keeps its own copy (own[date], with its slot ids).
+   * An existing post opens in Once (one date) or Pick days, never guessed back into Every week.
+   */
+  function toForm(post) {
+    var dates = [];
+    var byDate = {};
+    post.slots.forEach(function (s) {
+      if (!byDate[s.date]) {
+        byDate[s.date] = [];
+        dates.push(s.date);
+      }
+      byDate[s.date].push({ slotId: s.slotId, start: s.start || '', end: s.end || '', role: s.role, needed: s.needed, roleNote: s.roleNote || '', bringingPrompt: s.bringingPrompt || '', filled: s.filled || 0 });
+    });
+    var shared = dates.length ? byDate[dates[0]].map(function (r) { return copyRole(r, false); }) : [blankRole()];
+    shared.forEach(function (r) {
+      r.rk = rk();
+    });
+    var ids = {};
+    var own = {};
+    dates.forEach(function (d) {
+      if (sameRoles(byDate[d], shared)) {
+        ids[d] = {};
+        byDate[d].forEach(function (r, i) {
+          ids[d][shared[i].rk] = r.slotId;
+        });
+      } else {
+        own[d] = byDate[d].map(function (r) { return copyRole(r, true); });
+      }
+    });
+    return {
+      postId: post.postId,
+      status: post.status,
+      fromRequest: !!post.fromRequest,
+      origCategory: post.category || '',
+      origOrganization: post.organization,
+      organization: post.organization,
+      category: post.category || '',
+      title: post.title,
+      audiences: post.audiences.slice(),
+      publicNote: post.publicNote || '',
+      privateDetails: post.privateDetails || '',
+      cutoffHours: post.cutoffHours === '' || post.cutoffHours === null || post.cutoffHours === undefined ? '' : String(post.cutoffHours),
+      how: dates.length > 1 ? 'days' : 'once',
+      one: dates[0] || '',
+      picked: dates.slice(),
+      days: [],
+      from: '',
+      until: '',
+      off: [],
+      roles: shared,
+      ids: ids,
+      own: own,
+      month: (dates[0] || GP.today()).slice(0, 7),
+    };
+  }
+
+  /** The dates the form stands for now (Every week: without the skipped ones). */
+  function formDates(f) {
+    if (f.how === 'once') return [f.one];
+    if (f.how === 'days') return f.picked.slice().sort();
+    return GP.sched.weekly(f.days, f.from, f.until, f.off).dates;
+  }
+
+  /** Form model → [slots], plus where each slot index sits ({date, role}). */
+  function flatten(f) {
+    var slots = [];
+    var where = [];
+    formDates(f).forEach(function (d) {
+      var mine = f.own[d];
+      (mine || f.roles).forEach(function (r) {
+        slots.push({
+          slotId: mine ? r.slotId || '' : (f.ids[d] && f.ids[d][r.rk]) || '',
+          date: d,
+          start: r.start,
+          end: r.end,
+          role: r.role,
+          needed: r.needed,
+          roleNote: r.roleNote,
+          bringingPrompt: r.bringingPrompt,
+        });
+        where.push({ date: d, role: r.role });
+      });
+    });
+    return { slots: slots, where: where };
+  }
+
+  function err(key) {
+    var msg = state.errors[key];
+    return msg ? el('p', { class: 'gp-error', role: 'alert' }, msg) : null;
+  }
+
+  function field(label, input, key) {
+    return el('div', {}, [el('label', { for: input.id }, label), input, err(key)]);
+  }
+
+  function bindText(input, obj, key) {
+    input.addEventListener('input', function () {
+      obj[key] = input.value;
+    });
+    return input;
+  }
+
+  function openNew() {
+    if (!state.form || state.form.postId) state.form = newForm();
+    state.errors = {};
+    state.formError = '';
+    state.tab = 'form';
+    render();
+    window.scrollTo(0, 0);
+    checkLink(true);
+  }
+
+  function openForEdit(postId, asCopy) {
     call('getPost', { postId: postId }).then(function (res) {
-      if (!res.ok) return GP.show(out, GP.message('alert', GP.errorText(res)));
+      if (!res.ok) {
+        flash('alert', GP.errorText(res));
+        return render();
+      }
       var f = toForm(res.post);
       if (asCopy) {
         f.postId = '';
         f.status = '';
         f.title = ('Copy of ' + f.title).slice(0, 100);
-        f.dates.forEach(function (d) {
-          d.roles = d.roles.map(copyRole);
+        f.ids = {};
+        Object.keys(f.own).forEach(function (d) {
+          f.own[d] = f.own[d].map(function (r) { return copyRole(r, false); });
         });
         // A copy keeps its category when this leader may create in it; otherwise one must be picked.
         if (!categoryById(f.category)) f.category = '';
@@ -643,27 +1169,51 @@ GP.footer();
       state.formError = '';
       state.tab = 'form';
       render();
+      window.scrollTo(0, 0);
       checkLink(true);
-    }, function (e) { failed(e, out); });
+    }, function (e) { failed(e); });
   }
 
-  // ---------- New / edit opportunity ----------
+  // ---------- the full-screen form (New and Edit) ----------
 
-  function bindText(input, obj, key) {
-    input.addEventListener('input', function () {
-      obj[key] = input.value;
-    });
-    return input;
+  function leaveForm() {
+    if (!window.confirm('Leave this form? Changes you have not saved are lost.')) return;
+    state.form = null;
+    state.errors = {};
+    state.formError = '';
+    go(state.postId ? 'post' : 'opps');
   }
 
-  function renderForm(body) {
+  function formScreen(note) {
     var f = state.form || (state.form = newForm());
+    var bar = el('header', { class: 'gp-appbar' }, [
+      el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Close the form', onclick: leaveForm }, [GP.icon('x')]),
+      el('div', { class: 'gp-appbar-t' }, [el('p', { class: 'gp-ward' }, GP.config().wardName), el('h1', {}, f.postId ? 'Edit opportunity' : 'New opportunity')]),
+    ]);
     var orgs = orgsFor(f);
     if (!orgs.length) {
-      return GP.show(body, GP.message('alert', "Your leader role can't create opportunities yet. Ask the bishopric to tick Org editor for you on the Leaders tab, or to add your email to a category's Coordinators."));
+      return el('div', { class: 'gp-form-screen' }, [bar, el('div', { class: 'gp-pad' }, [GP.message('alert', "Your leader role can't create opportunities yet. Ask the bishopric to tick Org editor for you on the Leaders tab, or to add your email to a category's Coordinators.")])]);
     }
     if (orgs.indexOf(f.organization) < 0) f.organization = orgs[0];
+    var top = [note, state.formError ? GP.message('alert', state.formError) : null];
+    if (f.fromRequest) {
+      top.push(el('p', { class: 'gp-alert', role: 'note' }, [
+        el('span', { class: 'gp-tag' }, 'From a request'),
+        " Check the date and write the public note. Never put the family's name, address or situation in the public note.",
+      ]));
+    }
+    return el('div', { class: 'gp-form-screen' }, [
+      bar,
+      el('div', { class: 'gp-pad', style: 'padding-bottom:0' }, top),
+      whatBlock(f, orgs),
+      whenBlock(f),
+      rolesBlock(f),
+      notesBlock(f),
+      saveBar(f),
+    ]);
+  }
 
+  function whatBlock(f, orgs) {
     var org = el('select', { id: 'gp-org', onchange: function () { f.organization = org.value; } }, orgs.map(function (o) {
       return el('option', { value: o, selected: o === f.organization ? 'selected' : null }, o);
     }));
@@ -688,8 +1238,8 @@ GP.footer();
     cat.value = f.category;
     var childNote = el('p', { class: 'gp-meta' + (f.audiences.indexOf('Youth') >= 0 || f.audiences.indexOf('Children') >= 0 ? '' : ' gp-hidden') },
       'Who is serving: the sign-up form asks "Me / My child" and takes a child\'s first name. Every email goes to the parent; you see "Ana (signed up by …)".');
-    var title = bindText(el('input', { type: 'text', id: 'gp-title-in', maxlength: '100', value: f.title }), f, 'title');
-    var audiences = el('div', { role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {
+    var title = bindText(el('input', { type: 'text', id: 'gp-title-in', maxlength: '100', value: f.title, placeholder: 'e.g. Meals for a family with a new baby' }), f, 'title');
+    var audiences = el('div', { class: 'gp-aud', role: 'group', 'aria-label': 'Who is it for' }, GP.AUDIENCES.map(function (a) {
       var box = el('input', {
         type: 'checkbox',
         checked: f.audiences.indexOf(a) >= 0,
@@ -701,154 +1251,324 @@ GP.footer();
           childNote.className = 'gp-meta' + (young ? '' : ' gp-hidden');
         },
       });
-      return el('label', { class: 'gp-check' }, [box, a]);
+      return el('label', {}, [box, a]);
     }));
-    var note = bindText(el('textarea', { id: 'gp-note', maxlength: '2000' }), f, 'publicNote');
-    note.value = f.publicNote;
-    var priv = bindText(el('textarea', { id: 'gp-priv', maxlength: '1000' }), f, 'privateDetails');
-    priv.value = f.privateDetails;
-    var cutoff = bindText(el('input', { type: 'number', id: 'gp-cutoff', min: '0', max: '168', step: '1', value: f.cutoffHours, placeholder: String(me.defaults.cutoffHours) }), f, 'cutoffHours');
-
-    var parts = [
-      el('h2', {}, f.postId ? 'Edit opportunity' : 'New opportunity'),
-      f.fromRequest
-        ? el('p', { class: 'gp-alert', role: 'note' }, [
-            el('span', { class: 'gp-tag' }, 'From a request'),
-            " Check the date and write the public note. Never put the family's name, address or situation in the public note.",
-          ])
-        : null,
-      state.formError ? GP.message('alert', state.formError) : null,
+    return el('section', { class: 'gp-blk' }, [
+      el('h2', {}, 'What'),
       field('Category', cat, 'category'),
       field('Organization', org, 'organization'),
       field('Title (everyone sees this)', title, 'title'),
       el('div', {}, [el('label', {}, 'Who is it for?'), audiences, err('audiences'), childNote]),
-      field('Public note (everyone sees this)', note, 'publicNote'),
-      field('Private details: an address, a gate code (sent only to approved volunteers who are signed up: in their confirmation email, their reminder and My sign-ups, until the date is over)', priv, 'privateDetails'),
-      field('Cancel cutoff in hours (after this, a cancellation tells you that you are short)', cutoff, 'cutoffHours'),
-      el('h2', {}, 'Dates and roles'),
-      err('slots'),
-    ];
-    f.dates.forEach(function (d, di) {
-      parts.push(dateBlock(f, d, di));
+    ]);
+  }
+
+  /** Days that already have an opportunity (from the list already loaded), other than this post. */
+  function busyDays(f) {
+    var busy = {};
+    (state.posts || []).forEach(function (p) {
+      if (p.postId === f.postId) return;
+      var seen = {};
+      p.slots.forEach(function (s) {
+        if (seen[s.date]) return;
+        seen[s.date] = true;
+        busy[s.date] = (busy[s.date] || 0) + 1;
+      });
     });
-    parts.push(
-      el('p', {}, [
-        el('button', { type: 'button', class: 'gp-light', onclick: function () {
-          var last = f.dates[f.dates.length - 1];
-          f.dates.push({ date: '', roles: last ? last.roles.map(copyRole) : [blankRole()] });
+    return busy;
+  }
+
+  function whenBlock(f) {
+    var seg = el('div', { class: 'gp-segc', role: 'radiogroup', 'aria-label': 'How often' }, [['once', 'Once'], ['days', 'Pick days'], ['week', 'Every week']].map(function (x) {
+      return el('button', {
+        type: 'button',
+        role: 'radio',
+        'aria-checked': String(f.how === x[0]),
+        onclick: function () {
+          if (f.how === x[0]) return;
+          // Carry the dates across where it makes sense.
+          if (x[0] === 'days' && !f.picked.length) f.picked = formDates(f).filter(GP.isDate);
+          if (x[0] === 'once' && !f.one) f.one = formDates(f).filter(GP.isDate)[0] || '';
+          if (x[0] === 'week' && !f.from) {
+            var ds = formDates(f).filter(GP.isDate).sort();
+            f.from = ds[0] || '';
+            f.until = ds[ds.length - 1] || '';
+            if (!f.days.length) f.days = uniq(ds.map(function (d) { return new Date(GP.utc(d)).getUTCDay(); }));
+          }
+          f.how = x[0];
           render();
-        } }, 'Add date'),
-      ])
-    );
-    parts.push(addDatesPanel(f));
-    var actions = [];
-    if (f.status === 'Open') {
-      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Save changes'));
-      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft (hide it)'));
-      parts.push(el('p', { class: 'gp-meta' }, 'Save as draft hides it from the public page. People already signed up keep their place and still get their reminder.'));
-    } else if (f.status === 'Closed') {
-      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Reopen and save'));
-      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));
-    } else {
-      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft'));
-      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Publish'));
-    }
-    actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () {
-      if (!window.confirm('Leave this form? Changes you have not saved are lost.')) return;
-      state.form = null;
-      state.errors = {};
-      state.formError = '';
-      state.tab = 'list';
+        },
+      }, x[1]);
+    }));
+    var parts = [el('h2', {}, 'When'), seg];
+    if (f.how === 'once') parts = parts.concat(onceParts(f));
+    else if (f.how === 'days') parts = parts.concat(daysParts(f));
+    else parts = parts.concat(weekParts(f));
+    parts.push(err('slots'));
+    parts.push(slotErrors(f));
+    return el('section', { class: 'gp-blk' }, parts);
+  }
+
+  function dateInput(id, value, onChange) {
+    var input = el('input', { type: 'date', id: id, value: value });
+    input.addEventListener('change', function () {
+      onChange(input.value);
+    });
+    return input;
+  }
+
+  function onceParts(f) {
+    var input = dateInput('gp-once', f.one, function (v) {
+      // Moving the only date keeps its slots (and the sign-ups on them).
+      if (f.one && v && f.one !== v) {
+        if (f.ids[f.one] && !f.ids[v]) {
+          f.ids[v] = f.ids[f.one];
+          delete f.ids[f.one];
+        }
+        if (f.own[f.one] && !f.own[v]) {
+          f.own[v] = f.own[f.one];
+          delete f.own[f.one];
+        }
+      }
+      f.one = v;
       render();
-    } }, 'Cancel'));
-    parts.push(el('p', {}, actions));
-    GP.show(body, parts);
+    });
+    return [field('Date', input, ''), GP.isDate(f.one) ? el('p', { class: 'gp-hint' }, GP.fmtLong(f.one)) : null];
   }
 
-  function dateBlock(f, d, di) {
-    var date = el('input', { type: 'date', id: nextId('gp-date-'), value: d.date });
-    date.addEventListener('input', function () {
-      d.date = date.value;
+  function daysParts(f) {
+    var month = GP.monthDays(f.month);
+    var busy = busyDays(f);
+    var today = GP.today();
+    var grid = WEEKDAYS.map(function (w) {
+      return el('div', { class: 'gp-cal-dow' }, w);
     });
-    var roles = d.roles.map(function (r, ri) {
-      return roleBlock(f, d, di, r, ri);
-    });
-    return el('div', { class: 'gp-date' }, [
-      el('div', {}, [el('label', { for: date.id }, 'Date'), date, err(slotErrorKey(f, di, 0, 'date'))]),
-    ].concat(roles).concat([
-      el('p', {}, [
-        el('button', { type: 'button', class: 'gp-light', onclick: function () { d.roles.push(blankRole()); render(); } }, 'Add role'),
-        el('button', { type: 'button', class: 'gp-light', onclick: function () {
-          f.dates.splice(di + 1, 0, { date: '', roles: d.roles.map(copyRole) });
+    for (var i = 0; i < month.lead; i++) grid.push(el('span'));
+    month.days.forEach(function (d) {
+      var on = f.picked.indexOf(d) >= 0;
+      var past = d < today;
+      var n = busy[d] || 0;
+      grid.push(el('button', {
+        type: 'button',
+        class: 'gp-cal-day' + (past ? ' gp-past' : '') + (d === today ? ' gp-today' : '') + (n ? ' gp-busy' : ''),
+        'aria-pressed': String(on),
+        'aria-label': GP.fmtLong(d) + (n ? ', ' + n + (n === 1 ? ' other opportunity' : ' other opportunities') : ''),
+        disabled: past && !on ? 'disabled' : null,
+        'data-d': d,
+        onclick: function () {
+          var k = f.picked.indexOf(d);
+          if (k >= 0) f.picked.splice(k, 1);
+          else f.picked.push(d);
           render();
-        } }, 'Copy this date'),
-        f.dates.length > 1
-          ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { f.dates.splice(di, 1); render(); } }, 'Remove date')
-          : null,
+        },
+      }, [String(+d.slice(8)), n ? el('span', { class: 'gp-dots', 'aria-hidden': 'true' }) : null]));
+    });
+    var cal = el('div', { class: 'gp-cal' }, [
+      el('div', { class: 'gp-cal-head' }, [
+        el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Previous month', onclick: function () { f.month = GP.addMonths(f.month, -1); render(); } }, [GP.icon('chevL')]),
+        el('strong', {}, month.title),
+        el('button', { type: 'button', class: 'gp-icbtn', 'aria-label': 'Next month', onclick: function () { f.month = GP.addMonths(f.month, 1); render(); } }, [GP.icon('chevR')]),
       ]),
-    ]));
+      el('div', { class: 'gp-cal-grid' }, grid),
+    ]);
+    return [
+      cal,
+      el('p', { class: 'gp-hint' }, [el('span', { class: 'gp-kdot', 'aria-hidden': 'true' }), 'a day that already has an opportunity']),
+      dateRows(f, f.picked.slice().sort(), 'days'),
+    ];
   }
 
-  function roleBlock(f, d, di, r, ri) {
-    function input(type, key, attrs) {
+  function weekParts(f) {
+    var days = el('div', { class: 'gp-days', role: 'group', 'aria-label': 'Days of the week' }, WEEKDAYS.map(function (w, i) {
+      return el('button', {
+        type: 'button',
+        'aria-pressed': String(f.days.indexOf(i) >= 0),
+        onclick: function () {
+          var k = f.days.indexOf(i);
+          if (k >= 0) f.days.splice(k, 1);
+          else f.days.push(i);
+          f.days.sort();
+          render();
+        },
+      }, w);
+    }));
+    var from = dateInput('gp-from', f.from, function (v) {
+      f.from = v;
+      render();
+    });
+    var until = dateInput('gp-until', f.until, function (v) {
+      f.until = v;
+      render();
+    });
+    var r = GP.sched.weekly(f.days, f.from, f.until, f.off);
+    var parts = [
+      el('p', { class: 'gp-sentence' }, 'Every'),
+      days,
+      el('div', { class: 'gp-range' }, [field('from', from, ''), field('until', until, '')]),
+    ];
+    // Say nothing until both dates and a day are picked; then the dates appear at once.
+    if (r.error && (f.from || f.until) && f.days.length) parts.push(el('p', { class: 'gp-error', role: 'alert' }, r.error));
+    else if (r.error === 'Until is before From.' || /60 dates/.test(r.error || '')) parts.push(el('p', { class: 'gp-error', role: 'alert' }, r.error));
+    if (!r.error) parts.push(dateRows(f, r.all, 'week'));
+    return parts;
+  }
+
+  /** The chosen dates, grouped by week, each with Change (its own roles) and × or a skip switch. */
+  function dateRows(f, all, mode) {
+    if (!all.length) return el('p', { class: 'gp-hint' }, mode === 'days' ? 'Tap the days it happens.' : '');
+    var on = all.filter(function (d) {
+      return mode !== 'week' || f.off.indexOf(d) < 0;
+    });
+    var parts = [el('p', { style: 'color:var(--gp-heading);margin:0.8rem 0 0.5rem' }, [
+      on.length + (on.length === 1 ? ' date' : ' dates'),
+      all.length !== on.length ? el('span', { class: 'gp-meta' }, ' (' + (all.length - on.length) + ' skipped)') : null,
+    ])];
+    GP.sched.byWeek(all).forEach(function (week) {
+      var sunday = GP.iso(GP.utc(week[0]) - new Date(GP.utc(week[0])).getUTCDay() * 86400000);
+      var rows = [el('h3', {}, 'Week of ' + monthDay(sunday))];
+      week.forEach(function (d) {
+        var off = mode === 'week' && f.off.indexOf(d) >= 0;
+        var roles = f.own[d] || f.roles;
+        var time = roles[0] && roles[0].start ? GP.fmtTime(roles[0].start) : '';
+        var right = [
+          el('button', {
+            type: 'button',
+            class: 'gp-linkish',
+            'aria-expanded': String(!!f.own[d]),
+            onclick: function () {
+              if (f.own[d]) {
+                if (!window.confirm('Use the same roles as the other dates for ' + GP.fmtDate(d) + '?')) return;
+                delete f.own[d];
+              } else {
+                // This date gets its own copy of the roles, keeping the slots it already has.
+                f.own[d] = f.roles.map(function (r) {
+                  var c = copyRole(r, false);
+                  c.slotId = (f.ids[d] && f.ids[d][r.rk]) || '';
+                  return c;
+                });
+              }
+              render();
+            },
+          }, f.own[d] ? 'Same as the others' : 'Change'),
+        ];
+        if (mode === 'week') {
+          right.push(el('button', {
+            type: 'button',
+            class: 'gp-sw',
+            role: 'switch',
+            'aria-checked': String(!off),
+            'aria-label': GP.fmtLong(d),
+            onclick: function () {
+              var k = f.off.indexOf(d);
+              if (k >= 0) f.off.splice(k, 1);
+              else f.off.push(d);
+              render();
+            },
+          }));
+        } else {
+          right.push(el('button', {
+            type: 'button',
+            class: 'gp-icbtn',
+            'aria-label': 'Remove ' + GP.fmtLong(d),
+            onclick: function () {
+              f.picked.splice(f.picked.indexOf(d), 1);
+              render();
+            },
+          }, [GP.icon('x')]));
+        }
+        rows.push(el('div', { class: 'gp-drow' + (off ? ' gp-off' : '') }, [
+          el('span', { class: 'gp-drow-t' }, [el('b', {}, GP.weekday(d)), monthDay(d), time ? el('span', { class: 'gp-meta' }, ' · ' + time) : null, f.own[d] ? el('span', { class: 'gp-meta' }, ' · own roles') : null]),
+          el('span', { class: 'gp-drow-r' }, right),
+          f.own[d] && !off ? el('div', { class: 'gp-drow-own' }, roleRows(f.own[d], 'Roles on ' + GP.fmtDate(d))) : null,
+        ]));
+      });
+      parts.push(el('div', { class: 'gp-wk' }, rows));
+    });
+    return el('div', { class: 'gp-weeks' }, parts);
+  }
+
+  /** Server errors on slots ('slots[3].role'), named by date and role. */
+  function slotErrors(f) {
+    var where = flatten(f).where;
+    var items = [];
+    Object.keys(state.errors).forEach(function (k) {
+      var m = /^slots\[(\d+)\]\.(\w+)$/.exec(k);
+      if (!m) return;
+      var w = where[+m[1]];
+      items.push(el('li', {}, (w ? (GP.isDate(w.date) ? GP.fmtDate(w.date) : 'No date') + ' · ' + (w.role || 'a role') + ': ' : '') + state.errors[k]));
+    });
+    return items.length ? el('ul', { class: 'gp-errlist', role: 'alert' }, items) : null;
+  }
+
+  /** Role editors for one list (the shared roles, or one date's own). */
+  function roleRows(list, label) {
+    function input(r, type, key, attrs) {
       var a = { type: type, id: nextId('gp-r-'), value: r[key] === undefined ? '' : String(r[key]) };
       Object.keys(attrs || {}).forEach(function (k) {
         a[k] = attrs[k];
       });
       return bindText(el('input', a), r, key);
     }
-    var role = input('text', 'role', { maxlength: '60', placeholder: 'e.g. Bring a meal' });
-    var needed = input('number', 'needed', { min: '1', max: '200', step: '1' });
-    var start = input('time', 'start');
-    var end = input('time', 'end');
-    var roleNote = input('text', 'roleNote', { maxlength: '300' });
-    var prompt = input('text', 'bringingPrompt', { maxlength: '100', placeholder: 'e.g. What are you bringing?' });
-    var key = function (fieldName) {
-      return slotErrorKey(f, di, ri, fieldName);
-    };
-    return el('div', { class: 'gp-role' }, [
-      el('div', { class: 'gp-row' }, [field('Role', role, key('role')), field('How many people', needed, key('needed'))]),
-      el('div', { class: 'gp-row' }, [field('Start (optional)', start, key('start')), field('End (optional)', end, key('end'))]),
-      field('Note for this role (optional)', roleNote, key('roleNote')),
-      field('Ask volunteers (optional)', prompt, key('bringingPrompt')),
-      r.filled ? el('p', { class: 'gp-meta' }, r.filled + ' signed up') : null,
-      d.roles.length > 1
-        ? el('button', { type: 'button', class: 'gp-danger', onclick: function () { d.roles.splice(ri, 1); render(); } }, 'Remove role')
-        : null,
+    var rows = list.map(function (r, i) {
+      var needed = input(r, 'number', 'needed', { min: '1', max: '200', step: '1', 'aria-label': 'How many people' });
+      var step = function (n) {
+        var v = Math.max(1, Math.min(200, (parseInt(needed.value, 10) || 0) + n));
+        needed.value = String(v);
+        r.needed = String(v);
+      };
+      return el('div', { class: 'gp-rrow' }, [
+        field('Role', input(r, 'text', 'role', { maxlength: '60', placeholder: 'e.g. Bring dinner' }), ''),
+        el('label', {}, 'How many people'),
+        el('span', { class: 'gp-stepper' }, [
+          el('button', { type: 'button', 'aria-label': 'Fewer', onclick: function () { step(-1); } }, '−'),
+          needed,
+          el('button', { type: 'button', 'aria-label': 'More', onclick: function () { step(1); } }, '+'),
+        ]),
+        el('div', { class: 'gp-range' }, [field('Start (optional)', input(r, 'time', 'start'), ''), field('End (optional)', input(r, 'time', 'end'), '')]),
+        field('Note for this role (optional)', input(r, 'text', 'roleNote', { maxlength: '300' }), ''),
+        field('Ask volunteers (optional)', input(r, 'text', 'bringingPrompt', { maxlength: '100', placeholder: 'e.g. What are you bringing?' }), ''),
+        r.filled ? el('p', { class: 'gp-meta' }, r.filled + ' signed up') : null,
+        list.length > 1 ? el('button', { type: 'button', class: 'gp-danger gp-sm', onclick: function () { list.splice(i, 1); render(); } }, 'Remove role') : null,
+      ]);
+    });
+    return [el('div', { role: 'group', 'aria-label': label }, rows), el('button', { type: 'button', class: 'gp-light gp-sm', onclick: function () { list.push(blankRole()); render(); } }, [GP.icon('plus'), 'Add role'])];
+  }
+
+  function rolesBlock(f) {
+    return el('section', { class: 'gp-blk' }, [
+      el('h2', {}, ['Roles ', el('span', { class: 'gp-meta' }, 'on every date')]),
+      el('p', { class: 'gp-hint', style: 'margin:-0.4rem 0 0.6rem' }, 'A date that needs something different: tap Change next to it under When.'),
+    ].concat(roleRows(f.roles, 'Roles on every date')));
+  }
+
+  function notesBlock(f) {
+    var note = bindText(el('textarea', { id: 'gp-note', maxlength: '2000', placeholder: 'Never a family’s name, address or situation' }), f, 'publicNote');
+    note.value = f.publicNote;
+    var priv = bindText(el('textarea', { id: 'gp-priv', maxlength: '1000', placeholder: 'An address, a gate code' }), f, 'privateDetails');
+    priv.value = f.privateDetails;
+    var cutoff = bindText(el('input', { type: 'number', id: 'gp-cutoff', min: '0', max: '168', step: '1', value: f.cutoffHours, placeholder: String(me.defaults.cutoffHours) }), f, 'cutoffHours');
+    return el('section', { class: 'gp-blk' }, [
+      el('h2', {}, 'Notes'),
+      field('Public note (everyone sees this)', note, 'publicNote'),
+      field('Private details: an address, a gate code (sent only to approved volunteers who are signed up: in their confirmation email, their reminder and My sign-ups, until the date is over)', priv, 'privateDetails'),
+      field('Cancel cutoff in hours (after this, a cancellation tells you that you are short)', cutoff, 'cutoffHours'),
     ]);
   }
 
-  function addDatesPanel(f) {
-    var start = el('input', { type: 'date', id: 'gp-many-start' });
-    var end = el('input', { type: 'date', id: 'gp-many-end' });
-    var boxes = WEEKDAYS.map(function (w, i) {
-      return el('input', { type: 'checkbox', value: String(i) });
-    });
-    var msg = el('div');
-    return el('details', { class: 'gp-card' }, [
-      el('summary', {}, 'Add dates (for meal trains and other repeating needs)'),
-      el('div', { class: 'gp-row' }, [field('From', start, ''), field('To', end, '')]),
-      el('p', { class: 'gp-meta' }, 'On these days (none ticked means every day):'),
-      el('div', { class: 'gp-row' }, boxes.map(function (b, i) {
-        return el('label', { class: 'gp-check' }, [b, WEEKDAYS[i]]);
-      })),
-      el('p', {}, [
-        el('button', { type: 'button', class: 'gp-light', onclick: function () {
-          var days = boxes.filter(function (b) { return b.checked; }).map(function (b) { return Number(b.value); });
-          var list = GP.expandDates(start.value, end.value, days);
-          if (!list.length) return GP.show(msg, GP.message('alert', 'Pick a start and an end date (the end on or after the start).'));
-          var template = f.dates[f.dates.length - 1];
-          var roles = template ? template.roles : [blankRole()];
-          // Fill the first empty date block before adding new ones.
-          if (f.dates.length === 1 && !f.dates[0].date) f.dates = [];
-          list.forEach(function (day) {
-            f.dates.push({ date: day, roles: roles.map(copyRole) });
-          });
-          render();
-        } }, 'Add these dates'),
-      ]),
-      msg,
-    ]);
+  function saveBar(f) {
+    var actions = [];
+    if (f.status === 'Open') {
+      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save as draft (hide it)'));
+      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Save changes'));
+    } else if (f.status === 'Closed') {
+      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save draft'));
+      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, 'Reopen and save'));
+    } else {
+      actions.push(el('button', { type: 'button', class: 'gp-light', onclick: function () { save('draft'); } }, 'Save draft'));
+      actions.push(el('button', { type: 'button', onclick: function () { save('publish'); } }, [GP.icon('send'), 'Publish']));
+    }
+    return el('div', { class: 'gp-savebar' }, actions.concat([
+      f.status === 'Open' ? el('p', { class: 'gp-hint', style: 'flex-basis:100%;margin:0' }, 'Save as draft hides it from the public page. People already signed up keep their place and still get their reminder.') : null,
+    ]));
   }
 
   function save(action) {
@@ -872,10 +1592,11 @@ GP.footer();
         window.scrollTo(0, 0);
         return;
       }
+      var wasEdit = !!f.postId;
       state.form = null;
       state.errors = {};
       state.formError = '';
-      state.tab = 'list';
+      state.tab = wasEdit && state.postId ? 'post' : 'opps';
       flash('ok', action === 'publish' ? 'Published. Share this link: ' + res.publicUrl : 'Saved as a draft. Nobody else sees it until you publish it.');
       render();
       window.scrollTo(0, 0);
@@ -897,6 +1618,7 @@ GP.footer();
       me = res;
       lastLinkCheck = new Date().getTime();
       render();
+      loadWaitingCount();
     }, failed);
   });
 
