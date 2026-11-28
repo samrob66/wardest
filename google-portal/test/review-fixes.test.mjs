@@ -243,7 +243,7 @@ describe('requests: step messages and capped alerts', () => {
     gp.fakes.spreadsheets.delete(f['Sheet id']);
     gp.fakes.mail.sent.length = 0;
     for (let i = 0; i < 6; i++) gp.gpOnRequestSubmit(formSubmitEvent(form, { Name: 'N', 'Phone or email': 'c' }));
-    expect(gp.fakes.mail.sent).toHaveLength(6); // 3 alerts × 2 administrators
+    expect(gp.fakes.mail.sent).toHaveLength(3); // 3 alerts × 1 administrator (2.5.2: the Executive Secretary)
     expect(gp.fakes.mail.sent[0].body).toContain('It is kept in the form');
   });
 

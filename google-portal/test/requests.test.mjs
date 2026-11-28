@@ -101,8 +101,15 @@ describe('closing, purge and rotation rules', () => {
     );
     expect(d).toEqual({ add: [{ email: 'new@example.test', role: 'reader' }], change: [{ email: 'a@example.test', role: 'writer' }], remove: ['stale@example.test'] });
   });
-  it('administrators are the bishop and the executive secretary', () => {
-    expect(plain(gp0.adminEmails(LEADERS))).toEqual(['bishop.example@example.test', 'brother.clerk@example.test']);
+  it('administrators (2.5.2): admin_alerts_to, else the Executive Secretary, else the bishop', () => {
+    expect(plain(gp0.adminEmails(LEADERS))).toEqual(['brother.clerk@example.test']);
+    expect(plain(gp0.adminEmails(LEADERS, ''))).toEqual(['brother.clerk@example.test']);
+    const noExec = LEADERS.filter((l) => l.Calling !== 'Executive Secretary');
+    expect(plain(gp0.adminEmails(noExec, ''))).toEqual(['bishop.example@example.test']);
+    expect(plain(gp0.adminEmails([{ Name: 'X', Email: 'x@example.test', Calling: ' executive SECRETARY ' }, ...LEADERS], ''))).toEqual(['x@example.test', 'brother.clerk@example.test']);
+    expect(plain(gp0.adminEmails(LEADERS, 'Me.Home@example.test; me.home@example.test, sister.example@example.test'))).toEqual(['me.home@example.test', 'sister.example@example.test']);
+    expect(plain(gp0.adminEmails(LEADERS, 'me.home@example.test, not an address'))).toEqual(['brother.clerk@example.test']);
+    expect(plain(gp0.adminEmails([], ''))).toEqual([]);
   });
 });
 
@@ -241,7 +248,7 @@ describe('gpOnRequestSubmit', () => {
     expect(log).toContain('request error');
     expect(log).not.toContain('Sister Private');
     expect(log).not.toContain('secret need');
-    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test']);
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['brother.clerk@example.test']);
     expect(JSON.stringify(gp.fakes.mail.sent)).not.toContain('secret need');
   });
 });
@@ -295,7 +302,7 @@ describe('dailyRequests_', () => {
     gp.fakes.setNow('2027-01-01 02:00');
     gp.dailyRequests_();
     expect(gp.fakes.drive.files.get(f['Sheet id']).trashed).toBe(true);
-    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test']);
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['brother.clerk@example.test']);
   });
 });
 

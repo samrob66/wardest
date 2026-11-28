@@ -109,6 +109,7 @@ describe('test_mail_only', () => {
 
   it('one message per original recipient, and the quota is used as before', () => {
     const gp = ward(ME);
+    setSetting(gp, 'admin_alerts_to', 'bishop.example@example.test, brother.clerk@example.test'); // two administrators
     const before = gp.fakes.state.quota;
     gp.alertAdmins_(['Two admins']);
     const alerts = gp.fakes.mail.sent.filter((m) => m.subject.includes('needs attention'));
@@ -134,7 +135,7 @@ describe('test_mail_only', () => {
     expect(gp.fakes.mail.sent).toEqual([]);
     expect(sys(gp).rowsOf('Outbox')).toEqual([]);
     const notSent = sys(gp).rowsOf('Log').filter((l) => l.What === 'test mode: not sent (test_mail_only has no valid address)');
-    expect(notSent.map((l) => l.Detail.split(' | ')[0]).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test', 'stranger@example.test']);
+    expect(notSent.map((l) => l.Detail.split(' | ')[0]).sort()).toEqual(['brother.clerk@example.test', 'stranger@example.test']);
     expect(gp.gpMenuCheckHealth().some((l) => l.startsWith('PROBLEM ') && l.includes('no valid address'))).toBe(true);
   });
 

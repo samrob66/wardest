@@ -139,16 +139,17 @@ describe('gpDaily: the health email', () => {
     gp.fakes.mail.sent.length = 0;
     gp.fakes.setNow('2026-12-02 02:00');
     gp.gpDaily();
-    // Only the failed email is a problem: one health email to each administrator.
+    // Only the failed email is a problem: one health email to the administrator (2.5.2: the
+    // Executive Secretary, not the bishop).
     let health = gp.fakes.mail.sent.filter((m) => /needs attention/.test(m.subject));
-    expect(health.map((m) => m.to).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test']);
+    expect(health.map((m) => m.to).sort()).toEqual(['brother.clerk@example.test']);
     for (const m of health) {
       expect(m.body).toContain('PROBLEM Outbox: 0 waiting, 1 failed.');
       expect(m.body).not.toMatch(/OK /);
       for (const bad of ['brother.volunteer', 'Brother Volunteer', 'Meals for the Sample', '123 Example Lane']) expect(m.body).not.toContain(bad);
     }
     gp.gpDaily();
-    expect(gp.fakes.mail.sent.filter((m) => /needs attention/.test(m.subject))).toHaveLength(2);
+    expect(gp.fakes.mail.sent.filter((m) => /needs attention/.test(m.subject))).toHaveLength(1);
   });
 
   it('sends nothing when every check is OK, and flags jobs that run as another account', () => {
@@ -308,7 +309,7 @@ describe('review round 3', () => {
     expect(gp.healthLines_({ job: true })).toContain('PROBLEM The web app is an older version: Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy.');
     gp.fakes.mail.sent.length = 0;
     gp.gpDaily();
-    expect(gp.fakes.mail.sent.filter((m) => /needs attention/.test(m.subject) && m.body.includes('older version'))).toHaveLength(2);
+    expect(gp.fakes.mail.sent.filter((m) => /needs attention/.test(m.subject) && m.body.includes('older version'))).toHaveLength(1);
   });
 
   it('item 4: a new Settings tab defaults to 80 sign-up attempts a day; a value a ward typed stays', () => {

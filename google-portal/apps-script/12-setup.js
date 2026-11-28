@@ -512,6 +512,10 @@ function healthLines_(opts) {
   approverProblems_(serviceTab_(TAB.categories).rows(), s, leaders_()).forEach(function (line) {
     add(false, line);
   });
+  // admin_alerts_to (2.5.2): a bad entry sends alerts to the Executive Secretary instead.
+  adminAlertsBad_(s.admin_alerts_to).forEach(function (b) {
+    add(false, 'Settings admin_alerts_to: "' + clip(b, 60) + '" is not an email address, so "needs attention" emails go to ' + (adminEmails(leaders_(), '').join(', ') || 'nobody') + ' instead. Fix or remove it.');
+  });
   // Test mode (2.3.1): always a PROBLEM while on, so it can't be forgotten at go-live.
   var testMail = testMailList_(s.test_mail_only);
   if (testMail.on) {

@@ -50,6 +50,20 @@ How a volunteer is known (no Google account needed):
 >
 > If your ward is also before 2.4, do that box too (below).
 
+> **If you already set up before 2.5.2** (when the *needs attention* emails went to both the
+> bishop and the Executive Secretary), do this once, signed in to the shared account in a
+> private window:
+> 1. Paste the new `Code.gs` over the old one (section 2, steps 12–14) and Save.
+> 2. **Deploy > Manage deployments**, select the deployment, click the **pencil**, set
+>    **Version** to **New version**, click **Deploy** (skip if you haven't deployed yet).
+> 3. Run **Service Portal > Set up**. It adds a blank **admin_alerts_to** row to Settings. Left
+>    blank, the *needs attention* emails now go only to the Leaders row whose Calling is
+>    `Executive Secretary` (the bishop only if there is none).
+> 4. Optional: type the address(es) that should get them instead in **admin_alerts_to**, e.g.
+>    your own. Run **Check health**: no line should mention admin_alerts_to.
+>
+> If your ward is also before 2.4, do that box too (below).
+
 > **If you already set up before 2.4** (before you could choose who approves first-time
 > volunteers, or pre-approve members), do this once, signed in to the shared account in a
 > private window:
@@ -176,9 +190,11 @@ How a volunteer is known (no Google account needed):
       portal up on a **second bishopric-owned Google account** instead (it also doubles the
       email allowance). Everything below is the same on that account.
 4. **Name two administrators**: the bishop and the Executive Secretary. Both should know how to
-   sign in to the shared account (password and 2-step verification recovery), and both will get
-   the portal's alert emails. In the Leaders tab (step 3.5) their Calling must say exactly
-   `Bishop` and `Executive Secretary`.
+   sign in to the shared account (password and 2-step verification recovery). The portal's alert
+   (*needs attention*) emails go to the Executive Secretary, or to the addresses in Settings
+   **admin_alerts_to** (step 3.4); the bishop gets them only when no Leaders row is the Executive
+   Secretary. In the Leaders tab (step 3.5) their Calling must say exactly `Bishop` and
+   `Executive Secretary`.
 5. **The bishopric edits the Service Sheet and reads the confidential requests.** The whole
    bishopric (the bishop, both counselors, the Executive Secretary and the Ward Clerk) can edit
    the Service Sheet and open the Christmas and Other request folders, so the counselors can act
@@ -279,6 +295,7 @@ private window, use a separate Chrome profile signed in only to the shared accou
    | theme_heading_font | Optional Google Fonts name for headings (blank: the same as theme_font) | (blank) |
    | form_template_url | Optional edit link of the ward's branded Google Form (section 6, step 8) | (blank for now) |
    | default_approvers | Optional emails, separated by commas: who gets the *Waiting for approval* emails for every opportunity category whose **Approvers** cell is blank (step 6). Blank keeps the usual rule | `brother.counselor@example.test` |
+   | admin_alerts_to | Optional emails, separated by commas: who gets the *needs attention* emails (the daily health email, job failures, request and form problems). Blank: the Executive Secretary (the bishop if there is no Executive Secretary row). An entry that isn't an address is ignored and the Executive Secretary gets them; Check health says so | `exec.home@example.test` |
    | test_mail_only | **Test mode**: leave empty, except while testing (section 9, *Test mode*) | (blank) |
 
 5. Open the **Leaders** tab. One row per leader:
@@ -287,7 +304,7 @@ private window, use a separate Chrome profile signed in only to the shared accou
    |---|---|
    | Name | e.g. `Sister Example` |
    | Email | The address their leader link goes to |
-   | Calling | e.g. `Relief Society President`. The bishop must be exactly `Bishop`; the Executive Secretary exactly `Executive Secretary` (they get the alert emails) |
+   | Calling | e.g. `Relief Society President`. The bishop must be exactly `Bishop`; the Executive Secretary exactly `Executive Secretary` (the Executive Secretary gets the alert emails unless Settings admin_alerts_to names others; the bishop only when there is no Executive Secretary row) |
    | Organization | Pick from the list |
    | Bishopric | Tick for the bishop, both counselors, the Executive Secretary and the Ward Clerk, and nobody else. They edit the Service Sheet, read the Christmas and Other requests, and on the leader page see and edit every opportunity, approve any volunteer, and can undo a decline or revoke an approval (see section 1, step 5) |
    | Ward council | Tick for ward council members: they see every opportunity and its names, edit their own organization's, approve volunteers whose first sign-up was in their organization, and see **Needs help soon** |
@@ -567,11 +584,12 @@ Click **Service Portal > Check health**. Every line should start with **OK**. Fo
 | Time zone | Do what the line says (Project Settings, or File > Settings in the Sheet). |
 | theme_background_url / theme_accent / theme_font / theme_heading_font … ignored | Fix the value in Settings as the line says (section 6, step 8), or empty the cell. |
 | form_template_url … | Paste the branded form's **edit** link from the form editor's address bar (section 6, step 8), or empty the cell. |
+| Settings admin_alerts_to: "…" is not an email address | Alerts go to the Executive Secretary until you fix or remove that entry in Settings **admin_alerts_to**. |
 | Test mode: … / test_mail_only … | Test mode is on (section 9). Fine while testing; empty **test_mail_only** before going live. A line about an entry that isn't an address: fix or remove that entry. |
 
 **The daily health email.** Every night the daily job runs these same checks. If any line is a
-**PROBLEM**, the bishop and the Executive Secretary get one email, *Service Portal: needs
-attention*, listing only the PROBLEM lines (counts only: never a volunteer's name or a
+**PROBLEM**, the Executive Secretary (or whoever Settings **admin_alerts_to** names) gets one
+email, *Service Portal: needs attention*, listing only the PROBLEM lines (counts only: never a volunteer's name or a
 request). If everything is OK, nobody gets anything. From the nightly job there is one more
 line: **Timed jobs run as …, not as the Service Sheet owner** means the triggers were installed
 while signed in as someone else: sign in as the shared account, run **Install triggers**, then
@@ -788,8 +806,8 @@ Do this before the ward starts using the portal.
 **Day to day.** Leaders work on the leader page: they approve first-timers under **Waiting for
 approval** (and get an urgent email when someone still waits 48 hours before serving), and the
 ward council watches **Needs help soon**. Request leaders open their Requests folder. Alert
-emails go to the bishop and the Executive Secretary when something needs a person (at most one
-a day per job), and the nightly health email arrives only when a check fails.
+emails go to the Executive Secretary (or Settings **admin_alerts_to**) when something needs a
+person (at most one a day per job), and the nightly health email arrives only when a check fails.
 
 **When a calling changes.** Edit the Leaders tab (and Categories coordinators), then run
 **Sync sharing**. Leader links follow the Leaders tab by themselves.

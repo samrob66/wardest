@@ -97,18 +97,35 @@ function requestNotifyList(category, leaders) {
   return { to: to.length ? to : readers, dropped: uniq_(notReaders.concat(junk)) };
 }
 
-/** Administrators for alert emails: Leaders whose Calling is Bishop or Executive Secretary. */
-function adminEmails(leaders) {
-  return uniq_(
-    leaders
-      .filter(function (l) {
-        var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
-        return isEmail(l.Email) && (c === 'bishop' || c === 'executive secretary');
-      })
-      .map(function (l) {
-        return normEmail(l.Email);
-      })
-  );
+/** The entries of Settings admin_alerts_to that are not email addresses (2.5.2, decision 26). */
+function adminAlertsBad_(adminAlertsTo) {
+  return splitList(adminAlertsTo).filter(function (e) {
+    return !isEmail(e);
+  });
+}
+
+/**
+ * Administrators for alert emails (2.5.2, decision 26; Sam: "these kinds of emails should go to me
+ * (the Exec Sec) and not to the Bishop"). Settings admin_alerts_to when it holds only valid
+ * addresses; otherwise (blank, or any bad entry) the Leaders rows with Calling Executive
+ * Secretary, or, when there are none, Calling Bishop, so alerts never go nowhere.
+ */
+function adminEmails(leaders, adminAlertsTo) {
+  var listed = splitList(adminAlertsTo);
+  if (listed.length && !adminAlertsBad_(adminAlertsTo).length) return uniq_(listed.map(normEmail));
+  var byCalling = function (calling) {
+    return uniq_(
+      (leaders || [])
+        .filter(function (l) {
+          return isEmail(l.Email) && String(l.Calling == null ? '' : l.Calling).trim().toLowerCase() === calling;
+        })
+        .map(function (l) {
+          return normEmail(l.Email);
+        })
+    );
+  };
+  var execSec = byCalling('executive secretary');
+  return execSec.length ? execSec : byCalling('bishop');
 }
 
 function isClosedStatus_(status) {

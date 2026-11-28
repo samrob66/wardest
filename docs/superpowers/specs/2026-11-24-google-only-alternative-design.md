@@ -878,6 +878,15 @@ help soon", quota reserve and health email.
     bishopric and approvers (as the answers carry them). The sign-up page lists one row per date
     and role; tapping an open row takes the volunteer to the name field. The hub's QR pop-up gains
     **Print**, a one-link poster. UI only: no column, Settings row or API answer changed.
+26. **Alert emails go to the Executive Secretary, not the bishop** (§7.2; Sam, 2026-11-28, in
+    2.5.2). Sam's words: "I know we are only testing, but these kinds of emails should go to me
+    (the Exec Sec) and not to the Bishop". A Settings row `admin_alerts_to` (blank). Every
+    `alertAdmins_` email (the daily health email, job failures, request errors, trashed-form
+    alerts) goes to admin_alerts_to when it holds only valid addresses (normalized, once each);
+    when it is blank or has any bad entry, to the Leaders rows with Calling Executive Secretary
+    (any case), or, when there are none, Calling Bishop, so alerts never go nowhere. A bad entry
+    is a Check health PROBLEM naming the row. Approval and request notices are unchanged
+    (Approvers and Notify decide those).
 
 ## 13. Settled with Sam, and open questions
 

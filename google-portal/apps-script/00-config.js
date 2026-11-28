@@ -7,7 +7,7 @@
  */
 
 /** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
-var GP_VERSION = 'phase-2.4';
+var GP_VERSION = 'phase-2.5.2';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -188,6 +188,7 @@ var SETTINGS_ROWS = [
   ['theme_font', '', 'Optional Google Fonts family name for the pages, e.g. Lora. Blank: the standard font.'],
   ['theme_heading_font', '', 'Optional Google Fonts family name for headings. Blank: the same as theme_font.'],
   ['default_approvers', '', 'Who gets the "waiting for approval" emails, and may approve, for opportunity categories with no Approvers of their own: emails separated by commas, each on the Leaders tab. Blank: the first post\'s organization leaders and the bishopric.'],
+  ['admin_alerts_to', '', 'Who gets the "needs attention" emails (the daily health email, job failures, request and form problems): emails separated by commas. Blank, or any entry that is not an email address: the Executive Secretary (Calling Executive Secretary on the Leaders tab), or the bishop if there is none.'],
   ['test_mail_only', '', 'TEST MODE. Blank: email goes to everyone as normal. Addresses here, separated by commas: only they get email, and every other email goes to the first address with [TEST for <address>] in front of its subject. Empty it before going live.'],
   ['form_template_url', '', 'Optional: the edit link of a branded Google Form (from the form editor\'s address bar). New request forms are made as copies of it, so they keep its look.'],
 ];

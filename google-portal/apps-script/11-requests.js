@@ -479,7 +479,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
 function alertAdmins_(lines) {
   var s = settings_();
   var t = tplAdminAlert_(s, lines);
-  var admins = adminEmails(leaders_());
+  var admins = adminEmails(leaders_(), s.admin_alerts_to);
   if (!admins.length) log_('admin alert with no administrators', lines.join(' / '));
   admins.forEach(function (to) {
     sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });

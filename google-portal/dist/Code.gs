@@ -15,7 +15,7 @@
  */
 
 /** Bumped when a sheet needs bringing up to date (ensureUpgraded_ runs gpEnsureTabs_ again). */
-var GP_VERSION = 'phase-2.4';
+var GP_VERSION = 'phase-2.5.2';
 
 /** Independence notices (General Handbook 38.8.21.2). Verbatim; do not reword. */
 var PAGE_FOOTER =
@@ -196,6 +196,7 @@ var SETTINGS_ROWS = [
   ['theme_font', '', 'Optional Google Fonts family name for the pages, e.g. Lora. Blank: the standard font.'],
   ['theme_heading_font', '', 'Optional Google Fonts family name for headings. Blank: the same as theme_font.'],
   ['default_approvers', '', 'Who gets the "waiting for approval" emails, and may approve, for opportunity categories with no Approvers of their own: emails separated by commas, each on the Leaders tab. Blank: the first post\'s organization leaders and the bishopric.'],
+  ['admin_alerts_to', '', 'Who gets the "needs attention" emails (the daily health email, job failures, request and form problems): emails separated by commas. Blank, or any entry that is not an email address: the Executive Secretary (Calling Executive Secretary on the Leaders tab), or the bishop if there is none.'],
   ['test_mail_only', '', 'TEST MODE. Blank: email goes to everyone as normal. Addresses here, separated by commas: only they get email, and every other email goes to the first address with [TEST for <address>] in front of its subject. Empty it before going live.'],
   ['form_template_url', '', 'Optional: the edit link of a branded Google Form (from the form editor\'s address bar). New request forms are made as copies of it, so they keep its look.'],
 ];
@@ -1931,18 +1932,35 @@ function requestNotifyList(category, leaders) {
   return { to: to.length ? to : readers, dropped: uniq_(notReaders.concat(junk)) };
 }
 
-/** Administrators for alert emails: Leaders whose Calling is Bishop or Executive Secretary. */
-function adminEmails(leaders) {
-  return uniq_(
-    leaders
-      .filter(function (l) {
-        var c = String(l.Calling == null ? '' : l.Calling).trim().toLowerCase();
-        return isEmail(l.Email) && (c === 'bishop' || c === 'executive secretary');
-      })
-      .map(function (l) {
-        return normEmail(l.Email);
-      })
-  );
+/** The entries of Settings admin_alerts_to that are not email addresses (2.5.2, decision 26). */
+function adminAlertsBad_(adminAlertsTo) {
+  return splitList(adminAlertsTo).filter(function (e) {
+    return !isEmail(e);
+  });
+}
+
+/**
+ * Administrators for alert emails (2.5.2, decision 26; Sam: "these kinds of emails should go to me
+ * (the Exec Sec) and not to the Bishop"). Settings admin_alerts_to when it holds only valid
+ * addresses; otherwise (blank, or any bad entry) the Leaders rows with Calling Executive
+ * Secretary, or, when there are none, Calling Bishop, so alerts never go nowhere.
+ */
+function adminEmails(leaders, adminAlertsTo) {
+  var listed = splitList(adminAlertsTo);
+  if (listed.length && !adminAlertsBad_(adminAlertsTo).length) return uniq_(listed.map(normEmail));
+  var byCalling = function (calling) {
+    return uniq_(
+      (leaders || [])
+        .filter(function (l) {
+          return isEmail(l.Email) && String(l.Calling == null ? '' : l.Calling).trim().toLowerCase() === calling;
+        })
+        .map(function (l) {
+          return normEmail(l.Email);
+        })
+    );
+  };
+  var execSec = byCalling('executive secretary');
+  return execSec.length ? execSec : byCalling('bishop');
 }
 
 function isClosedStatus_(status) {
@@ -5575,7 +5593,7 @@ function buildRequestForms_(s, categories, refreshed, problems) {
 function alertAdmins_(lines) {
   var s = settings_();
   var t = tplAdminAlert_(s, lines);
-  var admins = adminEmails(leaders_());
+  var admins = adminEmails(leaders_(), s.admin_alerts_to);
   if (!admins.length) log_('admin alert with no administrators', lines.join(' / '));
   admins.forEach(function (to) {
     sendOrQueue_({ to: to, subject: t.subject, html: t.html, text: t.text, priority: 'high' });
@@ -6233,6 +6251,10 @@ function healthLines_(opts) {
   approverProblems_(serviceTab_(TAB.categories).rows(), s, leaders_()).forEach(function (line) {
     add(false, line);
   });
+  // admin_alerts_to (2.5.2): a bad entry sends alerts to the Executive Secretary instead.
+  adminAlertsBad_(s.admin_alerts_to).forEach(function (b) {
+    add(false, 'Settings admin_alerts_to: "' + clip(b, 60) + '" is not an email address, so "needs attention" emails go to ' + (adminEmails(leaders_(), '').join(', ') || 'nobody') + ' instead. Fix or remove it.');
+  });
   // Test mode (2.3.1): always a PROBLEM while on, so it can't be forgotten at go-live.
   var testMail = testMailList_(s.test_mail_only);
   if (testMail.on) {
@@ -6729,4 +6751,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: each card's \"Show QR Code\" button opens the hub's existing QR pop-up, the same\n  function the hub's other cards call (openQR(title, link) here; if the hub's function has\n  another name, use that name in both buttons). No QR image files are needed. A hub without a\n  QR pop-up can leave each button out (from <button to </button>). A card whose short link is\n  not set yet has no button; add the short link in Settings and make the hub files again.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */\n  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }\n  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }\n  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }\n  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }\n  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }\n  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }\n  .gp-hub-top { display: flex; align-items: stretch; }\n  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }\n  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }\n  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }\n  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }\n  .gp-hub-qr:hover { background: #f4f7fc; }\n  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }\n  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }\n  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }\n</style>\n<div class=\"gp-hub-cols\">\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n    <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"serve.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Ways to serve in {{WARD_NAME}}</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{SERVE_SHORT_LINK}}</div>\n    </div>\n  </section>\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n    <h2 id=\"gp-hub-help\">Service Requests</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"help.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Request help or service</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Requests','https://{{HELP_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{HELP_SHORT_LINK}}</div>\n    </div>\n  </section>\n</div>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "4f7d97877e42";
+var GP_BUILD = "5ef2d8fa648f";

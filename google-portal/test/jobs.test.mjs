@@ -96,10 +96,10 @@ describe('gpHourly', () => {
     gp.gpHourly();
     gp.gpHourly();
     expect(gp.fakes.system.rowsOf('Log').filter((l) => l.What === 'job error')).toHaveLength(2);
-    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['bishop.example@example.test', 'brother.clerk@example.test']);
+    expect(gp.fakes.mail.sent.map((m) => m.to).sort()).toEqual(['brother.clerk@example.test']);
     gp.fakes.setNow('2026-12-02 10:00');
     gp.gpHourly();
-    expect(gp.fakes.mail.sent).toHaveLength(4);
+    expect(gp.fakes.mail.sent).toHaveLength(2);
   });
 });
 
@@ -185,7 +185,7 @@ describe('gpDaily', () => {
     expect(gp.fakes.system.rowsOf('Outbox').map((m) => m.Id)).toEqual(['m2']);
     // (Phase 2's health email goes out too here: this portal has no triggers or web app check.)
     const alerts = gp.fakes.mail.sent.filter((m) => m.subject.includes('needs attention') && m.body.includes('could not be sent'));
-    expect(alerts).toHaveLength(2);
+    expect(alerts).toHaveLength(1);
     expect(alerts[0].body).toContain('Old failure');
   });
 });
