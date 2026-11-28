@@ -465,8 +465,10 @@ pages. The hub belongs to the ward; its owner adds the files.
    (Riverbend: `zippa.run/rb1Serve` → `https://example.github.io/rb1links/serve.html`).
 5. Paste them into Settings **serve_short_link** and **help_short_link**, run **Make hub files**
    again, and give the hub owner the new `hub-sections.html` part.
-6. QR codes: download the QR code zippa.run shows for each short link, name them
-   `serve-qr.png` and `help-qr.png`, and have the hub owner upload them next to `index.html`.
+6. QR codes: nothing to make or upload. Each of the two cards has a **Show QR Code** button that
+   opens the hub's own QR pop-up with its short link, like the hub's other cards. A card shows
+   the button only once its short link is in Settings (step 5). If the hub has no QR pop-up, the
+   hub owner leaves the buttons out (the comment at the top of `hub-sections.html` says how).
 7. **The Christmas giving form.** Either tick **On Serve page** on the **christmas-giving** row
    (section 3, step 6) so the Service Opportunities page shows an *Offer to give at Christmas*
    card, or leave it unticked and share the link privately. The card links straight to the

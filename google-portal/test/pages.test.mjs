@@ -119,11 +119,33 @@ describe('page files', () => {
     expect(css).toMatch(/min-height:\s*44px/);
   });
 
-  it('the hub sections snippet links serve.html and help.html with QR placeholders', () => {
+  it('the hub sections snippet links serve.html and help.html with QR buttons, no PNGs', () => {
     const html = read('hub-sections.html');
-    for (const s of ['Service Opportunities', 'Service Requests', 'serve.html', 'help.html', 'serve-qr.png', 'help-qr.png', '{{SERVE_SHORT_LINK}}', '{{HELP_SHORT_LINK}}']) {
+    for (const s of ['Service Opportunities', 'Service Requests', 'serve.html', 'help.html', '{{SERVE_SHORT_LINK}}', '{{HELP_SHORT_LINK}}', '{{WARD_NAME}}']) {
       expect(html).toContain(s);
     }
+    expect(html).not.toMatch(/\.png/i);
+    expect(html).not.toMatch(/<img/i);
+    // The hub's own Show QR Code pattern: a button calling its QR pop-up with the short link.
+    expect(html).toContain(`onclick="openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')"`);
+    expect(html).toContain(`onclick="openQR('Service Requests','https://{{HELP_SHORT_LINK}}')"`);
+    expect(html.match(/<button class="gp-hub-qr" type="button"/g)).toHaveLength(2);
+    expect(html).toMatch(/Show<br\s*\/?>QR Code/);
+    // The top comment explains the QR pop-up instead of PNG files.
+    const comment = html.slice(0, html.indexOf('-->'));
+    expect(comment).toMatch(/QR pop-up/);
+    expect(comment).toMatch(/leave (the|each) button out/i);
+  });
+
+  it('the hub sections snippet keeps titles navy and only the short link grey', () => {
+    const html = read('hub-sections.html');
+    const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    // No rule greys every span in a card (it used to grey the title too).
+    expect(css).not.toMatch(/\.gp-hub-card span\s*\{/);
+    expect(css).toMatch(/\.gp-hub-title\s*\{[^}]*color:\s*#1d3557/);
+    expect(css).toMatch(/\.gp-hub-link\s*\{[^}]*color:\s*#5b6776/);
+    expect(html.match(/class="gp-hub-title"/g)).toHaveLength(2);
+    expect(html.match(/class="gp-hub-link"/g)).toHaveLength(2);
   });
 });
 

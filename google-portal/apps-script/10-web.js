@@ -353,14 +353,37 @@ function renderPage_(name, s, fallback) {
   });
 }
 
-/** The hub sections snippet with the ward's short links. */
+/** A short link as host/path only (no scheme), or '' when blank. */
+function bareShortLink_(u) {
+  return String(u == null ? '' : u)
+    .trim()
+    .replace(/^https?:\/\//i, '');
+}
+
+/** A bare short link safe inside the QR button's onclick: host and path characters only. */
+function isQrSafeShortLink_(bare) {
+  return /^[A-Za-z0-9.-]+(\/[A-Za-z0-9._~\/-]*)?$/.test(bare);
+}
+
+/**
+ * The hub sections snippet with the ward's short links (2.5.1). A card whose short link is blank
+ * (or not a plain host/path) loses its Show QR Code button and short-link label, so no button
+ * opens an empty code; its link to serve.html / help.html stays.
+ */
 function renderHubSections_(s) {
-  var bare = function (u) {
-    return String(u || '').replace(/^https?:\/\//, '');
-  };
-  return fillTemplate_(GP_HUB_SECTIONS, {
+  var html = GP_HUB_SECTIONS;
+  var links = { SERVE_SHORT_LINK: bareShortLink_(s.serve_short_link), HELP_SHORT_LINK: bareShortLink_(s.help_short_link) };
+  Object.keys(links).forEach(function (name) {
+    var bare = links[name];
+    var ph = '\\{\\{' + name + '\\}\\}';
+    if (!isQrSafeShortLink_(bare)) {
+      html = html.replace(new RegExp('[ \\t]*<button class="gp-hub-qr"[^>]*' + ph + '[\\s\\S]*?</button>\\n?'), '');
+    }
+    if (!bare) html = html.replace(new RegExp('[ \\t]*<div class="gp-hub-link">' + ph + '</div>\\n?'), '');
+  });
+  return fillTemplate_(html, {
     WARD_NAME: s.ward_name || '',
-    SERVE_SHORT_LINK: bare(s.serve_short_link),
-    HELP_SHORT_LINK: bare(s.help_short_link),
+    SERVE_SHORT_LINK: links.SERVE_SHORT_LINK,
+    HELP_SHORT_LINK: links.HELP_SHORT_LINK,
   });
 }

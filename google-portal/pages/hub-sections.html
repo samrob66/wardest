@@ -3,9 +3,11 @@
   Where to paste: open the hub's index.html and paste everything from "BEGIN" to "END" near the
   top of the page's links, before the ward's own sections (for example before "Ward Links").
   The pages it links (serve.html, help.html) sit next to index.html in the hub.
-  QR codes: make one for each short link the same way the hub's other QR codes are made
-  (zippa.run shows a QR code for every short link), download them, name them serve-qr.png and
-  help-qr.png, and put them next to index.html.
+  QR codes: each card's "Show QR Code" button opens the hub's existing QR pop-up, the same
+  function the hub's other cards call (openQR(title, link) here; if the hub's function has
+  another name, use that name in both buttons). No QR image files are needed. A hub without a
+  QR pop-up can leave each button out (from <button to </button>). A card whose short link is
+  not set yet has no button; add the short link in Settings and make the hub files again.
 -->
 <!-- BEGIN Service Portal sections -->
 <style>
@@ -14,26 +16,50 @@
   @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }
   .gp-hub-section { min-width: 0; margin: 0 0 1rem; }
   .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }
-  .gp-hub-card { display: flex; align-items: center; gap: 0.85rem; min-height: 44px; padding: 0.7rem 0; border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; text-decoration: none; color: #1d3557; }
-  .gp-hub-card:hover, .gp-hub-card:focus { background: rgba(29, 53, 87, 0.03); }
-  .gp-hub-card img { width: 72px; height: 72px; flex: none; padding: 4px; background: #ffffff; border: 1px solid #d9dde3; border-radius: 4px; }
-  .gp-hub-card strong { display: block; font-size: 1rem; font-weight: normal; }
-  .gp-hub-card span { display: block; font-size: 0.86rem; color: #5b6776; }
+  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }
+  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }
+  .gp-hub-top { display: flex; align-items: stretch; }
+  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }
+  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }
+  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }
+  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }
+  .gp-hub-qr:hover { background: #f4f7fc; }
+  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }
+  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }
+  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }
 </style>
 <div class="gp-hub-cols">
   <section class="gp-hub-section" aria-labelledby="gp-hub-serve">
     <h2 id="gp-hub-serve">Service Opportunities</h2>
-    <a class="gp-hub-card" href="serve.html">
-      <img src="serve-qr.png" alt="QR code for Service Opportunities">
-      <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>
-    </a>
+    <div class="gp-hub-card">
+      <div class="gp-hub-top">
+        <a class="gp-hub-main" href="serve.html">
+          <span class="gp-hub-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+          <strong class="gp-hub-title">Ways to serve in {{WARD_NAME}}</strong>
+        </a>
+        <button class="gp-hub-qr" type="button" onclick="openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z"/></svg>
+          Show<br>QR Code
+        </button>
+      </div>
+      <div class="gp-hub-link">{{SERVE_SHORT_LINK}}</div>
+    </div>
   </section>
   <section class="gp-hub-section" aria-labelledby="gp-hub-help">
     <h2 id="gp-hub-help">Service Requests</h2>
-    <a class="gp-hub-card" href="help.html">
-      <img src="help-qr.png" alt="QR code for Service Requests">
-      <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>
-    </a>
+    <div class="gp-hub-card">
+      <div class="gp-hub-top">
+        <a class="gp-hub-main" href="help.html">
+          <span class="gp-hub-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+          <strong class="gp-hub-title">Request help or service</strong>
+        </a>
+        <button class="gp-hub-qr" type="button" onclick="openQR('Service Requests','https://{{HELP_SHORT_LINK}}')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z"/></svg>
+          Show<br>QR Code
+        </button>
+      </div>
+      <div class="gp-hub-link">{{HELP_SHORT_LINK}}</div>
+    </div>
   </section>
 </div>
 <!-- END Service Portal sections -->

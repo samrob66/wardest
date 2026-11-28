@@ -123,4 +123,49 @@ describe('renderPage_', () => {
     expect(html).toContain('zippa.run/rb1Serve');
     expect(html).not.toContain('{{');
   });
+
+  it('gives each hub card a QR button with its short link', () => {
+    const gp = setup();
+    setSetting(gp, 'serve_short_link', 'https://short.example.test/rbServe');
+    setSetting(gp, 'help_short_link', 'http://short.example.test/rbHelp');
+    const html = gp.renderHubSections_(gp.settings_());
+    expect(html).toContain(`openQR('Service Opportunities','https://short.example.test/rbServe')`);
+    expect(html).toContain(`openQR('Service Requests','https://short.example.test/rbHelp')`);
+    expect(html).toContain('<div class="gp-hub-link">short.example.test/rbServe</div>');
+    expect(html).toContain('<div class="gp-hub-link">short.example.test/rbHelp</div>');
+    expect(html).not.toMatch(/\.png/i);
+  });
+
+  it('leaves the QR button out of a card whose short link is blank, keeping its link', () => {
+    const gp = setup();
+    setSetting(gp, 'serve_short_link', '');
+    setSetting(gp, 'help_short_link', 'https://short.example.test/rbHelp');
+    const html = gp.renderHubSections_(gp.settings_());
+    expect(html).not.toContain(`openQR('Service Opportunities'`);
+    expect(html.match(/class="gp-hub-qr"/g)).toHaveLength(1);
+    expect(html).toContain(`openQR('Service Requests','https://short.example.test/rbHelp')`);
+    expect(html).toContain('href="serve.html"');
+    expect(html).toContain('href="help.html"');
+    expect(html).not.toMatch(/<div class="gp-hub-link"><\/div>/);
+    expect(html).not.toContain("'https://'");
+  });
+
+  it('leaves both QR buttons out when neither short link is set', () => {
+    const gp = setup();
+    const html = gp.renderHubSections_(gp.settings_());
+    expect(html).not.toMatch(/class="gp-hub-qr"/);
+    expect(html).not.toContain('onclick="openQR(');
+    expect(html).toContain('href="serve.html"');
+    expect(html).toContain('href="help.html"');
+    expect(html).not.toContain('{{');
+  });
+
+  it('leaves out the QR button for a short link that is not a plain address', () => {
+    const gp = setup();
+    setSetting(gp, 'serve_short_link', "https://short.example.test/x');alert(1);//");
+    const html = gp.renderHubSections_(gp.settings_());
+    expect(html).not.toContain(`openQR('Service Opportunities'`);
+    expect(html).not.toMatch(/onclick="[^"]*alert/);
+    expect(html).toContain('href="serve.html"');
+  });
 });
