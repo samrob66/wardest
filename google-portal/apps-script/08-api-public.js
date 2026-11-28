@@ -667,6 +667,41 @@ function confirmSignupsLocked_(list, d) {
 }
 
 /**
+ * Who hears about every sign-up and cancellation on a post (2.6): its Family emails and its
+ * category's Sign-up notices to (valid addresses, once each).
+ */
+function familyNoticeTo_(post) {
+  var cat = serviceTab_(TAB.categories).find('Id', post.Category);
+  var notices = cat
+    ? splitList(cat['Sign-up notices to'])
+        .filter(isEmail)
+        .map(normEmail)
+    : [];
+  return uniq_(familyEmailsOf_(post).concat(notices));
+}
+
+/**
+ * The family / Sign-up notices to emails for sign-ups that just counted or were just called off:
+ * items [{signup, post, slot}]. Volunteers' first names only; cancellations are high priority.
+ */
+function familyNoticeMsgs_(items, cancelled) {
+  var s = settings_();
+  var toByPost = {};
+  var msgs = [];
+  (items || []).forEach(function (it) {
+    if (!it || !it.post || !it.slot) return;
+    var id = it.post['Post id'];
+    if (!toByPost[id]) toByPost[id] = familyNoticeTo_(it.post);
+    if (!toByPost[id].length) return;
+    var t = tplFamilyNotice_(s, it.post, it.slot, firstName_(it.signup), cancelled);
+    toByPost[id].forEach(function (to) {
+      msgs.push(mailMsg_(to, t, cancelled ? 'high' : 'normal'));
+    });
+  });
+  return msgs;
+}
+
+/**
  * Call inside the lock: issues the links and builds the email for each newly counted sign-up:
  * the confirmation (private details, cancel link, My sign-ups link, other ways to serve) or, when
  * it is over the number, the withdraw email (its link ends when the role starts). One My sign-ups
@@ -695,7 +730,7 @@ function confirmationMsgs_(items, d) {
       });
     }
     return mailMsg_(e, t);
-  });
+  }).concat(familyNoticeMsgs_(items, false));
 }
 
 /**
@@ -844,7 +879,9 @@ function cancelSignupLocked_(f) {
   var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
   revokeSignupTokens_(f.signup['Sign-up id']);
   if (waiting) return { msgs: [] };
-  return { msgs: cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), filled >= (Number(f.slot.Needed) || 0)) };
+  return {
+    msgs: cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), filled >= (Number(f.slot.Needed) || 0)).concat(familyNoticeMsgs_([f], true)),
+  };
 }
 
 function cancelAnswer_(done) {
@@ -924,7 +961,9 @@ function apiWithdraw_(data) {
     var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
     revokeSignupTokens_(f.signup['Sign-up id']);
     var stillFull = filled >= (Number(f.slot.Needed) || 0);
-    return { msgs: stillFull ? [] : cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), false) };
+    // The family still hears that this person isn't coming (2.6), even when the role stays full.
+    var family = familyNoticeMsgs_([f], true);
+    return { msgs: (stillFull ? [] : cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), false)).concat(family) };
   });
   if (done.error) return { ok: false, error: done.error };
   clearServeCache_();

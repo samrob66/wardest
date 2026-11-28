@@ -2930,6 +2930,25 @@ function tplCancelNotice_(s, post, slot, signup, late, stillFull) {
   };
 }
 
+/**
+ * To the family and the category's Sign-up notices to addresses (2.6, decision 28, like Mail
+ * Train): one sign-up or one cancellation, with the date, the role and the volunteer's first name
+ * only (never their email).
+ */
+function tplFamilyNotice_(s, post, slot, firstName, cancelled) {
+  var when = fmtWhen_(slot);
+  var who = firstName || 'A volunteer';
+  var line = cancelled
+    ? who + ' is no longer signed up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').'
+    : who + ' signed up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').';
+  var more = 'An automatic notice from ' + (s.ward_name || 'the ward') + "'s Service Portal" + (cancelled ? '. The coordinators have been told too.' : '. Thank you!');
+  return {
+    subject: (cancelled ? 'Cancelled: ' : 'New sign-up: ') + slot.Role + ', ' + fmtDateShort_(slot.Date) + ' (' + post.Title + ')',
+    html: paras_([esc(line), esc(more)]),
+    text: [line, more].join('\n\n'),
+  };
+}
+
 function tplRemoved_(s, post, slot) {
   var when = fmtWhen_(slot);
   var line = 'A leader removed your sign-up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').';
@@ -3845,6 +3864,41 @@ function confirmSignupsLocked_(list, d) {
 }
 
 /**
+ * Who hears about every sign-up and cancellation on a post (2.6): its Family emails and its
+ * category's Sign-up notices to (valid addresses, once each).
+ */
+function familyNoticeTo_(post) {
+  var cat = serviceTab_(TAB.categories).find('Id', post.Category);
+  var notices = cat
+    ? splitList(cat['Sign-up notices to'])
+        .filter(isEmail)
+        .map(normEmail)
+    : [];
+  return uniq_(familyEmailsOf_(post).concat(notices));
+}
+
+/**
+ * The family / Sign-up notices to emails for sign-ups that just counted or were just called off:
+ * items [{signup, post, slot}]. Volunteers' first names only; cancellations are high priority.
+ */
+function familyNoticeMsgs_(items, cancelled) {
+  var s = settings_();
+  var toByPost = {};
+  var msgs = [];
+  (items || []).forEach(function (it) {
+    if (!it || !it.post || !it.slot) return;
+    var id = it.post['Post id'];
+    if (!toByPost[id]) toByPost[id] = familyNoticeTo_(it.post);
+    if (!toByPost[id].length) return;
+    var t = tplFamilyNotice_(s, it.post, it.slot, firstName_(it.signup), cancelled);
+    toByPost[id].forEach(function (to) {
+      msgs.push(mailMsg_(to, t, cancelled ? 'high' : 'normal'));
+    });
+  });
+  return msgs;
+}
+
+/**
  * Call inside the lock: issues the links and builds the email for each newly counted sign-up:
  * the confirmation (private details, cancel link, My sign-ups link, other ways to serve) or, when
  * it is over the number, the withdraw email (its link ends when the role starts). One My sign-ups
@@ -3873,7 +3927,7 @@ function confirmationMsgs_(items, d) {
       });
     }
     return mailMsg_(e, t);
-  });
+  }).concat(familyNoticeMsgs_(items, false));
 }
 
 /**
@@ -4022,7 +4076,9 @@ function cancelSignupLocked_(f) {
   var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
   revokeSignupTokens_(f.signup['Sign-up id']);
   if (waiting) return { msgs: [] };
-  return { msgs: cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), filled >= (Number(f.slot.Needed) || 0)) };
+  return {
+    msgs: cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), filled >= (Number(f.slot.Needed) || 0)).concat(familyNoticeMsgs_([f], true)),
+  };
 }
 
 function cancelAnswer_(done) {
@@ -4102,7 +4158,9 @@ function apiWithdraw_(data) {
     var filled = refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
     revokeSignupTokens_(f.signup['Sign-up id']);
     var stillFull = filled >= (Number(f.slot.Needed) || 0);
-    return { msgs: stillFull ? [] : cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), false) };
+    // The family still hears that this person isn't coming (2.6), even when the role stays full.
+    var family = familyNoticeMsgs_([f], true);
+    return { msgs: (stillFull ? [] : cancelNoticeMsgs_(f, cancelIsLate(f.slot, cutoffOf_(f.post), now), false)).concat(family) };
   });
   if (done.error) return { ok: false, error: done.error };
   clearServeCache_();
@@ -4764,10 +4822,13 @@ function apiRemoveSignup_(data) {
     var f = editableSignup_(lc, data.signupId);
     if (f.error) return f;
     if (!isActiveSignup_(f.signup.Status)) return { already: true };
+    var wasConfirmed = f.signup.Status === SIGNUP_STATUS.confirmed;
     serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
     refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
     revokeSignupTokens_(f.signup['Sign-up id']);
     f.msgs = [mailMsg_(normEmail(f.signup.Email), tplRemoved_(lc.s, f.post, f.slot))];
+    // A sign-up that counted: the family hears it was called off (2.6).
+    if (wasConfirmed) f.msgs = f.msgs.concat(familyNoticeMsgs_([f], true));
     return f;
   });
   if (done.error) return { ok: false, error: done.error };
@@ -4851,9 +4912,19 @@ function cancelPostOrDate_(data) {
   // High: it must not wait behind the reserve and arrive after the event.
   sendAll_(
     'cancel post',
-    Object.keys(byEmail).map(function (to) {
-      return mailMsg_(to, tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date), 'high');
-    })
+    Object.keys(byEmail)
+      .map(function (to) {
+        return mailMsg_(to, tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date), 'high');
+      })
+      // The family hears about each sign-up called off (2.6).
+      .concat(
+        familyNoticeMsgs_(
+          done.hit.map(function (su) {
+            return { signup: su, post: done.post, slot: slotById[su['Slot id']] };
+          }),
+          true
+        )
+      )
   );
   var n = Object.keys(byEmail).length;
   return { ok: true, message: (date ? 'Date cancelled.' : 'Opportunity cancelled.') + (n ? ' We emailed ' + n + ' ' + (n === 1 ? 'person' : 'people') + '.' : '') };
@@ -7701,4 +7772,4 @@ var GP_PAGES = {
 var GP_HUB_SECTIONS = "<!--\n  Service Portal: the two hub sections.\n  Where to paste: open the hub's index.html and paste everything from \"BEGIN\" to \"END\" near the\n  top of the page's links, before the ward's own sections (for example before \"Ward Links\").\n  The pages it links (serve.html, help.html) sit next to index.html in the hub.\n  QR codes: each card's \"Show QR Code\" button opens the hub's existing QR pop-up, the same\n  function the hub's other cards call (openQR(title, link) here; if the hub's function has\n  another name, use that name in both buttons). No QR image files are needed. A hub without a\n  QR pop-up can leave each button out (from <button to </button>). A card whose short link is\n  not set yet has no button; add the short link in Settings and make the hub files again.\n-->\n<!-- BEGIN Service Portal sections -->\n<style>\n  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */\n  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }\n  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }\n  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }\n  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }\n  .gp-hub-card { border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; }\n  .gp-hub-card:hover { background: rgba(29, 53, 87, 0.03); }\n  .gp-hub-top { display: flex; align-items: stretch; }\n  .gp-hub-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.6rem; min-height: 52px; padding: 0.6rem 0.25rem 0.1rem; text-decoration: none; color: #1d3557; }\n  .gp-hub-icon { flex: none; display: flex; align-items: center; color: #8a7637; }\n  .gp-hub-title { display: block; font-size: 1rem; font-weight: normal; line-height: 1.3; color: #1d3557; }\n  .gp-hub-qr { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.2rem; min-width: 76px; min-height: 44px; padding: 0 0.6rem; background: transparent; border: none; cursor: pointer; color: #1d3557; font-family: inherit; font-size: 0.74rem; line-height: 1.2; text-align: center; }\n  .gp-hub-qr:hover { background: #f4f7fc; }\n  .gp-hub-qr svg { flex: none; width: 1.4em; height: 1.4em; }\n  .gp-hub-main:focus-visible, .gp-hub-qr:focus-visible { outline: 2px solid #1d3557; outline-offset: -2px; }\n  .gp-hub-link { display: block; font-size: 0.78rem; color: #5b6776; padding: 0 0.25rem 0.55rem 2.15rem; }\n</style>\n<div class=\"gp-hub-cols\">\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-serve\">\n    <h2 id=\"gp-hub-serve\">Service Opportunities</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"serve.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Ways to serve in {{WARD_NAME}}</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Opportunities','https://{{SERVE_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{SERVE_SHORT_LINK}}</div>\n    </div>\n  </section>\n  <section class=\"gp-hub-section\" aria-labelledby=\"gp-hub-help\">\n    <h2 id=\"gp-hub-help\">Service Requests</h2>\n    <div class=\"gp-hub-card\">\n      <div class=\"gp-hub-top\">\n        <a class=\"gp-hub-main\" href=\"help.html\">\n          <span class=\"gp-hub-icon\" aria-hidden=\"true\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg></span>\n          <strong class=\"gp-hub-title\">Request help or service</strong>\n        </a>\n        <button class=\"gp-hub-qr\" type=\"button\" onclick=\"openQR('Service Requests','https://{{HELP_SHORT_LINK}}')\">\n          <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z\"/></svg>\n          Show<br>QR Code\n        </button>\n      </div>\n      <div class=\"gp-hub-link\">{{HELP_SHORT_LINK}}</div>\n    </div>\n  </section>\n</div>\n<!-- END Service Portal sections -->\n";
 
 /** Fingerprint of this build (google-portal/build.mjs). */
-var GP_BUILD = "a20ec4241584";
+var GP_BUILD = "477222c29dc3";

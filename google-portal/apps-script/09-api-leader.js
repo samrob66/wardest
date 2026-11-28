@@ -523,10 +523,13 @@ function apiRemoveSignup_(data) {
     var f = editableSignup_(lc, data.signupId);
     if (f.error) return f;
     if (!isActiveSignup_(f.signup.Status)) return { already: true };
+    var wasConfirmed = f.signup.Status === SIGNUP_STATUS.confirmed;
     serviceTab_(TAB.signups).update(f.signup, { Status: SIGNUP_STATUS.removed, 'Removed by': lc.leader.Name });
     refreshFilled_(serviceTab_(TAB.slots), f.slot, f.signups);
     revokeSignupTokens_(f.signup['Sign-up id']);
     f.msgs = [mailMsg_(normEmail(f.signup.Email), tplRemoved_(lc.s, f.post, f.slot))];
+    // A sign-up that counted: the family hears it was called off (2.6).
+    if (wasConfirmed) f.msgs = f.msgs.concat(familyNoticeMsgs_([f], true));
     return f;
   });
   if (done.error) return { ok: false, error: done.error };
@@ -610,9 +613,19 @@ function cancelPostOrDate_(data) {
   // High: it must not wait behind the reserve and arrive after the event.
   sendAll_(
     'cancel post',
-    Object.keys(byEmail).map(function (to) {
-      return mailMsg_(to, tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date), 'high');
-    })
+    Object.keys(byEmail)
+      .map(function (to) {
+        return mailMsg_(to, tplPostCancelled_(lc.s, done.post, byEmail[to], note, !date), 'high');
+      })
+      // The family hears about each sign-up called off (2.6).
+      .concat(
+        familyNoticeMsgs_(
+          done.hit.map(function (su) {
+            return { signup: su, post: done.post, slot: slotById[su['Slot id']] };
+          }),
+          true
+        )
+      )
   );
   var n = Object.keys(byEmail).length;
   return { ok: true, message: (date ? 'Date cancelled.' : 'Opportunity cancelled.') + (n ? ' We emailed ' + n + ' ' + (n === 1 ? 'person' : 'people') + '.' : '') };

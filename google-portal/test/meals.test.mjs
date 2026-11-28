@@ -250,6 +250,148 @@ describe('task 3: the meals request sheet', () => {
   });
 });
 
+// ---------- task 7: family and Sign-up notices to emails ----------
+
+describe('task 7: the family and the Sign-up notices to address hear about every sign-up and cancellation', () => {
+  const GROUP = 'rb1-meals@example.test';
+  const VOL = 'brother.volunteer@example.test';
+  const tokenFrom = (text, page) => new RegExp(page + '[^\\s"]*#t=([0-9a-f]{64})').exec(text)[1];
+
+  /** A published meal post (two dates, 1 needed each) with family emails and a Sign-up notices to group. */
+  function mealPost() {
+    const gp = loadPortal({ seed: true });
+    const c = gp.serviceTab_('Categories');
+    c.update(c.find('Id', 'meals-new-moms'), { 'Sign-up notices to': `${GROUP}, not an address` });
+    gp.serviceTab_('Volunteers').append({ Email: VOL, Name: 'Brother Volunteer', Status: 'Approved', 'Decided by': 'Bishop Example', 'First post': 'p1' });
+    gp.serviceTab_('Posts').append({
+      'Post id': 'pm', 'Public id': 'pubbaby001', Organization: 'Relief Society', Category: 'meals-new-moms', Title: 'Meals for the Sample family',
+      Audiences: 'Sisters, Brothers', 'Cancel cutoff hours': 24, Status: 'Open', 'Created by': 'request r1', 'Show on Serve': 'No',
+      'Family emails': 'anna.sample@example.test, ben.sample@example.test', 'Private details': '123 Example Lane',
+    });
+    gp.serviceTab_('Slots').appendMany([
+      { 'Slot id': 'sm1', 'Post id': 'pm', Date: '2026-12-05', Start: '17:30', Role: 'Bring a meal', Needed: 1, Filled: 0, Waiting: 0 },
+      { 'Slot id': 'sm2', 'Post id': 'pm', Date: '2026-12-07', Start: '17:30', Role: 'Bring a meal', Needed: 1, Filled: 0, Waiting: 0 },
+    ]);
+    gp.gpBegin_();
+    gp.fakes.mail.sent.length = 0;
+    return gp;
+  }
+  const familyMail = (gp) => gp.fakes.mail.sent.filter((m) => ['anna.sample@example.test', 'ben.sample@example.test', GROUP].includes(m.to));
+  const signUp = (gp, slotId = 'sm1') => {
+    gp.apiSignup_({ publicId: 'pubbaby001', slotId, name: 'Brother Volunteer', email: VOL });
+    gp.gpBegin_();
+  };
+
+  it('a sign-up that counts: one email to each family address and the group, first name only', () => {
+    const gp = mealPost();
+    signUp(gp);
+    const mail = familyMail(gp);
+    expect(mail.map((m) => m.to).sort()).toEqual(['anna.sample@example.test', 'ben.sample@example.test', GROUP]);
+    for (const m of mail) {
+      expect(m.subject).toBe('New sign-up: Bring a meal, Sat, Dec 5 (Meals for the Sample family)');
+      expect(m.body).toContain('Volunteer signed up for Bring a meal on Saturday, December 5');
+      expect(m.body).not.toContain(VOL);
+      expect(m.body).not.toContain('Brother');
+      expect(m.htmlBody).not.toContain(VOL);
+      expect(m.body).not.toContain('123 Example Lane');
+    }
+  });
+
+  it('a first-timer waiting for approval sends nothing until approved; then the family hears once', () => {
+    const gp = mealPost();
+    gp.apiSignup_({ publicId: 'pubbaby001', slotId: 'sm1', name: 'Sister New', email: 'sister.new@example.test' });
+    const confirm = gp.fakes.mail.sent.find((m) => m.to === 'sister.new@example.test');
+    gp.apiConfirm_({ t: tokenFrom(confirm.body, 'confirm') });
+    expect(familyMail(gp)).toEqual([]);
+    gp.apiDecide_({ k: linkFor(gp, 'bishop.example@example.test'), email: 'sister.new@example.test', decision: 'approve' });
+    expect(familyMail(gp).map((m) => m.subject)).toEqual(Array(3).fill('New sign-up: Bring a meal, Sat, Dec 5 (Meals for the Sample family)'));
+    expect(familyMail(gp)[0].body).toContain('New signed up');
+  });
+
+  it('every cancel path tells them: cancel link, My sign-ups, withdraw, leader Remove, cancel date, cancel post', () => {
+    const cancelled = (gp) => familyMail(gp).filter((m) => m.subject.startsWith('Cancelled: '));
+    // Cancel link.
+    let gp = mealPost();
+    signUp(gp);
+    const conf = gp.fakes.mail.sent.find((m) => m.to === VOL && m.subject.startsWith("You're signed up"));
+    gp.fakes.mail.sent.length = 0;
+    expect(plain(gp.apiCancel_({ t: tokenFrom(conf.body, 'confirm') })).ok).toBe(true);
+    expect(cancelled(gp)).toHaveLength(3);
+    expect(cancelled(gp)[0].body).toContain('Volunteer is no longer signed up for Bring a meal on Saturday, December 5');
+    expect(cancelled(gp)[0].body).not.toContain(VOL);
+    // My sign-ups.
+    gp = mealPost();
+    signUp(gp);
+    const me = gp.fakes.mail.sent.find((m) => m.to === VOL && m.subject.startsWith("You're signed up"));
+    const meT = /me[^\s"]*#t=([0-9a-f]{64})/.exec(me.body)[1];
+    const su = gp.fakes.spreadsheet.rowsOf('Sign-ups')[0];
+    gp.fakes.mail.sent.length = 0;
+    expect(plain(gp.apiCancelMine_({ t: meT, signupId: su['Sign-up id'] })).ok).toBe(true);
+    expect(cancelled(gp)).toHaveLength(3);
+    // Leader Remove.
+    gp = mealPost();
+    signUp(gp);
+    gp.fakes.mail.sent.length = 0;
+    const sid = gp.fakes.spreadsheet.rowsOf('Sign-ups')[0]['Sign-up id'];
+    expect(plain(gp.apiRemoveSignup_({ k: linkFor(gp, 'sister.example@example.test'), signupId: sid })).ok).toBe(true);
+    expect(cancelled(gp)).toHaveLength(3);
+    // Cancel one date (the post has two).
+    gp = mealPost();
+    signUp(gp);
+    gp.fakes.mail.sent.length = 0;
+    expect(plain(gp.apiCancelDate_({ k: linkFor(gp, 'sister.example@example.test'), postId: 'pm', date: '2026-12-05' })).ok).toBe(true);
+    expect(cancelled(gp)).toHaveLength(3);
+    // Cancel the whole post.
+    gp = mealPost();
+    signUp(gp, 'sm2');
+    gp.fakes.mail.sent.length = 0;
+    expect(plain(gp.apiCancelPost_({ k: linkFor(gp, 'sister.example@example.test'), postId: 'pm' })).ok).toBe(true);
+    expect(cancelled(gp).map((m) => m.subject)).toEqual(Array(3).fill('Cancelled: Bring a meal, Mon, Dec 7 (Meals for the Sample family)'));
+  });
+
+  it('withdrawing an over-the-number offer tells the family, even though the role stays full', () => {
+    const gp = mealPost();
+    signUp(gp); // fills sm1
+    gp.apiSignup_({ publicId: 'pubbaby001', slotId: 'sm1', name: 'Sister New', email: 'sister.new@example.test' });
+    gp.apiConfirm_({ t: tokenFrom(gp.fakes.mail.sent.find((m) => m.to === 'sister.new@example.test').body, 'confirm') });
+    gp.fakes.mail.sent.length = 0;
+    gp.apiDecide_({ k: linkFor(gp, 'bishop.example@example.test'), email: 'sister.new@example.test', decision: 'approve' });
+    const over = gp.fakes.mail.sent.find((m) => m.to === 'sister.new@example.test' && m.subject.startsWith('Thank you:'));
+    gp.fakes.mail.sent.length = 0;
+    expect(plain(gp.apiWithdraw_({ t: tokenFrom(over.body, 'confirm') })).ok).toBe(true);
+    expect(familyMail(gp).map((m) => m.subject)).toEqual(Array(3).fill('Cancelled: Bring a meal, Sat, Dec 5 (Meals for the Sample family)'));
+    // The leaders hear nothing (the role is still full), as before.
+    expect(gp.fakes.mail.sent.filter((m) => m.to === 'sister.example@example.test')).toEqual([]);
+  });
+
+  it('test mode sends them to the tester; a post with no family emails and no group sends none', () => {
+    const gp = mealPost();
+    gp.serviceTab_('Settings');
+    const s = gp.fakes.spreadsheet.getSheetByName('Settings');
+    const keys = s.getRange(1, 1, s.getLastRow(), 1).getValues().map((r) => r[0]);
+    s.getRange(keys.indexOf('test_mail_only') + 1, 2).setValue('exec.home@example.test');
+    gp.gpBegin_();
+    signUp(gp);
+    const tagged = gp.fakes.mail.sent.filter((m) => m.subject.startsWith('[TEST for anna.sample@example.test] New sign-up'));
+    expect(tagged.map((m) => m.to)).toEqual(['exec.home@example.test']);
+    expect(gp.fakes.mail.sent.some((m) => m.to === 'anna.sample@example.test')).toBe(false);
+
+    const gp2 = loadPortal({ seed: true });
+    seedPostPlain(gp2);
+    gp2.gpBegin_();
+    gp2.fakes.mail.sent.length = 0;
+    gp2.serviceTab_('Volunteers').append({ Email: VOL, Name: 'Brother Volunteer', Status: 'Approved', 'Decided by': 'Bishop Example', 'First post': 'p1' });
+    gp2.gpBegin_();
+    gp2.apiSignup_({ publicId: 'pubmeals01', slotId: 'p1-s1', name: 'Brother Volunteer', email: VOL });
+    expect(gp2.fakes.mail.sent.filter((m) => /New sign-up/.test(m.subject))).toEqual([]);
+  });
+});
+
+function seedPostPlain(gp) {
+  gp.serviceTab_('Posts').append({ 'Post id': 'p1', 'Public id': 'pubmeals01', Organization: 'Relief Society', Category: 'meals', Title: 'Soup night', Audiences: 'Sisters, Brothers', 'Cancel cutoff hours': 24, Status: 'Open', 'Created by': 'sister.example@example.test' });
+  gp.serviceTab_('Slots').append({ 'Slot id': 'p1-s1', 'Post id': 'p1', Date: '2026-12-05', Start: '17:00', Role: 'Help', Needed: 3, Filled: 0, Waiting: 0 });
+}
+
 // ---------- tasks 4, 5, 6 and 8: meal drafts, Show on Serve, progress, zero-slot drafts ----------
 
 const linkFor = (gp, email) => gp.issueToken_('leader', email, '2027-01-01 00:00');

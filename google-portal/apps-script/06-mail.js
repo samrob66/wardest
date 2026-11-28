@@ -467,6 +467,25 @@ function tplCancelNotice_(s, post, slot, signup, late, stillFull) {
   };
 }
 
+/**
+ * To the family and the category's Sign-up notices to addresses (2.6, decision 28, like Mail
+ * Train): one sign-up or one cancellation, with the date, the role and the volunteer's first name
+ * only (never their email).
+ */
+function tplFamilyNotice_(s, post, slot, firstName, cancelled) {
+  var when = fmtWhen_(slot);
+  var who = firstName || 'A volunteer';
+  var line = cancelled
+    ? who + ' is no longer signed up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').'
+    : who + ' signed up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').';
+  var more = 'An automatic notice from ' + (s.ward_name || 'the ward') + "'s Service Portal" + (cancelled ? '. The coordinators have been told too.' : '. Thank you!');
+  return {
+    subject: (cancelled ? 'Cancelled: ' : 'New sign-up: ') + slot.Role + ', ' + fmtDateShort_(slot.Date) + ' (' + post.Title + ')',
+    html: paras_([esc(line), esc(more)]),
+    text: [line, more].join('\n\n'),
+  };
+}
+
 function tplRemoved_(s, post, slot) {
   var when = fmtWhen_(slot);
   var line = 'A leader removed your sign-up for ' + slot.Role + ' on ' + when + ' (' + post.Title + ').';
