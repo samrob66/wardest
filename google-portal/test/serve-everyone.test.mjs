@@ -117,7 +117,9 @@ describe('Service Opportunities page: Everyone (decision 23)', () => {
         P('all', ['Brothers', 'Sisters', 'Youth', 'Children']),
       ],
     });
-    expect(main.children[0].textContent).toContain('Offer to give at Christmas');
+    // 2.5: the audience filter buttons come first, then the giving card.
+    expect(main.children[0].className).toBe('gp-filters');
+    expect(main.children[1].textContent).toContain('Offer to give at Christmas');
     expect(sections(main)).toEqual([
       ['Everyone', ['Post all', 'Post all-full']],
       ['Brothers', ['Post bro']],
@@ -135,7 +137,8 @@ describe('Service Opportunities page: Everyone (decision 23)', () => {
     expect(card('by').textContent).toContain(PARENT);
     expect(card('bs').textContent).not.toContain(PARENT);
     // The parent line comes right under the audience line.
-    const kids = card('by').children.filter(Boolean).map((c) => c.className);
+    const body = card('by').all().find((n) => n.className === 'gp-opp-body');
+    const kids = body.children.filter(Boolean).map((c) => c.className);
     expect(kids.indexOf('gp-aud') + 1).toBe(kids.indexOf('gp-meta gp-parent'));
     // The Everyone section heading itself has no parent line.
     const everyone = main.all().find((n) => n.tagName === 'section');

@@ -17,9 +17,9 @@
     <p class="gp-ward">{{WARD_NAME}}</p>
     <h1>{{PAGE_TITLE}}</h1>
   </header>
-  <p>Pick what you need. Each choice opens a short form. Nothing is emailed back to you; a leader will contact you.</p>
+  <p class="gp-meta gp-lede">Pick what you need. Each choice opens a short form. Nothing is emailed back to you; a leader will contact you.</p>
   <div id="gp-main"><p class="gp-loading">Loading…</p></div>
-  <p style="text-align:center;margin-top:1.5rem"><a id="gp-serve" class="gp-btn gp-light" href="serve.html">Ways to serve</a></p>
+  <p class="gp-more"><a id="gp-serve" class="gp-btn gp-light" href="serve.html">Ways to serve</a></p>
 </main>
 <footer class="gp-footer" id="gp-footer">
   <p>This page is an independent tool made by Church members. It is not an official product of, or sponsored by, The Church of Jesus Christ of Latter-day Saints.</p>
@@ -43,8 +43,8 @@ GP.footer();
           'div',
           { class: 'gp-tiles' },
           res.tiles.map(function (t) {
-            return el('a', { class: 'gp-card gp-tile', href: t.url, target: '_blank', rel: 'noopener' }, [
-              el('span', { class: 'gp-icon', 'aria-hidden': 'true' }, t.icon || '•'),
+            return el('a', { class: 'gp-htile', href: t.url, target: '_blank', rel: 'noopener' }, [
+              t.icon ? el('span', { class: 'gp-icon', 'aria-hidden': 'true' }, t.icon) : GP.icon('send'),
               el('strong', {}, t.name),
             ]);
           })

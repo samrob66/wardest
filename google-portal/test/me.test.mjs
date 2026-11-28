@@ -123,6 +123,6 @@ describe('me.html and confirm.html', () => {
 
   it('the confirm page has a button for each kind of link', () => {
     const html = buildPage('confirm');
-    for (const s of ["'confirm'", "'withdraw'", "'cancel'", 'Confirm my address', 'Withdraw my offer', 'Cancel my sign-up']) expect(html).toContain(s);
+    for (const s of ["'confirm'", "'withdraw'", "'cancel'", 'Confirm my email', 'Withdraw my offer', 'Cancel my sign-up']) expect(html).toContain(s);
   });
 });

@@ -30,72 +30,119 @@ GP.footer();
 (function () {
   var el = GP.el;
   var main = GP.$('gp-main');
+  var FILTERS = ['All', 'Everyone'].concat(GP.AUDIENCES);
+  var res = null;
+  var filter = 'All';
+
+  /** WED / 2 / Dec */
+  function dateTile(iso) {
+    var t = GP.tile(iso);
+    return el('span', { class: 'gp-tile', 'aria-hidden': 'true' }, t ? [
+      el('span', { class: 'gp-tile-dow' }, t.dow),
+      el('span', { class: 'gp-tile-day' }, t.day),
+      el('span', { class: 'gp-tile-mon' }, t.mon),
+    ] : []);
+  }
 
   function card(p) {
     var dates = p.firstDate === p.lastDate ? GP.fmtDate(p.firstDate) : GP.fmtDate(p.firstDate) + ' – ' + GP.fmtDate(p.lastDate);
-    return el('a', { class: 'gp-card' + (p.full ? ' gp-full' : ''), href: GP.pageUrl('post', { p: p.publicId }) }, [
-      p.categoryName ? el('p', { class: 'gp-cat' }, [p.categoryIcon ? el('span', { class: 'gp-cat-icon', 'aria-hidden': 'true' }, p.categoryIcon) : null, p.categoryName]) : null,
-      el('h3', {}, p.title),
-      // For a post shown under Everyone: whom it is for, in the fixed order.
-      (p.audiences || []).length > 1 ? el('p', { class: 'gp-aud' }, GP.audienceLine(p)) : null,
-      // ...and, when it is for Youth or Children, the parent line its own section would show.
-      (p.audiences || []).length > 1 && (p.audiences.indexOf('Youth') >= 0 || p.audiences.indexOf('Children') >= 0)
-        ? el('p', { class: 'gp-meta gp-parent' }, 'A parent signs up for their child')
-        : null,
-      el('p', { class: 'gp-meta' }, (p.organization ? p.organization + ' · ' : '') + dates),
-      p.full ? el('p', { class: 'gp-filled' }, 'Filled ✓') : GP.fillBar(p.filled, p.needed),
-      p.full ? null : el('p', { class: 'gp-count' }, p.filled + ' of ' + p.needed + ' filled'),
+    var aud = p.audiences || [];
+    return el('a', { class: 'gp-card gp-opp' + (p.full ? ' gp-full' : ''), href: GP.pageUrl('post', { p: p.publicId }) }, [
+      dateTile(p.firstDate),
+      el('span', { class: 'gp-opp-body' }, [
+        p.categoryName ? el('p', { class: 'gp-cat' }, [p.categoryIcon ? el('span', { class: 'gp-cat-icon', 'aria-hidden': 'true' }, p.categoryIcon) : null, p.categoryName]) : null,
+        el('h3', {}, p.title),
+        // For a post shown under Everyone: whom it is for, in the fixed order.
+        aud.length > 1 ? el('p', { class: 'gp-aud' }, GP.audienceLine(p)) : null,
+        // ...and, when it is for Youth or Children, the parent line its own section would show.
+        aud.length > 1 && (aud.indexOf('Youth') >= 0 || aud.indexOf('Children') >= 0)
+          ? el('p', { class: 'gp-meta gp-parent' }, 'A parent signs up for their child')
+          : null,
+        el('p', { class: 'gp-meta' }, (p.organization ? p.organization + ' · ' : '') + dates),
+        p.full
+          ? el('p', { class: 'gp-filled' }, [GP.icon('check'), 'Filled'])
+          : el('div', { class: 'gp-fill' }, [GP.fillBar(p.filled, p.needed), el('span', { class: 'gp-count' }, p.filled + ' of ' + p.needed + ' filled')]),
+      ]),
     ]);
   }
 
   /** One group's heading and cards, or null when it has none. */
-  function section(groups, a, title) {
-    if (!groups[a].length) return null;
+  function section(posts, a, title) {
+    if (!posts.length) return null;
     var young = a === 'Youth' || a === 'Children';
     return el('section', { class: 'gp-section' }, [
       el('h2', {}, title || a),
-      young ? el('p', { class: 'gp-meta' }, 'A parent signs up for their child') : null,
-    ].concat(groups[a].map(card)));
+      young ? el('p', { class: 'gp-sub' }, 'A parent signs up for their child') : null,
+    ].concat(posts.map(card)));
+  }
+
+  function filterBar() {
+    var label = function (f) {
+      return f === 'Everyone' ? (res.labels && res.labels.everyone) || 'Everyone' : f;
+    };
+    return el('div', { class: 'gp-filters', role: 'group', 'aria-label': 'Show opportunities for' }, FILTERS.map(function (f) {
+      return el('button', {
+        type: 'button',
+        class: 'gp-light gp-sm',
+        'aria-pressed': String(filter === f),
+        onclick: function () {
+          filter = f;
+          render();
+        },
+      }, label(f));
+    }));
+  }
+
+  function render() {
+    var groups = GP.groupByAudience(res.posts);
+    var everyoneTitle = (res.labels && res.labels.everyone) || 'Everyone';
+    var parts = [filterBar()];
+    // The Christmas giving card (only when the ward ticked On Serve page for it).
+    (res.offers || []).forEach(function (o) {
+      parts.push(
+        el('a', { class: 'gp-card gp-offer', href: o.url, target: '_blank', rel: 'noopener' }, [
+          el('strong', {}, (o.icon ? o.icon + ' ' : '') + o.label),
+        ])
+      );
+    });
+    // The filter only narrows what this answer already holds. Under one audience, the Everyone
+    // posts that include it stay listed once, under Everyone (decision 23).
+    var show = function (a) {
+      return filter === 'All' || filter === a;
+    };
+    var everyonePosts = groups.Everyone.filter(function (p) {
+      return filter === 'All' || filter === 'Everyone' || (p.audiences || []).indexOf(filter) >= 0;
+    });
+    var listed = 0;
+    var everyone = section(everyonePosts, 'Everyone', everyoneTitle);
+    if (everyone) {
+      listed++;
+      parts.push(everyone);
+    }
+    // Brothers and Sisters side by side on wide screens (stacked on phones), then Youth and Children.
+    var pair = [show('Brothers') ? section(groups.Brothers, 'Brothers') : null, show('Sisters') ? section(groups.Sisters, 'Sisters') : null].filter(Boolean);
+    listed += pair.length;
+    if (pair.length) parts.push(el('div', { class: pair.length === 2 ? 'gp-pair' : '' }, pair));
+    ['Youth', 'Children'].forEach(function (a) {
+      var sec = show(a) ? section(groups[a], a) : null;
+      if (sec) {
+        listed++;
+        parts.push(sec);
+      }
+    });
+    if (!listed) {
+      parts.push(el('p', { class: 'gp-muted' }, filter === 'All' ? 'Nothing to sign up for right now. Please check back soon.' : 'Nothing open for ' + (filter === 'Everyone' ? everyoneTitle : filter) + ' right now.'));
+    }
+    parts.push(el('p', { class: 'gp-more' }, [el('a', { class: 'gp-btn gp-light', href: GP.pageUrl('help') }, 'Request help or service')]));
+    GP.show(main, parts);
   }
 
   GP.call('serve').then(
-    function (res) {
-      if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
-      var groups = GP.groupByAudience(res.posts);
-      var parts = [];
-      // The Christmas giving card first (only when the ward ticked On Serve page for it).
-      (res.offers || []).forEach(function (o) {
-        parts.push(
-          el('a', { class: 'gp-card gp-offer', href: o.url, target: '_blank', rel: 'noopener' }, [
-            el('strong', {}, (o.icon ? o.icon + ' ' : '') + o.label),
-          ])
-        );
-      });
-      // Posts for more than one audience once, full width, under Everyone (decision 23); then
-      // Brothers and Sisters side by side on wide screens (stacked on phones), then Youth and Children.
-      var listed = 0;
-      var everyone = section(groups, 'Everyone', (res.labels && res.labels.everyone) || 'Everyone');
-      if (everyone) {
-        listed++;
-        parts.push(everyone);
-      }
-      var pair = [section(groups, 'Brothers'), section(groups, 'Sisters')].filter(Boolean);
-      listed += pair.length;
-      if (pair.length) parts.push(el('div', { class: pair.length === 2 ? 'gp-pair' : '' }, pair));
-      ['Youth', 'Children'].forEach(function (a) {
-        var sec = section(groups, a);
-        if (sec) {
-          listed++;
-          parts.push(sec);
-        }
-      });
-      if (!listed) parts.push(el('p', { class: 'gp-muted' }, 'Nothing to sign up for right now. Please check back soon.'));
-      parts.push(
-        el('p', { style: 'margin-top:1.5rem;text-align:center' }, [
-          el('a', { class: 'gp-btn gp-light', href: GP.pageUrl('help') }, 'Request help or service'),
-        ])
-      );
-      GP.show(main, parts);
+    function (answer) {
+      if (!answer || !answer.ok) return GP.show(main, GP.message('alert', GP.errorText(answer)));
+      res = answer;
+      res.posts = res.posts || [];
+      render();
     },
     function () {
       GP.show(main, GP.unreachable('serve'));

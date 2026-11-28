@@ -15,7 +15,7 @@
 <main class="gp-wrap">
   <header class="gp-head">
     <p class="gp-ward">{{WARD_NAME}}</p>
-    <h1>{{PAGE_TITLE}}</h1>
+    <h1 id="gp-title">{{PAGE_TITLE}}</h1>
   </header>
   <div id="gp-main"><p class="gp-loading">Loading…</p></div>
 </main>
@@ -30,25 +30,71 @@ GP.footer();
 (function () {
   var el = GP.el;
   var main = GP.$('gp-main');
+  // One page for three kinds of emailed link. Each says what it is and where things stand before
+  // its one button, then the result replaces the button.
+  var KINDS = {
+    confirm: {
+      action: 'confirm',
+      heading: 'Confirm your email',
+      label: 'Confirm my email',
+      cls: '',
+      intro: ['You signed up for this. One more step: confirm this is your email address so your sign-up counts.'],
+      done: 'Confirmed.',
+    },
+    withdraw: {
+      action: 'withdraw',
+      heading: 'Withdraw your offer',
+      label: 'Withdraw my offer',
+      cls: 'gp-danger',
+      intro: ["Thank you for offering. This role already has the people it needs, so you're signed up as an extra. You can stay signed up, or withdraw your offer.", 'Nothing changes unless you press the button.'],
+      done: 'Withdrawn.',
+    },
+    cancel: {
+      action: 'cancel',
+      heading: 'Cancel your sign-up',
+      label: 'Cancel my sign-up',
+      cls: 'gp-danger',
+      intro: ["You're signed up for this. Can't make it? Cancelling frees your place for someone else and tells the leader.", 'Nothing changes unless you press the button.'],
+      done: 'Cancelled.',
+    },
+  };
+  var ACTIVE = { Confirmed: true, 'Waiting-email': true, 'Waiting-approval': true };
+
+  function heading(text) {
+    var h = GP.$('gp-title');
+    if (h) h.textContent = text;
+  }
+
+  /** Where they stand: the post, the role and the date (weekday in gold). */
+  function what(res) {
+    var time = res.start ? ', ' + GP.fmtTime(res.start) : '';
+    return el('div', { class: 'gp-card gp-what' }, [
+      el('h3', {}, res.title),
+      el('p', { style: 'margin:0.2rem 0 0' }, [
+        res.role ? res.role + ' · ' : '',
+        el('span', { class: 'gp-w' }, GP.weekday(res.date)),
+        GP.weekday(res.date) ? ', ' + GP.fmtDate(res.date).slice(5) + time : time,
+      ]),
+    ]);
+  }
+
+  function result(title, text) {
+    return el('div', { class: 'gp-ok gp-result', role: 'status' }, [GP.icon('check'), el('div', {}, [el('h3', {}, title), text ? el('p', { class: 'gp-meta' }, text) : null])]);
+  }
+
   GP.hash().then(function (h) {
     if (!h.t) return GP.show(main, GP.message('alert', 'This link is missing part of its address. Open it again from your email.'));
-    // One page for three kinds of emailed link: confirm your address, withdraw an offer, cancel.
-    var KINDS = {
-      confirm: { action: 'confirm', label: 'Confirm my address', cls: '', intro: 'Please confirm this is your email address so your sign-up can go ahead.' },
-      withdraw: { action: 'withdraw', label: 'Withdraw my offer', cls: 'gp-danger', intro: 'This role already has the people it needs. You may stay signed up, or withdraw your offer below.' },
-      cancel: { action: 'cancel', label: 'Cancel my sign-up', cls: 'gp-danger', intro: "Can't make it? Cancel below so someone else can take your place." },
-    };
-    var ACTIVE = { Confirmed: true, 'Waiting-email': true, 'Waiting-approval': true };
     GP.call('tokenInfo', { t: h.t }).then(
       function (res) {
         if (!res || !res.ok) return GP.show(main, GP.message('alert', GP.errorText(res)));
         var kind = KINDS[res.kind] || KINDS.cancel;
-        var when = GP.fmtDate(res.date) + (res.start ? ', ' + GP.fmtTime(res.start) : '');
-        var info = el('div', { class: 'gp-card' }, [el('h3', {}, res.title), el('p', {}, res.role + ' · ' + when)]);
+        heading(kind.heading);
+        var info = what(res);
         if (res.kind === 'confirm' && res.confirmed) return GP.show(main, [info, GP.message('ok', 'Your address is already confirmed.')]);
         if (res.kind === 'withdraw' && res.status !== 'Confirmed') return GP.show(main, [info, GP.message('ok', 'This sign-up is no longer active.')]);
         if (res.kind === 'cancel' && !ACTIVE[res.status]) return GP.show(main, [info, GP.message('ok', 'This sign-up is already cancelled.')]);
         var out = el('div');
+        var box = el('p');
         // The change happens only on this click (email scanners open links but never press buttons).
         var button = el(
           'button',
@@ -59,7 +105,7 @@ GP.footer();
               button.disabled = true;
               GP.call(kind.action, { t: h.t }).then(
                 function (r) {
-                  if (r && r.ok) return GP.show(main, [info, GP.message('ok', r.message)]);
+                  if (r && r.ok) return GP.show(main, [info, result(kind.done, r.message)]);
                   button.disabled = false;
                   GP.show(out, GP.message('alert', GP.errorText(r)));
                 },
@@ -72,7 +118,10 @@ GP.footer();
           },
           kind.label
         );
-        GP.show(main, [info, el('p', {}, kind.intro), el('p', {}, [button]), out]);
+        box.appendChild(button);
+        GP.show(main, [info].concat(kind.intro.map(function (t, i) {
+          return el('p', { class: i ? 'gp-meta' : '' }, t);
+        })).concat([box, out]));
       },
       function () {
         GP.show(main, GP.unreachable('confirm'));

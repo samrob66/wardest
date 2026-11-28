@@ -9,26 +9,31 @@
 -->
 <!-- BEGIN Service Portal sections -->
 <style>
-  .gp-hub-section { max-width: 480px; margin: 0 auto 1.25rem; font-family: Georgia, serif; color: #2c3a4a; }
-  .gp-hub-section h2 { font-size: 1rem; font-weight: 700; color: #1d3557; margin: 0 0 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #c9b882; text-align: center; }
-  .gp-hub-card { display: flex; align-items: center; gap: 0.75rem; background: #ffffff; border: 1px solid #dde3ed; border-radius: 14px; box-shadow: 0 2px 10px rgba(29,53,87,0.07); padding: 0.75rem 1rem; text-decoration: none; color: #1d3557; min-height: 44px; }
-  .gp-hub-card:hover { background: #f4f7fc; }
-  .gp-hub-card img { width: 72px; height: 72px; flex: none; border-radius: 6px; }
-  .gp-hub-card strong { display: block; font-size: 0.98rem; }
-  .gp-hub-card span { display: block; font-size: 0.8rem; color: #6b7a8d; }
+  /* Hymnal (2.5): Georgia, navy, a 1px navy rule under each heading, items between hairlines. */
+  .gp-hub-cols { display: grid; grid-template-columns: 1fr; gap: 0 1.25rem; max-width: 760px; margin: 0 auto 1.25rem; font-family: Georgia, 'Times New Roman', serif; color: #2c3a4a; }
+  @media (min-width: 720px) { .gp-hub-cols { grid-template-columns: 1fr 1fr; } }
+  .gp-hub-section { min-width: 0; margin: 0 0 1rem; }
+  .gp-hub-section h2 { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; font-weight: normal; color: #1d3557; margin: 0 0 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid #1d3557; }
+  .gp-hub-card { display: flex; align-items: center; gap: 0.85rem; min-height: 44px; padding: 0.7rem 0; border-top: 1px solid #d9dde3; border-bottom: 1px solid #d9dde3; text-decoration: none; color: #1d3557; }
+  .gp-hub-card:hover, .gp-hub-card:focus { background: rgba(29, 53, 87, 0.03); }
+  .gp-hub-card img { width: 72px; height: 72px; flex: none; padding: 4px; background: #ffffff; border: 1px solid #d9dde3; border-radius: 4px; }
+  .gp-hub-card strong { display: block; font-size: 1rem; font-weight: normal; }
+  .gp-hub-card span { display: block; font-size: 0.86rem; color: #5b6776; }
 </style>
-<section class="gp-hub-section" aria-labelledby="gp-hub-serve">
-  <h2 id="gp-hub-serve">Service Opportunities</h2>
-  <a class="gp-hub-card" href="serve.html">
-    <img src="serve-qr.png" alt="QR code for Service Opportunities">
-    <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>
-  </a>
-</section>
-<section class="gp-hub-section" aria-labelledby="gp-hub-help">
-  <h2 id="gp-hub-help">Service Requests</h2>
-  <a class="gp-hub-card" href="help.html">
-    <img src="help-qr.png" alt="QR code for Service Requests">
-    <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>
-  </a>
-</section>
+<div class="gp-hub-cols">
+  <section class="gp-hub-section" aria-labelledby="gp-hub-serve">
+    <h2 id="gp-hub-serve">Service Opportunities</h2>
+    <a class="gp-hub-card" href="serve.html">
+      <img src="serve-qr.png" alt="QR code for Service Opportunities">
+      <span><strong>Ways to serve in {{WARD_NAME}}</strong><span>{{SERVE_SHORT_LINK}}</span></span>
+    </a>
+  </section>
+  <section class="gp-hub-section" aria-labelledby="gp-hub-help">
+    <h2 id="gp-hub-help">Service Requests</h2>
+    <a class="gp-hub-card" href="help.html">
+      <img src="help-qr.png" alt="QR code for Service Requests">
+      <span><strong>Request help or service</strong><span>{{HELP_SHORT_LINK}}</span></span>
+    </a>
+  </section>
+</div>
 <!-- END Service Portal sections -->

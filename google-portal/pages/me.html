@@ -30,7 +30,6 @@ GP.footer();
 (function () {
   var el = GP.el;
   var main = GP.$('gp-main');
-  var STATUS = { 'Waiting-email': 'Waiting: please click the link in your confirm email', 'Waiting-approval': 'Waiting for a leader to approve' };
   var T = '';
 
   /** No link (or an old one): ask for a new one by email. */
@@ -66,19 +65,24 @@ GP.footer();
     ]);
   }
 
+  /** "Wed, Dec 9, 5:30 PM–6:30 PM" with the weekday in gold. */
   function when(s) {
-    return GP.fmtDate(s.date) + (s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '');
+    var wd = GP.weekday(s.date);
+    var times = s.start ? ', ' + GP.fmtTimes(s.start, s.end) : '';
+    return wd ? [el('span', { class: 'gp-w' }, wd), ', ' + GP.fmtDate(s.date).slice(5) + times] : [GP.fmtDate(s.date) + times];
   }
 
   function card(s, upcoming) {
     var out = el('div');
     var bits = [
       el('h3', {}, [el('a', { href: s.publicUrl }, s.title)]),
-      el('p', { class: 'gp-meta' }, when(s) + ' · ' + s.role + (s.childName ? ' · for ' + s.childName : '')),
+      el('p', { class: 'gp-meta' }, when(s).concat([' · ' + s.role + (s.childName ? ' · for ' + s.childName : '')])),
     ];
-    if (STATUS[s.status]) bits.push(el('p', {}, [el('span', { class: 'gp-tag' }, STATUS[s.status])]));
+    // Coming up: Confirmed, Needs approval or Email not confirmed (an unknown word shows as it is).
+    if (upcoming) bits.push(el('p', {}, [GP.statusChip(s)]));
+    if (upcoming && GP.signupKind(s) === 'needs') bits.push(el('p', { class: 'gp-meta' }, 'A leader approves first-time volunteers. You get an email when it is done.'));
     if (s.bringing) bits.push(el('p', { class: 'gp-meta' }, 'Bringing: ' + s.bringing));
-    if (s.privateDetails) bits.push(el('div', { class: 'gp-note' }, [el('strong', {}, 'Details (please keep them private): '), s.privateDetails]));
+    if (s.privateDetails) bits.push(el('div', { class: 'gp-private gp-note' }, [GP.icon('lock'), ' ', el('strong', { style: 'font-weight:normal' }, 'Details (please keep them private): '), s.privateDetails]));
     if (s.others && s.others.length) bits.push(el('p', { class: 'gp-meta' }, 'Also serving: ' + s.others.join(', ')));
     if (upcoming && s.canResend) {
       var resend = el('button', {
@@ -119,7 +123,7 @@ GP.footer();
             }
           );
         },
-      }, 'Cancel');
+      }, 'Cancel this sign-up');
       bits.push(el('p', {}, [button]));
     }
     bits.push(out);
@@ -139,8 +143,7 @@ GP.footer();
       res.otherWays.forEach(function (o) {
         parts.push(el('a', { class: 'gp-card', href: o.url }, [
           el('h3', {}, o.title),
-          GP.fillBar(o.filled, o.needed),
-          el('p', { class: 'gp-count' }, o.filled + ' of ' + o.needed + ' filled'),
+          el('div', { class: 'gp-fill' }, [GP.fillBar(o.filled, o.needed), el('span', { class: 'gp-count' }, o.filled + ' of ' + o.needed + ' filled')]),
         ]));
       });
     }

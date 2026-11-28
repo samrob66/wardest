@@ -254,7 +254,45 @@ describe('serve.html', () => {
     expect(pair.textContent).toContain('Sisters');
     expect(main.textContent).toContain('A parent signs up for their child');
     expect(main.textContent).toContain('🍲');
-    expect(main.textContent).not.toContain('Youth');
+    // No Youth section (the word is only on its filter button).
+    expect(main.all().filter((n) => n.tagName === 'h2').map((n) => n.textContent)).not.toContain('Youth');
+  });
+});
+
+describe('serve.html: audience filters (2.5)', () => {
+  const card = (id, audiences, over = {}) => ({ publicId: id, title: 'Post ' + id, organization: 'Relief Society', audiences, firstDate: '2026-12-02', lastDate: '2026-12-02', needed: 4, filled: 1, full: false, status: 'Open', ...over });
+  const sectionsOf = (main) => main.all().filter((n) => n.tagName === 'section').map((sec) => [sec.children.find((c) => c.tagName === 'h2').textContent, sec.all().filter((n) => n.tagName === 'h3').map((h) => h.textContent)]);
+  const press = async (main, label) => {
+    main.all().find((n) => n.tagName === 'button' && n.textContent === label).listeners.click[0]();
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it('All · Everyone · Brothers · Sisters · Youth · Children; Sisters hides Brothers-only posts and keeps Everyone posts once under Everyone', async () => {
+    const doc = await renderPage('serve', '', {
+      serve: { ok: true, labels: { everyone: 'Everyone' }, posts: [card('bro', ['Brothers']), card('sis', ['Sisters']), card('bs', ['Brothers', 'Sisters']), card('by', ['Brothers', 'Youth'])] },
+    });
+    const main = doc.ids['gp-main'];
+    const buttons = main.children[0].children;
+    expect(buttons.map((b) => b.textContent)).toEqual(['All', 'Everyone', 'Brothers', 'Sisters', 'Youth', 'Children']);
+    expect(buttons.map((b) => b.attrs['aria-pressed'])).toEqual(['true', 'false', 'false', 'false', 'false', 'false']);
+    expect(sectionsOf(main)).toEqual([['Everyone', ['Post bs', 'Post by']], ['Brothers', ['Post bro']], ['Sisters', ['Post sis']]]);
+    await press(main, 'Sisters');
+    expect(sectionsOf(main)).toEqual([['Everyone', ['Post bs']], ['Sisters', ['Post sis']]]);
+    expect(main.textContent.match(/Post bs/g)).toHaveLength(1);
+    expect(main.children[0].children[3].attrs['aria-pressed']).toBe('true');
+    await press(main, 'Everyone');
+    expect(sectionsOf(main)).toEqual([['Everyone', ['Post bs', 'Post by']]]);
+    await press(main, 'Children');
+    expect(sectionsOf(main)).toEqual([]);
+    expect(main.textContent).toContain('Nothing open for Children right now.');
+    await press(main, 'All');
+    expect(sectionsOf(main)).toHaveLength(3);
+  });
+
+  it('each post has a date tile with the weekday (WED / 2 / Dec)', async () => {
+    const doc = await renderPage('serve', '', { serve: { ok: true, posts: [card('sis', ['Sisters'])] } });
+    const tile = doc.ids['gp-main'].all().find((n) => n.className === 'gp-tile');
+    expect(tile.children.map((c) => c.textContent)).toEqual(['WED', '2', 'Dec']);
   });
 });
 
@@ -370,7 +408,11 @@ describe('me.html', () => {
     });
     const main = doc.ids['gp-main'];
     for (const s of ['Coming up', '123 Example Lane', 'Also serving: Jones', 'Other ways to serve', 'Clean the building', '1 of 4 filled', 'Past', 'for Ana']) expect(main.textContent).toContain(s);
-    click(byText(main, 'button', 'Cancel'));
+    // 2.5: the status mark, with the weekday in gold.
+    const chips = main.all().filter((n) => /^gp-chip /.test(n.className));
+    expect(chips.map((c) => c.textContent)).toEqual(['Confirmed']);
+    expect(main.all().find((n) => n.className === 'gp-w').textContent).toBe('Thu');
+    click(byText(main, 'button', 'Cancel this sign-up'));
     await tick();
     expect(cancelled).toMatchObject({ action: 'cancelMine', t: 'b'.repeat(64), signupId: 'sx' });
   });
@@ -378,6 +420,62 @@ describe('me.html', () => {
   it('without a link it offers "Email me my link"', async () => {
     const doc = await renderPage('me', '', {});
     expect(doc.ids['gp-main'].textContent).toContain('Email me my link');
+  });
+});
+
+describe('me.html: status marks (2.5)', () => {
+  it('Needs approval and Email not confirmed on coming-up sign-ups; an unknown word shows as it is', async () => {
+    const su = (status, extra = {}) => ({ title: 'Meals ' + status, publicUrl: 'post.html#p=pub1', date: '2026-12-03', start: '', end: '', role: 'Bring a meal', childName: '', bringing: '', status, others: [], signupId: 's' + status, canResend: status === 'Waiting-email', ...extra });
+    const doc = await renderPage('me', '#t=' + 'b'.repeat(64), {
+      me: { ok: true, name: 'X', upcoming: [su('Waiting-approval'), su('Waiting-email'), su('Odd-new-word')], past: [], otherWays: [] },
+    });
+    const main = doc.ids['gp-main'];
+    expect(main.all().filter((n) => /^gp-chip /.test(n.className)).map((c) => [c.className, c.textContent])).toEqual([
+      ['gp-chip gp-chip-wait', 'Needs approval'],
+      ['gp-chip gp-chip-email', 'Email not confirmed'],
+      ['gp-chip gp-chip-neutral', 'Odd-new-word'],
+    ]);
+    expect(main.textContent).not.toContain('Details (please keep them private)');
+    expect(byText(main, 'button', 'Send the confirm email again')).toBeTruthy();
+  });
+});
+
+describe('confirm.html: one state per email link (2.5)', () => {
+  const INFO = { ok: true, title: 'Meals for a family', role: 'Bring dinner', date: '2026-12-09', start: '17:30' };
+  const cases = [
+    ['confirm', { status: 'Waiting-email', confirmed: false }, 'Confirm your email', 'Confirm my email', 'Confirmed.', 'Thanks. Your address is confirmed.'],
+    ['cancel', { status: 'Confirmed' }, 'Cancel your sign-up', 'Cancel my sign-up', 'Cancelled.', 'Your sign-up is cancelled.'],
+    ['withdraw', { status: 'Confirmed' }, 'Withdraw your offer', 'Withdraw my offer', 'Withdrawn.', 'Your offer is withdrawn.'],
+  ];
+  for (const [kind, extra, heading, label, done, message] of cases) {
+    it(`${kind}: says what it is and where things stand, ONE button, then the result replaces it`, async () => {
+      let sent = null;
+      const doc = await renderPage('confirm', '#t=' + 'c'.repeat(64), {
+        tokenInfo: { ...INFO, kind, ...extra },
+        [kind]: (body) => {
+          sent = body;
+          return { ok: true, message };
+        },
+      });
+      const main = doc.ids['gp-main'];
+      expect(doc.ids['gp-title'].textContent).toBe(heading);
+      expect(main.textContent).toContain('Meals for a family');
+      expect(main.textContent).toContain('Bring dinner · Wed, Dec 9, 5:30 PM');
+      const buttons = main.all().filter((n) => n.tagName === 'button');
+      expect(buttons.map((b) => b.textContent)).toEqual([label]);
+      click(buttons[0]);
+      await tick();
+      expect(sent).toMatchObject({ action: kind, t: 'c'.repeat(64) });
+      expect(main.all().filter((n) => n.tagName === 'button')).toEqual([]);
+      expect(main.textContent).toContain(done);
+      expect(main.textContent).toContain(message);
+    });
+  }
+  it('an expired link keeps its message and shows no button', async () => {
+    const doc = await renderPage('confirm', '#t=' + 'c'.repeat(64), { tokenInfo: { ok: false, error: 'This link has expired.' } });
+    const main = doc.ids['gp-main'];
+    expect(main.textContent).toContain('This link has expired.');
+    expect(main.all().filter((n) => n.tagName === 'button')).toEqual([]);
   });
 });
 
@@ -409,9 +507,10 @@ describe('serve.html: 1.1.1 offer card with the phase 2 layout', () => {
     const offer = { id: 'christmas-giving', label: 'Offer to give at Christmas', icon: '🎁', url: 'https://docs.example.test/forms/d/e/pub-form9/viewform' };
     const doc = await renderPage('serve', '', { serve: { ok: true, ward: WARD, posts: [card('a', ['Brothers']), card('c', ['Sisters'])], offers: [offer] } });
     const main = doc.ids['gp-main'];
-    expect(main.children[0].attrs.href).toBe(offer.url);
-    expect(main.children[0].textContent).toContain('🎁 Offer to give at Christmas');
-    expect(main.children[1].className).toBe('gp-pair');
+    expect(main.children[0].className).toBe('gp-filters');
+    expect(main.children[1].attrs.href).toBe(offer.url);
+    expect(main.children[1].textContent).toContain('🎁 Offer to give at Christmas');
+    expect(main.children[2].className).toBe('gp-pair');
     expect(main.textContent).toContain('🍲');
     expect(main.textContent).not.toContain('Nothing to sign up for');
   });

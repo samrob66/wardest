@@ -66,9 +66,10 @@ const POST = { publicId: 'pubmeals01', title: 'Meals for the Sample family', org
 const links = (root) => root.all().filter((n) => n.tagName === 'a');
 
 describe('serve page: Christmas giving card', () => {
-  it('shows a small card at the top, linking to the form, when the API lists an offer', () => {
+  it('shows a small card at the top (under the filter buttons), linking to the form, when the API lists an offer', () => {
     const main = runPage('serve', { ok: true, posts: [POST], offers: [OFFER] });
-    const first = main.children[0];
+    expect(main.children[0].className).toBe('gp-filters');
+    const first = main.children[1];
     expect(first.tagName).toBe('a');
     expect(first.attrs.href).toBe(OFFER.url);
     expect(first.textContent).toContain('🎁');
